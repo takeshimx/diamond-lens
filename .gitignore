@@ -1,0 +1,39 @@
+# Terraform generated files
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+
+# Other
+.DS_Store
+
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+.env
+*.env
+
+*.json
+
+__pycache__/
+*.pyc
+
+.venv/
+
+.vscode/
+.DS_Store
+
+# Due to WIP
+rl_models/
+
+
+dbt_models/logs
+dbt_models/target
+dbt_models/dbt_packages
+profiles.yml
+.user.yml

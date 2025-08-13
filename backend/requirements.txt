@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+dbt-bigquery
+dotenv
+google-cloud-bigquery
+google-cloud-storage

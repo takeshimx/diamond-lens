@@ -1,0 +1,31 @@
+version: 1
+disable_existing_loggers: false
+formatters:
+  standard:
+    format: "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
+handlers:
+  console:
+    class: logging.StreamHandler
+    formatter: standard
+    level: DEBUG
+    stream: ext://sys.stdout
+loggers:
+  uvicorn:
+    handlers: [console]
+    level: INFO
+    propagate: false
+  uvicorn.access:
+    handlers: [console]
+    level: INFO
+    propagate: false
+  uvicorn.error:
+    handlers: [console]
+    level: INFO
+    propagate: false
+  backend.app.services.player_service: # player_service.py のロガー名
+    handlers: [console]
+    level: DEBUG # player_service のログレベルをDEBUGに設定
+    propagate: false
+root:
+  handlers: [console]
+  level: INFO # デフォルトのルートロガーはINFO

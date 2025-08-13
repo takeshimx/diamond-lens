@@ -54,33 +54,43 @@ const MLBChatApp = () => {
   // ===== API呼び出し関数 =====
   // バックエンドAPIを呼び出してMLBデータとGemini回答を取得する関数
   const callBackendAPI = async (query) => {
-    // 【実際の実装例】
-    // 本番環境では以下のコメントアウト部分を使用
-    // const response = await fetch('/api/mlb-query', {
-    //   method: 'POST',
-    //   headers: { 'Content-Type': 'application/json' },
-    //   body: JSON.stringify({ query })
-    // });
-    // return await response.json();
+    try {
+      // 【実際の実装】Q&AエンドポイントにPOSTリクエスト
+      const response = await fetch('/qa/player-stats', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          query: query,
+          season: 2024 // デフォルト値、必要に応じて動的に設定
+        })
+      });
 
-    // 【モック実装】
-    // API呼び出しの遅延をシミュレート（1.5秒）
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    // ユーザーの質問内容に基づいてモックデータから適切な回答を選択
-    const mockKey = Object.keys(mockMLBData).find(key => 
-      query.toLowerCase().includes(key.toLowerCase().split(' ')[0])
-    );
-    
-    // マッチするデータがあれば返却、なければエラーメッセージを返却
-    if (mockKey) {
-      return mockMLBData[mockKey];
+      // HTTPエラーの場合は例外をスロー
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      // レスポンスをJSONとして解析
+      const aiResponse = await response.text(); // サービス関数がstrを返すため
+
+      // フロントエンド用の形式に変換
+      return {
+        stats: null, // 統計データは回答テキストに含まれているため
+        answer: aiResponse
+      };
+
+    } catch (error) {
+      console.error('API呼び出しエラー:', error);
+      
+      // エラーの場合はユーザーフレンドリーなメッセージを返す
+      return {
+        stats: null,
+        answer: `申し訳ございませんが、エラーが発生しました。しばらく後でもう一度お試しください。（${error.message}）`
+      };
     }
-    
-    return {
-      stats: null,
-      answer: "申し訳ございませんが、その質問に対するデータが見つかりませんでした。別の選手名やチーム名、具体的なスタッツについて質問してみてください。"
-    };
   };
 
   // ===== メッセージ送信処理 =====
