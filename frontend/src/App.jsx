@@ -54,41 +54,121 @@ const MLBChatApp = () => {
   // ===== API呼び出し関数 =====
   // バックエンドAPIを呼び出してMLBデータとGemini回答を取得する関数
   const callBackendAPI = async (query) => {
+    console.log('🚀 デバッグ：API呼び出し開始:', query);
+    
+    // GitHub Codespaces環境での完全URL取得（デバッグ強化版）
+    const getBackendURL = () => {
+      console.log('🔍 デバッグ：getBackendURL called');
+      console.log('🔍 デバッグ：window.location.hostname:', window.location.hostname);
+      console.log('🔍 デバッグ：includes github.dev:', window.location.hostname.includes('github.dev'));
+      
+      if (window.location.hostname.includes('github.dev')) {
+        const frontendHostname = window.location.hostname;
+        console.log('🔍 デバッグ：Original frontend hostname:', frontendHostname);
+        
+        // 複数の方法を試す
+        const method1 = frontendHostname.replace('-5173.app.github.dev', '-8000.app.github.dev');
+        const method2 = frontendHostname.replace(/5173/g, '8000');
+        
+        console.log('🔍 デバッグ：Method 1 result:', method1);
+        console.log('🔍 デバッグ：Method 2 result:', method2);
+        
+        const backendHostname = method1;
+        const backendURL = `https://${backendHostname}`;
+        
+        console.log('🔄 デバッグ：Final backend URL:', backendURL);
+        return backendURL;
+      }
+      
+      console.log('🔍 デバッグ：Using localhost fallback');
+      return 'http://localhost:8000';
+    };
+
+    console.log('🌐 デバッグ：Current location:', {
+      hostname: window.location.hostname,
+      origin: window.location.origin,
+      isCodespaces: window.location.hostname.includes('github.dev')
+    });
+
     try {
-      // 【実際の実装】Q&AエンドポイントにPOSTリクエスト
-      const response = await fetch('/qa/player-stats', {
+      const baseURL = getBackendURL();
+      console.log('🎯 デバッグ：Final baseURL from getBackendURL():', baseURL);
+      
+      const endpoint = `${baseURL}/api/v1/qa/player-stats`;
+      console.log('🎯 デバッグ：Final complete endpoint:', endpoint);
+      
+      const requestBody = {
+        query: query,
+        season: 2024
+      };
+      
+      console.log('📤 デバッグ：Sending request to:', endpoint);
+      console.log('📤 デバッグ：Request body:', JSON.stringify(requestBody, null, 2));
+      
+      // タイムアウトを設定（60秒）
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        console.log('⏰ デバッグ：リクエストタイムアウト（60秒）');
+        controller.abort();
+      }, 60000);
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          query: query,
-          season: 2024 // デフォルト値、必要に応じて動的に設定
-        })
+        body: JSON.stringify(requestBody),
+        signal: controller.signal
       });
 
-      // HTTPエラーの場合は例外をスロー
+      clearTimeout(timeoutId);
+      
+      console.log('📥 デバッグ：Response received:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        url: response.url
+      });
+
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
       }
 
-      // レスポンスをJSONとして解析
-      const aiResponse = await response.text(); // サービス関数がstrを返すため
+      const contentType = response.headers.get('content-type');
+      console.log('📋 デバッグ：Content-Type:', contentType);
+      
+      let aiResponse;
+      
+      if (contentType && contentType.includes('application/json')) {
+        aiResponse = await response.json();
+        console.log('🔍 デバッグ：JSON レスポンス:', aiResponse);
+        aiResponse = aiResponse.answer || aiResponse.response || aiResponse.result || JSON.stringify(aiResponse);
+      } else {
+        aiResponse = await response.text();
+        console.log('📝 デバッグ：テキスト レスポンス:', aiResponse.substring(0, 200) + '...');
+      }
 
-      // フロントエンド用の形式に変換
+      console.log('✅ デバッグ：API呼び出し成功');
+      
       return {
-        stats: null, // 統計データは回答テキストに含まれているため
-        answer: aiResponse
+        stats: null,
+        answer: aiResponse || "回答を受信しましたが、内容が空でした。"
       };
 
     } catch (error) {
-      console.error('API呼び出しエラー:', error);
+      console.error('❌ デバッグ：API呼び出しエラー:', error);
       
-      // エラーの場合はユーザーフレンドリーなメッセージを返す
+      if (error.name === 'AbortError') {
+        return {
+          stats: null,
+          answer: 'リクエストがタイムアウトしました（60秒）。バックエンドの処理が重い可能性があります。'
+        };
+      }
+      
       return {
         stats: null,
-        answer: `申し訳ございませんが、エラーが発生しました。しばらく後でもう一度お試しください。（${error.message}）`
+        answer: `エラーが発生しました: ${error.message}`
       };
     }
   };
