@@ -1,8 +1,9 @@
 from fastapi import APIRouter, HTTPException, Path, Query
 from typing import Optional, List, Any, Dict
 # サービス層とスキーマをインポート
-from backend.app.services.player_service import *
-from backend.app.api.schemas import *
+# from backend.app.services.player_service import *
+from backend.app.services.ai_service_new import get_ai_response_for_qna_enhanced
+from backend.app.api.schemas import QnARequest
 import logging
 import time
 # from services.ranking_queries import get_player_ranking_batch
@@ -48,8 +49,10 @@ async def get_player_stats_qna_endpoint(
         logger.info("🤖 Calling Gemini API...")
         gemini_start = time.time()
 
-        ai_response = get_ai_response_for_qna(request.query, request.season)
-        
+        # ai_response = get_ai_response_for_qna(request.query, request.season)
+        # testing
+        ai_response = get_ai_response_for_qna_enhanced(request.query, request.season)
+
         gemini_end = time.time()
         logger.info(f"🤖 Gemini API completed in {gemini_end - gemini_start:.2f} seconds")
         
