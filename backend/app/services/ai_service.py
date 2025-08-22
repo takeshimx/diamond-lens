@@ -11,7 +11,6 @@ from dotenv import load_dotenv
 from datetime import datetime
 from .bigquery_service import client
 import logging
-from tabulate import tabulate
 from backend.app.config.query_maps import (
     QUERY_TYPE_CONFIG,
     METRIC_MAP,
@@ -269,7 +268,7 @@ def _generate_final_response_with_llm(original_query: str, data_df: pd.DataFrame
         return "AIによる回答生成中にエラーが発生しました。"
 
 
-def get_ai_response_for_qna_enhanced(query: str, season: Optional[int] = None) -> Optional[str]:
+def get_ai_response_for_qna_enhanced(query: str, season: Optional[int] = None) -> Optional[Dict[str, Any]]:
     """
     【打撃リーダーボード特化版】
     ユーザーの"打撃リーダーボード"に関する質問を処理します。
@@ -278,14 +277,20 @@ def get_ai_response_for_qna_enhanced(query: str, season: Optional[int] = None) -
     query_params = _parse_query_with_llm(query, season)
     if not query_params:
         logger.warning("Could not extract parameters from the query.")
-        return "質問を理解できませんでした。打撃成績のランキングについて質問してください。（例：2024年のホームラン王は誰？）"
+        return {
+            "answer": "質問を理解できませんでした。打撃成績のランキングについて質問してください。（例：2024年のホームラン王は誰？）",
+            "isTable": False
+        }
     logger.info(f"Parsed query parameters: {query_params}")
 
     # Step 2: Build SQL
     sql_query = _build_dynamic_sql(query_params)
     if not sql_query:
         logger.warning("Failed to build SQL query.")
-        return "この質問に対応するデータの検索クエリを構築できませんでした。"
+        return {
+            "answer": "この質問に対応するデータの検索クエリを構築できませんでした。",
+            "isTable": False
+        }
     logger.info(f"Generated SQL query:\n{sql_query}")
 
     # Step 3: Fetch data from BigQuery
@@ -295,19 +300,35 @@ def get_ai_response_for_qna_enhanced(query: str, season: Optional[int] = None) -
         logger.info(f"Fetched {len(results_df)} rows from BigQuery.")
     except GoogleCloudError as e:
         logger.error(f"BigQuery query failed: {e}", exc_info=True)
-        return "データベースからのデータ取得中にエラーが発生しました。"
+        return {
+            "answer": "データベースからのデータ取得中にエラーが発生しました。",
+            "isTable": False
+        }
 
     if results_df.empty:
-        return "関連するデータが見つかりませんでした。"
+        return {
+            "answer": "関連するデータが見つかりませんでした。",
+            "isTable": False
+        }
 
     # if output format is table
     if query_params.get("output_format") == "table":
-        # Convert DataFrame to Markdown format
-        table_string = tabulate(results_df, headers='keys', tablefmt='pipe', showindex=False)
-        return table_string
+        # Return structured table data
+        table_data = results_df.to_dict('records')
+        columns = [{"key": col, "label": col.replace('_', ' ').title()} for col in results_df.columns]
+        
+        return {
+            "answer": f"以下は{len(results_df)}件の結果です：",
+            "isTable": True,
+            "tableData": table_data,
+            "columns": columns
+        }
 
     # Step 4: Generate final response with LLM
     else:
         logger.info("Generating final response with LLM.")
         final_response = _generate_final_response_with_llm(query, results_df)
-        return final_response
+        return {
+            "answer": final_response,
+            "isTable": False
+        }

@@ -138,22 +138,25 @@ const MLBChatApp = () => {
       const contentType = response.headers.get('content-type');
       console.log('📋 デバッグ：Content-Type:', contentType);
       
-      let aiResponse;
+      let apiResponse;
       
       if (contentType && contentType.includes('application/json')) {
-        aiResponse = await response.json();
-        console.log('🔍 デバッグ：JSON レスポンス:', aiResponse);
-        aiResponse = aiResponse.answer || aiResponse.response || aiResponse.result || JSON.stringify(aiResponse);
+        apiResponse = await response.json();
+        console.log('🔍 デバッグ：JSON レスポンス:', apiResponse);
       } else {
-        aiResponse = await response.text();
-        console.log('📝 デバッグ：テキスト レスポンス:', aiResponse.substring(0, 200) + '...');
+        const textResponse = await response.text();
+        console.log('📝 デバッグ：テキスト レスポンス:', textResponse.substring(0, 200) + '...');
+        apiResponse = { answer: textResponse, isTable: false };
       }
 
       console.log('✅ デバッグ：API呼び出し成功');
       
       return {
-        stats: null,
-        answer: aiResponse || "回答を受信しましたが、内容が空でした。"
+        answer: apiResponse.answer || "回答を受信しましたが、内容が空でした。",
+        isTable: apiResponse.isTable || false,
+        tableData: apiResponse.tableData || null,
+        columns: apiResponse.columns || null,
+        stats: apiResponse.stats || null
       };
 
     } catch (error) {
@@ -161,14 +164,20 @@ const MLBChatApp = () => {
       
       if (error.name === 'AbortError') {
         return {
-          stats: null,
-          answer: 'リクエストがタイムアウトしました（60秒）。バックエンドの処理が重い可能性があります。'
+          answer: 'リクエストがタイムアウトしました（60秒）。バックエンドの処理が重い可能性があります。',
+          isTable: false,
+          tableData: null,
+          columns: null,
+          stats: null
         };
       }
       
       return {
-        stats: null,
-        answer: `エラーが発生しました: ${error.message}`
+        answer: `エラーが発生しました: ${error.message}`,
+        isTable: false,
+        tableData: null,
+        columns: null,
+        stats: null
       };
     }
   };
@@ -203,6 +212,9 @@ const MLBChatApp = () => {
         type: 'bot',
         content: response.answer, // Gemini APIからの回答テキスト
         stats: response.stats, // BigQueryからの統計データ
+        isTable: response.isTable, // テーブル表示フラグ
+        tableData: response.tableData, // テーブルデータ
+        columns: response.columns, // テーブルカラム定義
         timestamp: new Date()
       };
 
@@ -225,7 +237,7 @@ const MLBChatApp = () => {
 
   // ===== キーボードイベント処理 =====
   // Enterキーでメッセージ送信（Shift+Enterは改行）
-  const handleKeyPress = (e) => {
+  const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
@@ -262,6 +274,55 @@ const MLBChatApp = () => {
               <span className="font-semibold">{value}</span>
             </div>
           ))}
+        </div>
+      </div>
+    );
+  };
+
+  // ===== テーブル表示コンポーネント =====
+  // 構造化されたテーブルデータを表示
+  const DataTable = ({ tableData, columns }) => {
+    if (!tableData || !columns) return null;
+
+    return (
+      <div className="mt-3 overflow-x-auto">
+        <div className="inline-block min-w-full align-middle">
+          <div className="overflow-hidden border border-gray-200 rounded-lg">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  {columns.map((column) => (
+                    <th
+                      key={column.key}
+                      className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                    >
+                      {column.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {tableData.map((row, index) => (
+                  <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                    {columns.map((column) => (
+                      <td
+                        key={column.key}
+                        className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap"
+                      >
+                        {typeof row[column.key] === 'number' 
+                          ? Number(row[column.key]).toLocaleString('ja-JP', {
+                              minimumFractionDigits: column.key.includes('avg') || column.key.includes('percentage') || column.key.includes('rate') ? 3 : 0,
+                              maximumFractionDigits: column.key.includes('avg') || column.key.includes('percentage') || column.key.includes('rate') ? 3 : 0
+                            })
+                          : row[column.key]
+                        }
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     );
@@ -312,6 +373,10 @@ const MLBChatApp = () => {
               >
                 {/* メッセージテキスト */}
                 <p className="whitespace-pre-wrap">{message.content}</p>
+                {/* テーブル表示（テーブルデータがある場合のみ表示） */}
+                {message.isTable && message.tableData && message.columns && (
+                  <DataTable tableData={message.tableData} columns={message.columns} />
+                )}
                 {/* 統計データカード（データがある場合のみ表示） */}
                 {message.stats && <StatCard stats={message.stats} />}
               </div>
@@ -362,7 +427,7 @@ const MLBChatApp = () => {
             <textarea
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
-              onKeyPress={handleKeyPress}
+              onKeyDown={handleKeyDown}
               placeholder="例: 大谷翔平の2024年の打率は？"
               className="w-full px-4 py-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-600 focus:border-transparent text-gray-900 placeholder-gray-500"
               rows="2"
@@ -383,7 +448,7 @@ const MLBChatApp = () => {
         {/* サンプル質問の表示 */}
         <div className="mt-3 text-center">
           <p className="text-xs text-gray-500">
-            サンプル質問: 「大谷翔平 打率」「ヤンキース 勝率」「ドジャース 防御率」
+            サンプル質問: 「大谷翔平 打率」「ヤンキース 勝率」「2024年のホームラン王トップ10を表で」
           </p>
         </div>
       </div>
