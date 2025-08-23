@@ -76,11 +76,11 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
         "split_type": "risp" | "bases_loaded" | "runner_on_1b" | "inning" | "pitcher_throws" | "pitch_type" | null,
         "inning": "integer | null",
         "pitcher_throws": "string | null",
-        "pitch_type": "string | null",
+        "pitch_type": ["string"] | null,
         "name": "string | null",
         "season": "integer | null",
         "order_by": "string",
-        "limit": "integer",
+        "limit": "integer | null",
         "output_format": "sentence" | "table"
     }}
 
@@ -98,7 +98,7 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
     JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["main_stats"], "split_type": "pitcher_throws", "pitcher_throws": "LHP", "order_by": null, "limit": 1, "output_format": "table" }}
 
     質問: 「大谷さんの2024年のスライダーに対する主要スタッツは？」
-    JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["main_stats"], "split_type": "pitch_type", "pitch_type": "Slider", "order_by": null, "limit": 1 }}
+    JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["main_stats"], "split_type": "pitch_type", "pitch_type": "Slider", "order_by": null }}
 
     質問: 「大谷さんのキャリア主要打撃成績を一覧で教えて」
     JSON: {{ "query_type": "career_batting", "name": "Shohei Ohtani", "metrics": ["main_stats"], "order_by": null, "limit": 1, "output_format": "table" }}
@@ -197,7 +197,16 @@ def _build_dynamic_sql(params: Dict[str, Any]) -> str:
             default_cols.insert(1, "team")
 
     # METRIC_MAPから安全に値を取得し、Noneを除外
-    queried_metrics = [METRIC_MAP.get(metric, {}).get(metric_map_key_base) for metric in metrics]
+    if query_type == "career_batting":
+        queried_metrics = []
+        # Group by context first (career, risp, bases_loaded), then by metric type
+        for key in ["career", "risp", "bases_loaded"]:
+            for metric in metrics:
+                metric_mapping = METRIC_MAP.get(metric, {}).get(metric_map_key_base, {}).get(key)
+                if metric_mapping:
+                    queried_metrics.append(metric_mapping)
+    else:
+        queried_metrics = [METRIC_MAP.get(metric, {}).get(metric_map_key_base) for metric in metrics]
     # Debugging
     logger.debug(f"Queried metrics for {query_type}: {queried_metrics}")
     # Noneがリストに含まれているとSQL文法エラーになるため、ここでフィルタリング
@@ -223,8 +232,21 @@ def _build_dynamic_sql(params: Dict[str, Any]) -> str:
     if params.get("pitcher_throws") and split_type == "pitcher_throws":  # condition by pitcher throws
         where_condition.append(f"p_throws = '{params['pitcher_throws']}'")
     if params.get("pitch_type") and split_type == "pitch_type":  # condition by pitch type
-        where_condition.append(f"pitch_name = '{params['pitch_type']}'")
+        # if multiple pitch types are provided
+        if len(params['pitch_type']) > 1:
+            where_condition.append(
+                "pitch_name IN ({})".format(
+                    ", ".join("'{}'".format(pt) for pt in params['pitch_type'])
+                )
+            )
+        else:
+            where_condition.append(f"pitch_name = '{params['pitch_type']}'")
     where_clause = f"WHERE {' AND '.join(where_condition)}" if where_condition else ""
+
+    # GROUP BY clause
+    group_by_clause = ""
+    if params.get("pitch_type") and split_type == "pitch_type" and len(params['pitch_type']) > 1:
+        group_by_clause = f"GROUP BY {', '.join([player_name_col, year_column, 'pitch_name'] + [m for m in valid_queried_metrics if m not in ['name', 'team', 'season']])}"
 
     # ORDER BY clause
     order_by_clause = ""
@@ -234,10 +256,13 @@ def _build_dynamic_sql(params: Dict[str, Any]) -> str:
         order_by_clause = f"ORDER BY {order_by_col} {order_direction}"
 
     # LIMIT clause
-    limit = params.get("limit", 10)
-    limit_clause = f"LIMIT {limit}"
+    if params.get("limit") is not None:
+        limit = params.get("limit", 10)
+        limit_clause = f"LIMIT {limit}"
+    else:
+        limit_clause = ""
 
-    return f"{select_clause} FROM `{PROJECT_ID}.{DATASET_ID}.{table_name}` {where_clause} {order_by_clause} {limit_clause}"
+    return f"{select_clause} FROM `{PROJECT_ID}.{DATASET_ID}.{table_name}` {where_clause} {group_by_clause} {order_by_clause} {limit_clause}"
 
 
 def _generate_final_response_with_llm(original_query: str, data_df: pd.DataFrame) -> str:
@@ -365,13 +390,41 @@ def get_ai_response_for_qna_enhanced(query: str, season: Optional[int] = None) -
         # Check if single row result for transposition
         is_single_row = len(results_df) == 1
         
+        # Add grouping metadata for career batting
+        grouping_info = None
+        if query_params.get("query_type") == "career_batting":
+            # Get base info columns (name, team, etc.)
+            base_columns = [col for col in results_df.columns if col in ['name', 'batter_name', 'career_last_team']]
+            career_base_columns = [col for col in results_df.columns if col.startswith('career_') and '_at_' not in col and '_by_' not in col]
+            risp_columns = [col for col in results_df.columns if '_at_risp' in col]
+            bases_loaded_columns = [col for col in results_df.columns if '_at_bases_loaded' in col]
+            
+            grouping_info = {
+                "type": "career_batting_chunks",
+                "groups": [
+                    {
+                        "name": "Career Stats",
+                        "columns": base_columns + career_base_columns
+                    },
+                    {
+                        "name": "Career RISP Stats", 
+                        "columns": risp_columns
+                    },
+                    {
+                        "name": "Career Bases Loaded Stats",
+                        "columns": bases_loaded_columns
+                    }
+                ]
+            }
+        
         return {
             "answer": f"以下は{len(results_df)}件の結果です：",
             "isTable": True,
             "isTransposed": is_single_row,
             "tableData": table_data,
             "columns": columns,
-            "decimalColumns": [col for col in results_df.columns if col in DECIMAL_FORMAT_COLUMNS]
+            "decimalColumns": [col for col in results_df.columns if col in DECIMAL_FORMAT_COLUMNS],
+            "grouping": grouping_info
         }
 
     # Step 4: Generate final response with LLM

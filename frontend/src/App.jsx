@@ -158,6 +158,7 @@ const MLBChatApp = () => {
         tableData: apiResponse.tableData || null,
         columns: apiResponse.columns || null,
         decimalColumns: apiResponse.decimalColumns || [],
+        grouping: apiResponse.grouping || null,
         stats: apiResponse.stats || null
       };
 
@@ -172,6 +173,7 @@ const MLBChatApp = () => {
           tableData: null,
           columns: null,
           decimalColumns: [],
+          grouping: null,
           stats: null
         };
       }
@@ -183,6 +185,7 @@ const MLBChatApp = () => {
         tableData: null,
         columns: null,
         decimalColumns: [],
+        grouping: null,
         stats: null
       };
     }
@@ -223,6 +226,7 @@ const MLBChatApp = () => {
         tableData: response.tableData, // テーブルデータ
         columns: response.columns, // テーブルカラム定義
         decimalColumns: response.decimalColumns, // 小数点表示カラムリスト
+        grouping: response.grouping, // グループ分け情報
         timestamp: new Date()
       };
 
@@ -289,12 +293,70 @@ const MLBChatApp = () => {
 
   // ===== テーブル表示コンポーネント =====
   // 構造化されたテーブルデータを表示
-  const DataTable = ({ tableData, columns, isTransposed, decimalColumns = [] }) => {
+  const DataTable = ({ tableData, columns, isTransposed, decimalColumns = [], grouping = null }) => {
     if (!tableData || !columns) return null;
 
     // 単一行結果の場合は縦表示（転置）
     if (isTransposed && tableData.length === 1) {
       const row = tableData[0];
+      
+      // Handle grouped display for career batting
+      if (grouping && grouping.type === "career_batting_chunks") {
+        return (
+          <div className="mt-3 space-y-6">
+            {grouping.groups.map((group, groupIndex) => {
+              const groupColumns = columns.filter(col => group.columns.includes(col.key));
+              if (groupColumns.length === 0) return null;
+              
+              return (
+                <div key={groupIndex} className="overflow-x-auto">
+                  <h4 className="text-sm font-semibold text-gray-700 mb-2">{group.name}</h4>
+                  <div className="inline-block min-w-full align-middle">
+                    <div className="overflow-hidden border border-gray-200 rounded-lg">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              項目
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              値
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {groupColumns.map((column, index) => (
+                            <tr key={column.key} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                              <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">
+                                {column.label}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap">
+                                {typeof row[column.key] === 'number' 
+                                  ? (() => {
+                                      const shouldShowDecimals = decimalColumns.includes(column.key);
+                                      
+                                      return Number(row[column.key]).toLocaleString('ja-JP', {
+                                        minimumFractionDigits: shouldShowDecimals ? 3 : 0,
+                                        maximumFractionDigits: shouldShowDecimals ? 3 : 0
+                                      });
+                                    })()
+                                  : row[column.key]
+                                }
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      }
+      
+      // Default single table display
       return (
         <div className="mt-3 overflow-x-auto">
           <div className="inline-block min-w-full align-middle">
@@ -442,6 +504,7 @@ const MLBChatApp = () => {
                     columns={message.columns} 
                     isTransposed={message.isTransposed}
                     decimalColumns={message.decimalColumns}
+                    grouping={message.grouping}
                   />
                 )}
                 {/* 統計データカード（データがある場合のみ表示） */}
