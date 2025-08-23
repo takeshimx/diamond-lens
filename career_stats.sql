@@ -51,7 +51,7 @@ WITH career_stats_from_statcast AS (
             COUNTIF(events NOT IN ('hit_by_pitch', 'walk', 'intent_walk', 'sac_fly', 'sac_bunt', 'catcher_interf')) -- total at bats
         ), 3) AS career_on_base_plus_slugging,
         -- Number of batting events
-        COUNTIF(events NOT IN ('hit_by_pitch', 'walk', 'intent_walk', 'sac_bunt', 'catcher_interf', 'strikeout', 'strikeout_double_play', 'truncated_pa')) AS hitting_events_by_pitch_type,
+        COUNTIF(events NOT IN ('hit_by_pitch', 'walk', 'intent_walk', 'sac_bunt', 'catcher_interf', 'strikeout', 'strikeout_double_play', 'truncated_pa')) AS career_hitting_events,
         -- Launch angle
         ROUND(SAFE_DIVIDE(
             SUM(CASE WHEN events NOT IN ('hit_by_pitch', 'walk', 'intent_walk', 'sac_bunt', 'catcher_interf', 'strikeout', 'strikeout_double_play', 'truncated_pa') THEN launch_angle ELSE NULL END),
@@ -159,7 +159,9 @@ SELECT
         WHEN MIN(b.season) IS NOT NULL AND MAX(b.season) IS NOT NULL 
         THEN MAX(b.season) - MIN(b.season) + 1 
         ELSE NULL 
-    END AS career_year_of_service
+    END AS career_year_of_service,
+    -- last team
+    ARRAY_AGG(b.team ORDER BY b.season DESC LIMIT 1)[OFFSET(0)] AS career_last_team
 FROM career_stats_from_statcast a
 RIGHT JOIN `tksm-dash-test-25.mlb_analytics_dash_25.fact_batting_stats_with_risp` b
 ON a.batter_id = b.mlbid

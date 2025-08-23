@@ -14,8 +14,10 @@ import logging
 from backend.app.config.query_maps import (
     QUERY_TYPE_CONFIG,
     METRIC_MAP,
+    DECIMAL_FORMAT_COLUMNS,
     MAIN_PITCHING_STATS,
     MAIN_BATTING_STATS,
+    MAIN_CAREER_BATTING_STATS,
     MAIN_RISP_BATTING_STATS, MAIN_BASES_LOADED_BATTING_STATS, MAIN_RUNNER_ON_1B_BATTING_STATS,
     MAIN_INNING_BATTING_STATS, MAIN_BATTING_BY_PITCHING_THROWS_STATS, MAIN_BATTING_BY_PITCH_TYPE_STATS
 )
@@ -58,8 +60,8 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
 
     # 指示
     - 選手名は英語表記（フルネーム）に正規化してください。例：「大谷さん」 -> "Shohei Ohtani"
-    - `season`が指定されていない場合、ユーザーの質問から年を抽出してください。
-    - `query_type`は "season_batting"、"season_pitching"、または "batting_splits" のいずれかを選択してください。
+    - `season`は、ユーザーの質問から年を抽出してください。`season`が指定されていない場合、または「キャリア」や「通算」などの表現があれば、`season`はnullにしてください。
+    - `query_type`は "season_batting"、"season_pitching"、 "batting_splits"、または "career_batting" のいずれかを選択してください。
     - `metrics`には、ユーザーが知りたい指標をリスト形式で格納してください。例えば、ホームラン数を知りたい場合は ["homerun"] とします。打率の場合は ["batting_average"] とし、単語と単語の間にアンダースコアを使用してください。
     - `split_type`は、「得点圏（RISP）」「満塁」「ランナー1類」「イニング別」「投手が左投げか右投げか」「球種別」などの特定の状況を示します。該当しない場合はnullにしてください。
     - `pitcher_throws`は、投手の投げ方（右投げまたは左投げ）を示します。右投げはRHP、左投げはLHPとし、該当しない場合はnullにしてください。
@@ -69,7 +71,7 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
 
     # JSONスキーマ
     {{
-        "query_type": "season_batting" | "season_pitching" | "batting_splits",
+        "query_type": "season_batting" | "season_pitching" | "batting_splits" | "career_batting",
         "metrics": ["string"],
         "split_type": "risp" | "bases_loaded" | "runner_on_1b" | "inning" | "pitcher_throws" | "pitch_type" | null,
         "inning": "integer | null",
@@ -97,6 +99,9 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
 
     質問: 「大谷さんの2024年のスライダーに対する主要スタッツは？」
     JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["main_stats"], "split_type": "pitch_type", "pitch_type": "Slider", "order_by": null, "limit": 1 }}
+
+    質問: 「大谷さんのキャリア主要打撃成績を一覧で教えて」
+    JSON: {{ "query_type": "career_batting", "name": "Shohei Ohtani", "metrics": ["main_stats"], "order_by": null, "limit": 1, "output_format": "table" }}
 
     # 本番
     質問: 「{query}」
@@ -147,6 +152,8 @@ def _build_dynamic_sql(params: Dict[str, Any]) -> str:
             metrics = MAIN_PITCHING_STATS
         elif query_type == "season_batting":
             metrics = MAIN_BATTING_STATS
+        elif query_type == "career_batting":
+            metrics = MAIN_CAREER_BATTING_STATS
         elif query_type == "batting_splits" and split_type == "risp":
             metrics = MAIN_RISP_BATTING_STATS
         elif query_type == "batting_splits" and split_type == "bases_loaded":
@@ -166,7 +173,7 @@ def _build_dynamic_sql(params: Dict[str, Any]) -> str:
     metric_map_key_base = query_type  # Default key for METRIC_MAP
 
     # Get config info
-    if query_type in ["season_batting", "season_pitching"]:
+    if query_type in ["season_batting", "season_pitching", "career_batting"]:
         config = QUERY_TYPE_CONFIG.get(query_type)
     elif query_type == "batting_splits" and params.get("split_type"):
         split_type = params.get("split_type")
@@ -181,7 +188,10 @@ def _build_dynamic_sql(params: Dict[str, Any]) -> str:
     year_column = config["year_col"]
     player_name_col = config["player_col"]
     # default_colsを動的に設定
-    default_cols = [f"{player_name_col} as name", f"{year_column} as season"]
+    if query_type == "career_batting":
+        default_cols = [f"{player_name_col} as name", "career_last_team"]
+    else:
+        default_cols = [f"{player_name_col} as name", f"{year_column} as season"]
     if "team" in config.get("available_metrics", []) or config.get("table_id") in [BATTING_STATS_TABLE_ID, PITCHING_STATS_TABLE_ID]:
         if "team" not in default_cols:
             default_cols.insert(1, "team")
@@ -310,18 +320,58 @@ def get_ai_response_for_qna_enhanced(query: str, season: Optional[int] = None) -
             "answer": "関連するデータが見つかりませんでした。",
             "isTable": False
         }
-
+    
     # if output format is table
     if query_params.get("output_format") == "table":
-        # Return structured table data
+        # Debug logging
+        logger.info(f"DataFrame columns: {results_df.columns.tolist()}")
+        logger.info(f"DataFrame dtypes: {results_df.dtypes.to_dict()}")
+        logger.info(f"First row sample: {results_df.iloc[0].to_dict() if len(results_df) > 0 else 'No data'}")
+        
+        # Use centralized decimal columns configuration
+        decimal_columns = DECIMAL_FORMAT_COLUMNS
+        
+        # Force decimal columns to have proper numeric types BEFORE converting to dict
+        for col in decimal_columns:
+            if col in results_df.columns:
+                # Convert to numeric, coercing errors to NaN, then fill NaN with None
+                results_df[col] = pd.to_numeric(results_df[col], errors='coerce')
+                results_df[col] = results_df[col].where(pd.notnull(results_df[col]), None)
+        
+        # Convert to dictionary
         table_data = results_df.to_dict('records')
+        
+        # Post-process to ensure decimal formatting
+        for row in table_data:
+            for col in decimal_columns:
+                if col in row and row[col] is not None:
+                    try:
+                        # Ensure it's a proper decimal number
+                        value = float(row[col])
+                        if not pd.isna(value):
+                            row[col] = round(value, 3)
+                        else:
+                            row[col] = None
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"Could not convert {col} value {row[col]} to float: {e}")
+                        # Keep original value
+                        pass
+        
+        # Debug the final table data
+        logger.info(f"Final table_data sample: {table_data[0] if table_data else 'No data'}")
+        
         columns = [{"key": col, "label": col.replace('_', ' ').title()} for col in results_df.columns]
+        
+        # Check if single row result for transposition
+        is_single_row = len(results_df) == 1
         
         return {
             "answer": f"以下は{len(results_df)}件の結果です：",
             "isTable": True,
+            "isTransposed": is_single_row,
             "tableData": table_data,
-            "columns": columns
+            "columns": columns,
+            "decimalColumns": [col for col in results_df.columns if col in DECIMAL_FORMAT_COLUMNS]
         }
 
     # Step 4: Generate final response with LLM

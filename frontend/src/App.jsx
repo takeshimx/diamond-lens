@@ -154,8 +154,10 @@ const MLBChatApp = () => {
       return {
         answer: apiResponse.answer || "回答を受信しましたが、内容が空でした。",
         isTable: apiResponse.isTable || false,
+        isTransposed: apiResponse.isTransposed || false,
         tableData: apiResponse.tableData || null,
         columns: apiResponse.columns || null,
+        decimalColumns: apiResponse.decimalColumns || [],
         stats: apiResponse.stats || null
       };
 
@@ -166,8 +168,10 @@ const MLBChatApp = () => {
         return {
           answer: 'リクエストがタイムアウトしました（60秒）。バックエンドの処理が重い可能性があります。',
           isTable: false,
+          isTransposed: false,
           tableData: null,
           columns: null,
+          decimalColumns: [],
           stats: null
         };
       }
@@ -175,8 +179,10 @@ const MLBChatApp = () => {
       return {
         answer: `エラーが発生しました: ${error.message}`,
         isTable: false,
+        isTransposed: false,
         tableData: null,
         columns: null,
+        decimalColumns: [],
         stats: null
       };
     }
@@ -213,8 +219,10 @@ const MLBChatApp = () => {
         content: response.answer, // Gemini APIからの回答テキスト
         stats: response.stats, // BigQueryからの統計データ
         isTable: response.isTable, // テーブル表示フラグ
+        isTransposed: response.isTransposed, // テーブル転置フラグ
         tableData: response.tableData, // テーブルデータ
         columns: response.columns, // テーブルカラム定義
+        decimalColumns: response.decimalColumns, // 小数点表示カラムリスト
         timestamp: new Date()
       };
 
@@ -281,9 +289,58 @@ const MLBChatApp = () => {
 
   // ===== テーブル表示コンポーネント =====
   // 構造化されたテーブルデータを表示
-  const DataTable = ({ tableData, columns }) => {
+  const DataTable = ({ tableData, columns, isTransposed, decimalColumns = [] }) => {
     if (!tableData || !columns) return null;
 
+    // 単一行結果の場合は縦表示（転置）
+    if (isTransposed && tableData.length === 1) {
+      const row = tableData[0];
+      return (
+        <div className="mt-3 overflow-x-auto">
+          <div className="inline-block min-w-full align-middle">
+            <div className="overflow-hidden border border-gray-200 rounded-lg">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      項目
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      値
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {columns.map((column, index) => (
+                    <tr key={column.key} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">
+                        {column.label}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap">
+                        {typeof row[column.key] === 'number' 
+                          ? (() => {
+                              // Use centralized decimal columns from backend
+                              const shouldShowDecimals = decimalColumns.includes(column.key);
+                              
+                              return Number(row[column.key]).toLocaleString('ja-JP', {
+                                minimumFractionDigits: shouldShowDecimals ? 3 : 0,
+                                maximumFractionDigits: shouldShowDecimals ? 3 : 0
+                              });
+                            })()
+                          : row[column.key]
+                        }
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // 複数行結果の場合は通常の横表示
     return (
       <div className="mt-3 overflow-x-auto">
         <div className="inline-block min-w-full align-middle">
@@ -310,10 +367,15 @@ const MLBChatApp = () => {
                         className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap"
                       >
                         {typeof row[column.key] === 'number' 
-                          ? Number(row[column.key]).toLocaleString('ja-JP', {
-                              minimumFractionDigits: column.key.includes('avg') || column.key.includes('percentage') || column.key.includes('rate') ? 3 : 0,
-                              maximumFractionDigits: column.key.includes('avg') || column.key.includes('percentage') || column.key.includes('rate') ? 3 : 0
-                            })
+                          ? (() => {
+                              // Use centralized decimal columns from backend
+                              const shouldShowDecimals = decimalColumns.includes(column.key);
+                              
+                              return Number(row[column.key]).toLocaleString('ja-JP', {
+                                minimumFractionDigits: shouldShowDecimals ? 3 : 0,
+                                maximumFractionDigits: shouldShowDecimals ? 3 : 0
+                              });
+                            })()
                           : row[column.key]
                         }
                       </td>
@@ -375,7 +437,12 @@ const MLBChatApp = () => {
                 <p className="whitespace-pre-wrap">{message.content}</p>
                 {/* テーブル表示（テーブルデータがある場合のみ表示） */}
                 {message.isTable && message.tableData && message.columns && (
-                  <DataTable tableData={message.tableData} columns={message.columns} />
+                  <DataTable 
+                    tableData={message.tableData} 
+                    columns={message.columns} 
+                    isTransposed={message.isTransposed}
+                    decimalColumns={message.decimalColumns}
+                  />
                 )}
                 {/* 統計データカード（データがある場合のみ表示） */}
                 {message.stats && <StatCard stats={message.stats} />}
