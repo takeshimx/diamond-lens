@@ -18,7 +18,7 @@ terraform/terraform.tfstate.backup
 .env
 *.env
 
-*.json
+# *.json - commented out to allow package.json files
 
 __pycache__/
 *.pyc

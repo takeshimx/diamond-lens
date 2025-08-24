@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gcloud logging read:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

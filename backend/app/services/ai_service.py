@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 from .bigquery_service import client
 import logging
-from backend.app.config.query_maps import (
+from app.config.query_maps import (
     QUERY_TYPE_CONFIG,
     METRIC_MAP,
     DECIMAL_FORMAT_COLUMNS,

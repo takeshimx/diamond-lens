@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request
-from backend.app.api.endpoints import players  # Import the players router
+from app.api.endpoints import players  # Import the players router
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 
@@ -29,22 +29,17 @@ app = FastAPI(
 
 # ReactアプリのURLを許可するオリジンとして追加
 origins = [
-    # "https://fantastic-garbanzo-77jg7grqjgwhx9q6-5173.app.github.dev",
+    "https://mlb-diamond-lens-frontend-907924272679.asia-northeast1.run.app", # React app at Cloud run
     "http://localhost:5173",  # ローカルReact開発サーバー
     "http://localhost:3000",
 ]
 
-# "https://mlb-analytics-dashboard-aug2025-907924272679.asia-northeast1.run.app", # StreamlitダッシュボードのURL
-# 開発環境でローカルからアクセスする場合など、必要に応じて追加
-
-# "http://localhost:3000", # ローカルReact開発サーバー (別のポート)
-# "http://localhost:8080", # ローカルStreamlit (Cloud Runポート)
 # "*" # 全てのオリジンを許可 (開発中のみ使用、セキュリティ上の理由で本番環境では制限することを推奨
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=False,  # <-- これが True であることを確認
+    allow_credentials=True,  # <-- これが True であることを確認
     allow_methods=["*"],  # 全てのHTTPメソッドを許可
     allow_headers=["*"],  # 全てのヘッダーを許可 (Authorizationヘッダーも含む)
 )
@@ -52,11 +47,6 @@ app.add_middleware(
 
 # Include the players router into FastAPI app
 app.include_router(players.router, prefix="/api/v1", tags=["Players"])
-
-# # ★★★ テスト用ルートを追加 ★★★
-# @app.get("/api/v1/test", tags=["Test"])
-# async def test_endpoint():
-#     return {"message": "Test endpoint reached successfully!"}
 
 
 @app.get("/", summary="API router", description="API router endpoint")

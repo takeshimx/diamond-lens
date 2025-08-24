@@ -22,23 +22,19 @@ const MLBChatApp = () => {
   // メッセージエリアの最下部への自動スクロール用のref
   const messagesEndRef = useRef(null);
 
-  // ===== モックデータ =====
-  // 実際のAPIレスポンスの構造を模倣したサンプルデータ
-  // 本番では削除し、実際のバックエンドAPIから取得する
-  const mockMLBData = {
-    "大谷翔平 2024 打率": {
-      stats: { battingAverage: 0.285, homeRuns: 54, rbi: 130 },
-      answer: "大谷翔平選手の2024年シーズンの打率は.285でした。54本塁打、130打点の素晴らしい成績を残しています。"
-    },
-    "ヤンキース 勝率": {
-      stats: { wins: 82, losses: 80, winPercentage: 0.506 },
-      answer: "ニューヨーク・ヤンキースの今シーズンの勝率は50.6%（82勝80敗）です。"
-    },
-    "ドジャース 防御率": {
-      stats: { era: 3.45, strikeouts: 1456, whip: 1.18 },
-      answer: "ロサンゼルス・ドジャースのチーム防御率は3.45です。奪三振数は1456個で、WHIPは1.18となっています。"
-    }
-  };
+  // 認証関連のstate
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [password, setPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [isCheckingAuth, setIsCheckingAuth] = useState(false);
+
+  // 重要: 簡易的なパスワード認証用（本番では安全な方法を使用）
+  const CORRECT_PASSWORD = (import.meta.env.VITE_APP_PASSWORD || 'defaultpassword').trim();
+  
+  // // Debug: Log the expected password (remove in production)
+  // console.log('🔐 Debug: Expected password:', CORRECT_PASSWORD);
+  // console.log('🔐 Debug: Password length:', CORRECT_PASSWORD.length);
+  // console.log('🔐 Debug: Environment variables:', import.meta.env);
 
   // ===== ユーティリティ関数 =====
   // メッセージエリアの最下部に自動スクロールする関数
@@ -56,15 +52,22 @@ const MLBChatApp = () => {
   const callBackendAPI = async (query) => {
     console.log('🚀 デバッグ：API呼び出し開始:', query);
     
-    // GitHub Codespaces環境での完全URL取得（デバッグ強化版）
+    // Environment-aware backend URL detection (Cloud Run, Codespaces, localhost)
     const getBackendURL = () => {
       console.log('🔍 デバッグ：getBackendURL called');
       console.log('🔍 デバッグ：window.location.hostname:', window.location.hostname);
-      console.log('🔍 デバッグ：includes github.dev:', window.location.hostname.includes('github.dev'));
       
+      // Cloud Run environment detection
+      if (window.location.hostname.includes('run.app')) {
+        const backendURL = 'https://mlb-diamond-lens-api-907924272679.asia-northeast1.run.app';
+        console.log('🔄 デバッグ：Cloud Run environment detected, using backend URL:', backendURL);
+        return backendURL;
+      }
+      
+      // GitHub Codespaces environment detection
       if (window.location.hostname.includes('github.dev')) {
         const frontendHostname = window.location.hostname;
-        console.log('🔍 デバッグ：Original frontend hostname:', frontendHostname);
+        console.log('🔍 デバッグ：Codespaces environment, original frontend hostname:', frontendHostname);
         
         // 複数の方法を試す
         const method1 = frontendHostname.replace('-5173.app.github.dev', '-8000.app.github.dev');
@@ -188,6 +191,33 @@ const MLBChatApp = () => {
         grouping: null,
         stats: null
       };
+    }
+  };
+
+  // 認証関連の処理
+  const handleAuthentication = async () => {
+    if (!password.trim()) return;
+
+    setIsCheckingAuth(true);
+    setAuthError('');
+
+    // パスワードをチェック
+    if (password === CORRECT_PASSWORD) {
+      setIsAuthenticated(true);
+      // 認証成功時はパスワードをクリア
+      setPassword('');
+    } else {
+      setAuthError('パスワードが正しくありません。もう一度お試しください。');
+    }
+
+    setIsCheckingAuth(false);
+  }
+
+  // Enterキーで認証処理
+  const handleAuthKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAuthentication();
     }
   };
 
@@ -455,20 +485,79 @@ const MLBChatApp = () => {
   // ===== メインUIレンダリング =====
   return (
     <div className="flex flex-col h-screen bg-gray-50">
-      {/* ===== ヘッダーセクション ===== */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center gap-3">
-          {/* アプリアイコン */}
-          <div className="p-2 bg-blue-600 rounded-lg">
-            <Activity className="w-6 h-6 text-white" />
-          </div>
-          {/* アプリタイトルと説明 */}
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">MLB Stats Assistant</h1>
-            <p className="text-sm text-gray-600">MLBの統計データについて質問してください</p>
+      {!isAuthenticated ? (
+        // ===== 認証画面 =====
+        <div className="flex items-center justify-center h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+          <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md">
+            {/* ヘッダー */}
+            <div className="text-center mb-6">
+              <div className="mx-auto w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mb-4">
+                <Activity className="w-8 h-8 text-white" />
+              </div>
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">MLB Stats Assistant</h1>
+              <p className="text-gray-600">アクセスにはパスワードが必要です</p>
+            </div>
+            
+            {/* パスワード入力フォーム */}
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+                  パスワード
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyDown={handleAuthKeyDown}
+                  placeholder="パスワードを入力してください"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent text-gray-900"
+                  disabled={isCheckingAuth}
+                />
+              </div>
+              
+              {/* エラーメッセージ */}
+              {authError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-sm text-red-600">{authError}</p>
+                </div>
+              )}
+              
+              {/* ログインボタン */}
+              <button
+                onClick={handleAuthentication}
+                disabled={!password.trim() || isCheckingAuth}
+                className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center justify-center gap-2"
+              >
+                {isCheckingAuth ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    認証中...
+                  </>
+                ) : (
+                  'ログイン'
+                )}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        // ===== メインチャットインターフェース =====
+        <>
+          {/* ===== ヘッダーセクション ===== */}
+          <div className="bg-white border-b border-gray-200 px-6 py-4">
+            <div className="flex items-center gap-3">
+              {/* アプリアイコン */}
+              <div className="p-2 bg-blue-600 rounded-lg">
+                <Activity className="w-6 h-6 text-white" />
+              </div>
+              {/* アプリタイトルと説明 */}
+              <div>
+                <h1 className="text-xl font-bold text-gray-900">MLB Stats Assistant</h1>
+                <p className="text-sm text-gray-600">MLBの統計データについて質問してください</p>
+              </div>
+            </div>
+          </div>
 
       {/* ===== メッセージ表示エリア ===== */}
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
@@ -582,6 +671,8 @@ const MLBChatApp = () => {
           </p>
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 };

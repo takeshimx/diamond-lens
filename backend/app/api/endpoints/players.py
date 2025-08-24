@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException, Path, Query
 from typing import Optional, List, Any, Dict
 # サービス層とスキーマをインポート
-from backend.app.services.ai_service import get_ai_response_for_qna_enhanced
-from backend.app.api.schemas import QnARequest
+from app.services.ai_service import get_ai_response_for_qna_enhanced
+from app.api.schemas import QnARequest
 import logging
 import time
 # from services.ranking_queries import get_player_ranking_batch
