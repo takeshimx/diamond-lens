@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 from .bigquery_service import client
 import logging
-from app.config.query_maps import (
+from backend.app.config.query_maps import ( # For Development, add backend. path
     QUERY_TYPE_CONFIG,
     METRIC_MAP,
     DECIMAL_FORMAT_COLUMNS,
@@ -19,8 +19,10 @@ from app.config.query_maps import (
     MAIN_BATTING_STATS,
     MAIN_CAREER_BATTING_STATS,
     MAIN_RISP_BATTING_STATS, MAIN_BASES_LOADED_BATTING_STATS, MAIN_RUNNER_ON_1B_BATTING_STATS,
-    MAIN_INNING_BATTING_STATS, MAIN_BATTING_BY_PITCHING_THROWS_STATS, MAIN_BATTING_BY_PITCH_TYPE_STATS
+    MAIN_INNING_BATTING_STATS, MAIN_BATTING_BY_PITCHING_THROWS_STATS, MAIN_BATTING_BY_PITCH_TYPE_STATS,
+    MAIN_BATTING_BY_GAME_SCORE_SITUATIONS_STATS
 )
+from backend.app.config.statcast_query import KEY_METRICS_QUERY_SELECT # For Development, add backend. path
 
 # ロガーの設定
 logging.getLogger().handlers = []
@@ -63,7 +65,12 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
     - `season`は、ユーザーの質問から年を抽出してください。`season`が指定されていない場合、または「キャリア」や「通算」などの表現があれば、`season`はnullにしてください。
     - `query_type`は "season_batting"、"season_pitching"、 "batting_splits"、または "career_batting" のいずれかを選択してください。
     - `metrics`には、ユーザーが知りたい指標をリスト形式で格納してください。例えば、ホームラン数を知りたい場合は ["homerun"] とします。打率の場合は ["batting_average"] とし、単語と単語の間にアンダースコアを使用してください。
-    - `split_type`は、「得点圏（RISP）」「満塁」「ランナー1類」「イニング別」「投手が左投げか右投げか」「球種別」などの特定の状況を示します。該当しない場合はnullにしてください。
+    - `split_type`は、「得点圏（RISP）」「満塁」「ランナー1類」「イニング別」「投手が左投げか右投げか」「球種別」「ゲームスコア状況別」などの特定の状況を示します。該当しない場合はnullにしてください。
+    - `split_type`で、game_score_situation (ゲームスコア状況別) を選択した場合、`game_score`に具体的なスコア状況（例：1点リード、2点ビハインドなど）を示す必要があります。
+        例えば、「1点差ゲーム、1点リード、1点ビハインド」は、'one_run_game'、'one_run_lead'、'one_run_trail'のように表現します。4点以上の差は'four_plus_run_lead'や'four_plus_run_trail'としてください。該当しない場合はnullにしてください。
+    - `split_type`で、inning (イニング別) を選択した場合、`inning`に具体的なイニング数をリスト形式で示してください。レギュラーイニング数は1~9イニングまで。例：1イニング目なら [1]、7イニング目以降なら [7, 8, 9] とします。
+    - `strikes`は、特定のストライク数を指定します。該当しない場合はnullにしてください。`balls`は、特定のボール数を指定します。該当しない場合はnullにしてください。
+    - 例えば、「フルカウント」は、 `strikes`を2、`balls`を3としてください。「初球」は、`strikes`を0、`balls`を0とします。該当しない場合はnullにしてください。
     - `pitcher_throws`は、投手の投げ方（右投げまたは左投げ）を示します。右投げはRHP、左投げはLHPとし、該当しない場合はnullにしてください。
     - ユーザーが「主要スタッツ」や「主な成績」のような曖昧な表現を使った場合、metricsには ["main_stats"] というキーワードを一つだけ格納してください。
     - `order_by`には、ランキングの基準となる指標を一つだけ設定してください。
@@ -71,10 +78,13 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
 
     # JSONスキーマ
     {{
-        "query_type": "season_batting" | "season_pitching" | "batting_splits" | "career_batting",
+        "query_type": "season_batting" | "season_pitching" | "batting_splits" | "career_batting" | null,
         "metrics": ["string"],
-        "split_type": "risp" | "bases_loaded" | "runner_on_1b" | "inning" | "pitcher_throws" | "pitch_type" | null,
-        "inning": "integer | null",
+        "split_type": "risp" | "bases_loaded" | "runner_on_1b" | "inning" | "pitcher_throws" | "pitch_type" | "game_score_situation" | null,
+        "inning": ["integer"] | null,
+        "strikes": "integer | null",
+        "balls": "integer | null",
+        "game_score": "string | null",
         "pitcher_throws": "string | null",
         "pitch_type": ["string"] | null,
         "name": "string | null",
@@ -102,6 +112,13 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
 
     質問: 「大谷さんのキャリア主要打撃成績を一覧で教えて」
     JSON: {{ "query_type": "career_batting", "name": "Shohei Ohtani", "metrics": ["main_stats"], "order_by": null, "limit": 1, "output_format": "table" }}
+
+    質問: 「大谷さんの2024年の、1点ビハインドでの主要スタッツは？」
+    JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["main_stats"], "split_type": "game_score_situation", "game_score": "one_run_trail", "order_by": null, "limit": 1 }}
+
+    # 複合質問の例
+    質問: 「大谷さんの2024年の7イニング目以降、フルカウントでの、RISP時の主要スタッツは？」
+    JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["main_stats"], "split_type": "risp", "inning": [7, 8, 9], "strikes": 2, "balls": 3, "order_by": null, "limit": 1 }}
 
     # 本番
     質問: 「{query}」
@@ -133,6 +150,107 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
         logger.error(f"Error during LLM query parsing: {e}", exc_info=True)
         return None
 
+
+# Helper function to determine query strategy (using a simple query or more complex one)
+def _determine_query_strategy(params: Dict[str, Any]) -> str:
+    """Determine the strategy depending on the number of conditions"""
+    condition_count = sum([
+        1 if params.get("inning") else 0,
+        1 if params.get("strikes") else 0,
+        1 if params.get("balls") else 0,
+        1 if params.get("pitcher_throws") else 0,
+        1 if params.get("pitch_type") else 0,
+        1 if params.get("split_type") in ["risp", "bases_loaded", "runner_on_1b"] else 0
+    ])
+
+    return "statcast_master_table" if condition_count >= 2 else "aggregated_table"
+
+
+# Helper function to build dynamic SQL queries with statcast_master_table
+def _build_dynamic_statcast_sql(params: Dict[str, Any]) -> str:
+    """
+    Build a SQL query for the statcast_master_table based on the provided parameters.
+    """
+
+    metrics = params.get("metrics", [])
+    if not metrics:
+        return None
+    
+    # Replace keyword from "main_stats" with related column list
+    if metrics == ["main_stats"]:
+        metrics = MAIN_BATTING_STATS # tentative
+    
+    table_name = "tbl_statcast_2021_2025_master"
+    year_column = "game_year"
+    player_name_col = "batter_name"
+
+    
+    # static query part
+    # SELECT clause
+    # if all seasons
+    if not params.get("season"):
+        select_clause = KEY_METRICS_QUERY_SELECT
+    else:
+        select_clause = KEY_METRICS_QUERY_SELECT + ", game_year"
+
+    # dynamic query part
+    # WHERE clause
+    where_condition = []
+    if params.get("name"):
+        where_condition.append(f"{player_name_col} = '{params['name']}'")
+    if params.get("season"):
+        where_condition.append(f"{year_column} = {params['season']}")
+    if params.get("inning"):
+        # Ensure inning is a list of integers, then join as comma-separated string
+        innings = params['inning']
+        if isinstance(innings, list):
+            inning_list = ", ".join(str(int(i)) for i in innings)
+            where_condition.append(f"inning IN ({inning_list})")
+        else:
+            where_condition.append(f"inning = {int(innings)}")
+    if params.get('pitch_throws'):
+        where_condition.append(f"p_throws = {params['pitch_throws']}")
+    if params.get("strikes"):
+        where_condition.append(f"strikes = {params['strikes']}")
+    if params.get("balls"):
+        where_condition.append(f"balls = {params['balls']}")
+    if params.get('split_type'):
+        if params['split_type'] == 'risp':
+            where_condition.append("(on_2b != 0 OR on_3b != 0)")
+        if params['split_type'] == 'bases_loaded':
+            where_condition.append("(on_1b != 0 AND on_2b != 0 AND on_3b != 0)")
+        if params['split_type'] == 'runner_on_1b':
+            where_condition.append("(on_1b != 0 AND on_2b = 0 AND on_3b = 0)")
+    # if params.get('game_score'): # At this point, data source is not accurate due to incorrect logic. To be fixed.
+    #     pass
+
+    where_clause = f"WHERE events IS NOT NULL AND game_type = 'R' AND {' AND '.join(where_condition)}" if where_condition else ""
+
+    # GROUP BY clause # all seasons can be selected, to be updated
+    if params.get("season"):
+        group_by_clause = f"GROUP BY {year_column}, {player_name_col}"
+    else:
+        group_by_clause = f"GROUP BY {player_name_col}"
+
+    # ORDER BY clause # To be implmented later
+    order_by_clause = ""
+    # if params.get("order_by"):
+    #     order_by_clause = f"ORDER BY {params['order_by']}"
+    #     order_direction = "ASC" if order_by_col in ("era", "whip", "fip") else "DESC"
+    #     order_by_clause = f"ORDER BY {order_by_col} {order_direction}"
+
+    # LIMIT clause
+    if params.get("limit") is not None:
+        limit = params.get("limit", 10)
+        limit_clause = f"LIMIT {limit}"
+    else:
+        limit_clause = ""
+    
+    return f"{select_clause} FROM `{PROJECT_ID}.{DATASET_ID}.{table_name}` {where_clause} {group_by_clause} {order_by_clause} {limit_clause}"
+        
+ 
+
+# Helper function to build dynamic SQL queries with aggregated table
 def _build_dynamic_sql(params: Dict[str, Any]) -> str:
     """
     [ステップ2] 抽出したパラメータを元に、BigQuery用のSQLクエリを構築します。
@@ -166,6 +284,8 @@ def _build_dynamic_sql(params: Dict[str, Any]) -> str:
             metrics = MAIN_BATTING_BY_PITCHING_THROWS_STATS
         elif query_type == "batting_splits" and split_type == "pitch_type":
             metrics = MAIN_BATTING_BY_PITCH_TYPE_STATS
+        elif query_type == "batting_splits" and split_type == "game_score_situation":
+            metrics = MAIN_BATTING_BY_GAME_SCORE_SITUATIONS_STATS
         # Add another metrics if needed from here
 
     # Initialize variables
@@ -241,6 +361,31 @@ def _build_dynamic_sql(params: Dict[str, Any]) -> str:
             )
         else:
             where_condition.append(f"pitch_name = '{params['pitch_type']}'")
+    
+    # At this point, data source is not accurate due to incorrect logic. To be fixed.
+    # if params.get("game_score") and split_type == "game_score_situation":  # condition by game score situation
+    #     mapping = {
+    #         'one_run_game':      "game_score_situation IN ('1-run lead', '1-run trail')",
+    #         'one_run_lead':      "game_score_situation = '1-run lead'",
+    #         'one_run_trail':     "game_score_situation = '1-run trail'",
+    #         'two_run_game':      "game_score_situation IN ('2-run lead', '2-run trail')",
+    #         'two_run_lead':      "game_score_situation = '2-run lead'",
+    #         'two_run_trail':     "game_score_situation = '2-run trail'",
+    #         'three_run_game':    "game_score_situation IN ('3-run lead', '3-run trail')",
+    #         'three_run_lead':    "game_score_situation = '3-run lead'",
+    #         'three_run_trail':   "game_score_situation = '3-run trail'",
+    #         'four_plus_run_game':"game_score_situation IN ('4+ run lead', '4+ run trail')",
+    #         'four_plus_run_lead':"game_score_situation = '4+ run lead'",
+    #         'four_plus_run_trail':"game_score_situation = '4+ run trail'",
+    #         'tie_game':          "game_score_situation = 'Tie game'",
+    #     }
+    #     condition = mapping.get(params['game_score'])
+    #     if condition:
+    #         where_condition.append(condition)
+    #     else:
+    #         logger.warning(f"Unknown game_score parameter: {params['game_score']}")
+
+
     where_clause = f"WHERE {' AND '.join(where_condition)}" if where_condition else ""
 
     # GROUP BY clause
@@ -319,14 +464,28 @@ def get_ai_response_for_qna_enhanced(query: str, season: Optional[int] = None) -
     logger.info(f"Parsed query parameters: {query_params}")
 
     # Step 2: Build SQL
-    sql_query = _build_dynamic_sql(query_params)
-    if not sql_query:
-        logger.warning("Failed to build SQL query.")
-        return {
-            "answer": "この質問に対応するデータの検索クエリを構築できませんでした。",
-            "isTable": False
-        }
-    logger.info(f"Generated SQL query:\n{sql_query}")
+    query_strategy = _determine_query_strategy(query_params)
+
+    if query_strategy == "aggregated_table":
+        # Using aggregated table
+        sql_query = _build_dynamic_sql(query_params)
+        if not sql_query:
+            logger.warning("Failed to build SQL query.")
+            return {
+                "answer": "この質問に対応するデータの検索クエリを構築できませんでした。",
+                "isTable": False
+            }
+        logger.info(f"Generated SQL query:\n{sql_query}")
+    
+    else: # Using statcast master table
+        sql_query = _build_dynamic_statcast_sql(query_params)
+        if not sql_query:
+            logger.warning("Failed to build SQL query with statcast master table.")
+            return {
+                "answer": "この質問に対応するデータの検索クエリを構築できませんでした。",
+                "isTable": False
+            }
+        logger.info(f"Generated SQL query:\n{sql_query}")
 
     # Step 3: Fetch data from BigQuery
     try:

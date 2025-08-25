@@ -1,7 +1,19 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, TrendingUp, User, Bot, Activity } from 'lucide-react';
 
+// Force dark mode on app load
+const initializeDarkMode = () => {
+  document.documentElement.classList.add('dark');
+};
+
+
+
 const MLBChatApp = () => {
+  // Initialize dark mode on component mount
+  useEffect(() => {
+    initializeDarkMode();
+  }, []);
+
   // ===== STATE管理 =====
   // チャット履歴を管理するstate - 各メッセージにはid, type(user/bot), content, timestampが含まれる
   const [messages, setMessages] = useState([
@@ -30,11 +42,6 @@ const MLBChatApp = () => {
 
   // 重要: 簡易的なパスワード認証用（本番では安全な方法を使用）
   const CORRECT_PASSWORD = (import.meta.env.VITE_APP_PASSWORD || 'defaultpassword').trim();
-  
-  // // Debug: Log the expected password (remove in production)
-  // console.log('🔐 Debug: Expected password:', CORRECT_PASSWORD);
-  // console.log('🔐 Debug: Password length:', CORRECT_PASSWORD.length);
-  // console.log('🔐 Debug: Environment variables:', import.meta.env);
 
   // ===== ユーティリティ関数 =====
   // メッセージエリアの最下部に自動スクロールする関数
@@ -302,18 +309,18 @@ const MLBChatApp = () => {
     if (!stats) return null;
 
     return (
-      <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+      <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 transition-colors duration-200">
         {/* カードヘッダー */}
         <div className="flex items-center gap-2 mb-2">
-          <TrendingUp className="w-4 h-4 text-blue-600" />
-          <span className="text-sm font-semibold text-blue-800">統計データ</span>
+          <TrendingUp className="w-4 h-4 text-blue-600 dark:text-blue-400 transition-colors duration-200" />
+          <span className="text-sm font-semibold text-blue-800 dark:text-blue-300 transition-colors duration-200">統計データ</span>
         </div>
         {/* 統計データをキー・バリューペアで表示 */}
         <div className="grid grid-cols-2 gap-2 text-sm">
           {Object.entries(stats).map(([key, value]) => (
             <div key={key} className="flex justify-between">
-              <span className="text-gray-600">{key}:</span>
-              <span className="font-semibold">{value}</span>
+              <span className="text-gray-600 dark:text-gray-400 transition-colors duration-200">{key}:</span>
+              <span className="font-semibold text-gray-900 dark:text-white transition-colors duration-200">{value}</span>
             </div>
           ))}
         </div>
@@ -340,27 +347,27 @@ const MLBChatApp = () => {
               
               return (
                 <div key={groupIndex} className="overflow-x-auto">
-                  <h4 className="text-sm font-semibold text-gray-700 mb-2">{group.name}</h4>
+                  <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 transition-colors duration-200">{group.name}</h4>
                   <div className="inline-block min-w-full align-middle">
-                    <div className="overflow-hidden border border-gray-200 rounded-lg">
-                      <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
+                    <div className="overflow-hidden border border-gray-200 dark:border-gray-700 rounded-lg transition-colors duration-200">
+                      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                        <thead className="bg-gray-50 dark:bg-gray-800 transition-colors duration-200">
                           <tr>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider transition-colors duration-200">
                               項目
                             </th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider transition-colors duration-200">
                               値
                             </th>
                           </tr>
                         </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
+                        <tbody className="bg-white dark:bg-gray-700 divide-y divide-gray-200 dark:divide-gray-600 transition-colors duration-200">
                           {groupColumns.map((column, index) => (
-                            <tr key={column.key} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                              <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">
+                            <tr key={column.key} className={index % 2 === 0 ? 'bg-white dark:bg-gray-700' : 'bg-gray-50 dark:bg-gray-600'}>
+                              <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white whitespace-nowrap transition-colors duration-200">
                                 {column.label}
                               </td>
-                              <td className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap">
+                              <td className="px-4 py-3 text-sm text-gray-900 dark:text-white whitespace-nowrap transition-colors duration-200">
                                 {typeof row[column.key] === 'number' 
                                   ? (() => {
                                       const shouldShowDecimals = decimalColumns.includes(column.key);
@@ -390,25 +397,25 @@ const MLBChatApp = () => {
       return (
         <div className="mt-3 overflow-x-auto">
           <div className="inline-block min-w-full align-middle">
-            <div className="overflow-hidden border border-gray-200 rounded-lg">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+            <div className="overflow-hidden border border-gray-200 dark:border-gray-700 rounded-lg transition-colors duration-200">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead className="bg-gray-50 dark:bg-gray-800 transition-colors duration-200">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider transition-colors duration-200">
                       項目
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider transition-colors duration-200">
                       値
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-white dark:bg-gray-700 divide-y divide-gray-200 dark:divide-gray-600 transition-colors duration-200">
                   {columns.map((column, index) => (
-                    <tr key={column.key} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">
+                    <tr key={column.key} className={index % 2 === 0 ? 'bg-white dark:bg-gray-700' : 'bg-gray-50 dark:bg-gray-600'}>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white whitespace-nowrap transition-colors duration-200">
                         {column.label}
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap">
+                      <td className="px-4 py-3 text-sm text-gray-900 dark:text-white whitespace-nowrap transition-colors duration-200">
                         {typeof row[column.key] === 'number' 
                           ? (() => {
                               // Use centralized decimal columns from backend
@@ -436,27 +443,27 @@ const MLBChatApp = () => {
     return (
       <div className="mt-3 overflow-x-auto">
         <div className="inline-block min-w-full align-middle">
-          <div className="overflow-hidden border border-gray-200 rounded-lg">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+          <div className="overflow-hidden border border-gray-200 dark:border-gray-700 rounded-lg transition-colors duration-200">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-800 transition-colors duration-200">
                 <tr>
                   {columns.map((column) => (
                     <th
                       key={column.key}
-                      className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                      className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider transition-colors duration-200"
                     >
                       {column.label}
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-white dark:bg-gray-700 divide-y divide-gray-200 dark:divide-gray-600 transition-colors duration-200">
                 {tableData.map((row, index) => (
-                  <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                  <tr key={index} className={index % 2 === 0 ? 'bg-white dark:bg-gray-700' : 'bg-gray-50 dark:bg-gray-600'}>
                     {columns.map((column) => (
                       <td
                         key={column.key}
-                        className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap"
+                        className="px-4 py-3 text-sm text-gray-900 dark:text-white whitespace-nowrap transition-colors duration-200"
                       >
                         {typeof row[column.key] === 'number' 
                           ? (() => {
@@ -484,24 +491,24 @@ const MLBChatApp = () => {
 
   // ===== メインUIレンダリング =====
   return (
-    <div className="flex flex-col h-screen bg-gray-50">
+    <div className="flex flex-col h-screen bg-white dark:bg-gray-900 transition-colors duration-200" data-theme-test>
       {!isAuthenticated ? (
         // ===== 認証画面 =====
-        <div className="flex items-center justify-center h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-          <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md">
+        <div className="flex items-center justify-center h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-black transition-colors duration-200">
+          <div className="bg-white dark:bg-gray-800 p-8 rounded-xl shadow-lg w-full max-w-md transition-colors duration-200">
             {/* ヘッダー */}
             <div className="text-center mb-6">
               <div className="mx-auto w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mb-4">
                 <Activity className="w-8 h-8 text-white" />
               </div>
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">MLB Stats Assistant</h1>
-              <p className="text-gray-600">アクセスにはパスワードが必要です</p>
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2 transition-colors duration-200">MLB Stats Assistant</h1>
+              <p className="text-gray-600 dark:text-gray-300 transition-colors duration-200">アクセスにはパスワードが必要です</p>
             </div>
             
             {/* パスワード入力フォーム */}
             <div className="space-y-4">
               <div>
-                <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 transition-colors duration-200">
                   パスワード
                 </label>
                 <input
@@ -511,15 +518,15 @@ const MLBChatApp = () => {
                   onChange={(e) => setPassword(e.target.value)}
                   onKeyDown={handleAuthKeyDown}
                   placeholder="パスワードを入力してください"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent text-gray-900"
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent text-gray-900 dark:text-white bg-white dark:bg-gray-700 transition-colors duration-200"
                   disabled={isCheckingAuth}
                 />
               </div>
               
               {/* エラーメッセージ */}
               {authError && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-sm text-red-600">{authError}</p>
+                <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg transition-colors duration-200">
+                  <p className="text-sm text-red-600 dark:text-red-400 transition-colors duration-200">{authError}</p>
                 </div>
               )}
               
@@ -527,7 +534,7 @@ const MLBChatApp = () => {
               <button
                 onClick={handleAuthentication}
                 disabled={!password.trim() || isCheckingAuth}
-                className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center justify-center gap-2"
+                className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center justify-center gap-2 transition-colors duration-200"
               >
                 {isCheckingAuth ? (
                   <>
@@ -545,16 +552,18 @@ const MLBChatApp = () => {
         // ===== メインチャットインターフェース =====
         <>
           {/* ===== ヘッダーセクション ===== */}
-          <div className="bg-white border-b border-gray-200 px-6 py-4">
-            <div className="flex items-center gap-3">
-              {/* アプリアイコン */}
-              <div className="p-2 bg-blue-600 rounded-lg">
-                <Activity className="w-6 h-6 text-white" />
-              </div>
-              {/* アプリタイトルと説明 */}
-              <div>
-                <h1 className="text-xl font-bold text-gray-900">MLB Stats Assistant</h1>
-                <p className="text-sm text-gray-600">MLBの統計データについて質問してください</p>
+          <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 transition-colors duration-200">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                {/* アプリアイコン */}
+                <div className="p-2 bg-blue-600 rounded-lg">
+                  <Activity className="w-6 h-6 text-white" />
+                </div>
+                {/* アプリタイトルと説明 */}
+                <div>
+                  <h1 className="text-xl font-bold text-gray-900 dark:text-white transition-colors duration-200">MLB Stats Assistant</h1>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 transition-colors duration-200">MLBの統計データについて質問してください</p>
+                </div>
               </div>
             </div>
           </div>
@@ -569,7 +578,7 @@ const MLBChatApp = () => {
           >
             {/* ボットアバター（ボットメッセージの場合のみ表示） */}
             {message.type === 'bot' && (
-              <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0">
+              <div className="w-8 h-8 rounded-full bg-blue-600 dark:bg-blue-500 flex items-center justify-center flex-shrink-0 transition-colors duration-200">
                 <Bot className="w-5 h-5 text-white" />
               </div>
             )}
@@ -578,10 +587,10 @@ const MLBChatApp = () => {
             <div className={`max-w-2xl ${message.type === 'user' ? 'order-2' : ''}`}>
               {/* メッセージバブル */}
               <div
-                className={`px-4 py-3 rounded-lg ${
+                className={`px-4 py-3 rounded-lg transition-colors duration-200 ${
                   message.type === 'user'
-                    ? 'bg-blue-600 text-white' // ユーザーメッセージは青背景
-                    : 'bg-white border border-gray-200 text-gray-900' // ボットメッセージは白背景
+                    ? 'bg-blue-600 dark:bg-blue-500 text-white' // ユーザーメッセージは青背景
+                    : 'bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white' // ボットメッセージは白背景
                 }`}
               >
                 {/* メッセージテキスト */}
@@ -600,7 +609,7 @@ const MLBChatApp = () => {
                 {message.stats && <StatCard stats={message.stats} />}
               </div>
               {/* タイムスタンプ */}
-              <p className={`text-xs text-gray-500 mt-1 ${
+              <p className={`text-xs text-gray-500 dark:text-gray-400 mt-1 transition-colors duration-200 ${
                 message.type === 'user' ? 'text-right' : 'text-left'
               }`}>
                 {formatTime(message.timestamp)}
@@ -609,7 +618,7 @@ const MLBChatApp = () => {
 
             {/* ユーザーアバター（ユーザーメッセージの場合のみ表示） */}
             {message.type === 'user' && (
-              <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center flex-shrink-0 order-3">
+              <div className="w-8 h-8 rounded-full bg-gray-600 dark:bg-gray-500 flex items-center justify-center flex-shrink-0 order-3 transition-colors duration-200">
                 <User className="w-5 h-5 text-white" />
               </div>
             )}
@@ -620,15 +629,15 @@ const MLBChatApp = () => {
         {/* API呼び出し中に表示される点滅アニメーション */}
         {isLoading && (
           <div className="flex gap-3 justify-start">
-            <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0">
+            <div className="w-8 h-8 rounded-full bg-blue-600 dark:bg-blue-500 flex items-center justify-center flex-shrink-0 transition-colors duration-200">
               <Bot className="w-5 h-5 text-white" />
             </div>
-            <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
+            <div className="bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-4 py-3 transition-colors duration-200">
               <div className="flex gap-1">
                 {/* 3つの点が順番に点滅するアニメーション */}
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                <div className="w-2 h-2 bg-gray-400 dark:bg-gray-300 rounded-full animate-bounce transition-colors duration-200"></div>
+                <div className="w-2 h-2 bg-gray-400 dark:bg-gray-300 rounded-full animate-bounce transition-colors duration-200" style={{animationDelay: '0.1s'}}></div>
+                <div className="w-2 h-2 bg-gray-400 dark:bg-gray-300 rounded-full animate-bounce transition-colors duration-200" style={{animationDelay: '0.2s'}}></div>
               </div>
             </div>
           </div>
@@ -639,7 +648,7 @@ const MLBChatApp = () => {
       </div>
 
       {/* ===== メッセージ入力エリア ===== */}
-      <div className="bg-white border-t border-gray-200 px-6 py-4">
+      <div className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 px-6 py-4 transition-colors duration-200">
         <div className="flex gap-3 items-end">
           {/* テキストエリア */}
           <div className="flex-1">
@@ -648,7 +657,7 @@ const MLBChatApp = () => {
               onChange={(e) => setInputMessage(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="例: 大谷翔平の2024年の打率は？"
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-600 focus:border-transparent text-gray-900 placeholder-gray-500"
+              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg resize-none focus:ring-2 focus:ring-blue-600 focus:border-transparent text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 bg-white dark:bg-gray-700 transition-colors duration-200"
               rows="2"
               disabled={isLoading} // ローディング中は入力を無効化
             />
@@ -657,7 +666,7 @@ const MLBChatApp = () => {
           <button
             onClick={handleSendMessage}
             disabled={!inputMessage.trim() || isLoading} // 入力が空またはローディング中は無効化
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-medium"
+            className="px-6 py-3 bg-blue-600 dark:bg-blue-500 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-medium transition-colors duration-200"
           >
             <Send className="w-4 h-4" />
             送信
@@ -666,7 +675,7 @@ const MLBChatApp = () => {
         
         {/* サンプル質問の表示 */}
         <div className="mt-3 text-center">
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-gray-500 dark:text-gray-400 transition-colors duration-200">
             サンプル質問: 「大谷翔平 打率」「ヤンキース 勝率」「2024年のホームラン王トップ10を表で」
           </p>
         </div>
@@ -677,4 +686,9 @@ const MLBChatApp = () => {
   );
 };
 
-export default MLBChatApp;
+// メインアプリケーション（ダークモード固定）
+const App = () => {
+  return <MLBChatApp />;
+};
+
+export default App;

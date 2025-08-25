@@ -67,7 +67,7 @@ QUERY_TYPE_CONFIG = {
             "player_col": "batter_name",
             "available_metrics": ["ab_by_pitch_speed", "avg_by_pitch_speed", "obp_by_pitch_speed", "slg_by_pitch_speed", "homeruns_by_pitch_speed", "ops_by_pitch_speed"]
         },
-        "game_score_situations": {
+        "game_score_situation": {
             "table_id": "tbl_batter_game_score_situations_stats",
             "year_col": "game_year",
             "player_col": "batter_name",
@@ -146,10 +146,13 @@ DECIMAL_FORMAT_COLUMNS = [
     'avg_by_pitch_speed', 'obp_by_pitch_speed', 'slg_by_pitch_speed', 'ops_by_pitch_speed',
 
     # Game score situations stats
-    'avg_by_game_score', 'obp_by_game_score', 'slg_by_game_score', 'ops_by_game_score',
+    'avg_by_game_score_situation', 'obp_by_game_score_situation', 'slg_by_game_score_situation', 'ops_by_game_score_situation',
 
     # Zone stats
     'avg_by_zone', 'obp_by_zone', 'slg_by_zone', 'ops_by_zone',
+
+    # Stats from Statcast master table
+    'hard_hit_rate', 'barrels_rate', 'strikeout_rate', 'swinging_strike_rate',
 
     # Pitching stats
     'era', 'whip', 'fip'
@@ -173,7 +176,7 @@ METRIC_MAP = {
         "batting_splits_pitch_type": "homeruns_by_pitch_type",
         "batting_splits_pitch_count": "homeruns_by_pitch_count",
         "batting_splits_pitch_speed": "homeruns_by_pitch_speed",
-        "batting_splits_game_score": "homeruns_by_game_score",
+        "batting_splits_game_score_situation": "homeruns_by_game_score_situation",
         "batting_splits_zone": "homeruns_by_zone"
     },
     "batting_average": {
@@ -192,7 +195,7 @@ METRIC_MAP = {
         "batting_splits_pitch_type": "avg_by_pitch_type",
         "batting_splits_pitch_count": "avg_by_pitch_count",
         "batting_splits_pitch_speed": "avg_by_pitch_speed",
-        "batting_splits_game_score": "avg_by_game_score",
+        "batting_splits_game_score_situation": "avg_by_game_score_situation",
         "batting_splits_zone": "avg_by_zone"
     },
     "on_base_percentage": {
@@ -210,7 +213,7 @@ METRIC_MAP = {
         "batting_splits_pitch_type": "obp_by_pitch_type",
         "batting_splits_pitch_count": "obp_by_pitch_count",
         "batting_splits_pitch_speed": "obp_by_pitch_speed",
-        "batting_splits_game_score": "obp_by_game_score",
+        "batting_splits_game_score_situation": "obp_by_game_score_situation",
         "batting_splits_zone": "obp_by_zone"
     },
     "slugging_percentage": {
@@ -229,7 +232,7 @@ METRIC_MAP = {
         "batting_splits_pitch_type": "slg_by_pitch_type",
         "batting_splits_pitch_count": "slg_by_pitch_count",
         "batting_splits_pitch_speed": "slg_by_pitch_speed",
-        "batting_splits_game_score": "slg_by_game_score",
+        "batting_splits_game_score_situation": "slg_by_game_score_situation",
         "batting_splits_zone": "slg_by_zone"
     },
     "on_base_plus_slugging": {
@@ -248,7 +251,7 @@ METRIC_MAP = {
         "batting_splits_pitch_type": "ops_by_pitch_type",
         "batting_splits_pitch_count": "ops_by_pitch_count",
         "batting_splits_pitch_speed": "ops_by_pitch_speed",
-        "batting_splits_game_score": "ops_by_game_score",
+        "batting_splits_game_score_situation": "ops_by_game_score_situation",
         "batting_splits_zone": "ops_by_zone"
     },
     "at_bats": {
@@ -267,7 +270,7 @@ METRIC_MAP = {
         "batting_splits_pitch_type": "ab_by_pitch_type",
         "batting_splits_pitch_count": "ab_by_pitch_count",
         "batting_splits_pitch_speed": "ab_by_pitch_speed",
-        "batting_splits_game_score": "ab_by_game_score",
+        "batting_splits_game_score_situation": "ab_by_game_score_situation",
         "batting_splits_zone": "ab_by_zone"
     },
     "hits": {
@@ -306,7 +309,7 @@ METRIC_MAP = {
         "batting_splits_pitch_type": "so_by_pitch_type",
         "batting_splits_pitch_count": "so_by_pitch_count",
         "batting_splits_pitch_speed": "so_by_pitch_speed",
-        "batting_splits_game_score": "so_by_game_score",
+        "batting_splits_game_score_situation": "so_by_game_score_situation",
         "batting_splits_zone": "so_by_zone"
     },
     "games": {

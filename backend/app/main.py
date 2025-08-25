@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request
-from app.api.endpoints import players  # Import the players router
+from backend.app.api.endpoints import players  # For Development, add backend. path
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 
