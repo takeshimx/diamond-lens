@@ -29,7 +29,7 @@
    - 状況別スプリット（得点圏、満塁、イニング別など）をサポート
 
 3. **📊 BigQueryデータ取得**
-   - GCPプロジェクト `tksm-dash-test-25` のMLB統計テーブルに対して生成されたSQLを実行
+   - GCPプロジェクト `project-id` のMLB統計テーブルに対して生成されたSQLを実行
    - メインテーブル：`fact_batting_stats_with_risp`、`fact_pitching_stats`
    - スプリット専用テーブル：`tbl_batter_clutch_*`、`tbl_batter_inning_stats`など
 
