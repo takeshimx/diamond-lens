@@ -153,17 +153,53 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
 
 # Helper function to determine query strategy (using a simple query or more complex one)
 def _determine_query_strategy(params: Dict[str, Any]) -> str:
-    """Determine the strategy depending on the number of conditions"""
-    condition_count = sum([
-        1 if params.get("inning") else 0,
-        1 if params.get("strikes") else 0,
-        1 if params.get("balls") else 0,
-        1 if params.get("pitcher_throws") else 0,
-        1 if params.get("pitch_type") else 0,
-        1 if params.get("split_type") in ["risp", "bases_loaded", "runner_on_1b"] else 0
-    ])
+    """
+    クエリの複雑さに基づいて戦略を決定する
+    - 複合条件が2つ以上: statcast master table
+    - 単一条件: aggregated table
+    - パフォーマンス重視が必要な場合の特別処理も含む
+    """
 
-    return "statcast_master_table" if condition_count >= 2 else "aggregated_table"
+    complex_conditions = []
+
+    # イニング条件
+    if params.get("inning"):
+        complex_conditions.append("inning")
+    
+    # カウント条件
+    if params.get("strikes") is not None:
+        complex_conditions.append("strikes")
+    if params.get("balls") is not None:
+        complex_conditions.append("balls")
+    
+    # 投手タイプ条件
+    if params.get("pitcher_throws"):
+        complex_conditions.append("pitcher_throws")
+    
+    # 球種条件
+    if params.get("pitch_type"):
+        complex_conditions.append("pitch_type")
+    
+    # 状況条件
+    situational_splits = ["risp", "bases_loaded", "runner_on_1b"]
+    if params.get("split_type") in situational_splits:
+        complex_conditions.append("situational")
+    
+    # ゲームスコア状況条件
+    if params.get("game_score"):
+        complex_conditions.append("game_score")
+    
+    # 複合条件の判定
+    condition_count = len(complex_conditions)
+
+    # 特別なケース：複数年データ + 複合条件は重すぎる可能性
+    if not params.get("season") and condition_count >= 2:
+        logger.warning(f"Multi-year query with {condition_count} complex conditions may be slow")
+
+    strategy = "statcast_master_table" if condition_count >= 2 else "aggregated_table"
+
+    logger.info(f"Query strategy: {strategy} based on condition count: {condition_count}")
+    return strategy
 
 
 # Helper function to build dynamic SQL queries with statcast_master_table
@@ -465,6 +501,7 @@ def get_ai_response_for_qna_enhanced(query: str, season: Optional[int] = None) -
 
     # Step 2: Build SQL
     query_strategy = _determine_query_strategy(query_params)
+    logger.info(f"Using query strategy: {query_strategy}")
 
     if query_strategy == "aggregated_table":
         # Using aggregated table
@@ -485,25 +522,43 @@ def get_ai_response_for_qna_enhanced(query: str, season: Optional[int] = None) -
                 "answer": "この質問に対応するデータの検索クエリを構築できませんでした。",
                 "isTable": False
             }
-        logger.info(f"Generated SQL query:\n{sql_query}")
+        logger.info(f"Generated SQL query (strategy: {query_strategy}):\n{sql_query}")
 
     # Step 3: Fetch data from BigQuery
     try:
-        # client = get_bq_client()
+        query_start = datetime.now()
         results_df = client.query(sql_query).to_dataframe()
-        logger.info(f"Fetched {len(results_df)} rows from BigQuery.")
+        query_duration = (datetime.now() - query_start).total_seconds()
+
+        logger.info(f"Query completed in {query_duration:.2f}s, fetched {len(results_df)} rows")
+
+        # Performance warning for slow queries
+        if query_duration > 10:  # 10秒以上
+            logger.warning(f"Slow query detected: {query_duration:.2f}s")
     except GoogleCloudError as e:
         logger.error(f"BigQuery query failed: {e}", exc_info=True)
+
+        # より詳細なエラーメッセージ
+        error_message = "データベースからのデータ取得中にエラーが発生しました。"
+        if "timeout" in str(e).lower():
+            error_message += "クエリがタイムアウトしました。条件を絞って再試行してください。"
+        elif "quota" in str(e).lower():
+            error_message += "利用制限に達しました。しばらくしてから再試行してください。"
+        
         return {
-            "answer": "データベースからのデータ取得中にエラーが発生しました。",
+            "answer": error_message,
             "isTable": False
         }
-
+    
     if results_df.empty:
         return {
-            "answer": "関連するデータが見つかりませんでした。",
+            "answer": "指定された条件に一致するデータが見つかりませんでした。条件を変更して再試行してください。",
             "isTable": False
         }
+    
+    # Step 4: Format response
+    total_duration = (datetime.now() - query_start).total_seconds()
+    logger.info(f"Total request processing time: {total_duration:.2f}s")
     
     # if output format is table
     if query_params.get("output_format") == "table":
