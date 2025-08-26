@@ -23,6 +23,7 @@ from backend.app.config.query_maps import ( # For Development, add backend. path
     MAIN_BATTING_BY_GAME_SCORE_SITUATIONS_STATS
 )
 from backend.app.config.statcast_query import KEY_METRICS_QUERY_SELECT # For Development, add backend. path
+from backend.app.services.simple_chart_service import enhance_response_with_simple_chart, should_show_simple_chart # For Development, add backend. path
 
 # ロガーの設定
 logging.getLogger().handlers = []
@@ -80,7 +81,7 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
     {{
         "query_type": "season_batting" | "season_pitching" | "batting_splits" | "career_batting" | null,
         "metrics": ["string"],
-        "split_type": "risp" | "bases_loaded" | "runner_on_1b" | "inning" | "pitcher_throws" | "pitch_type" | "game_score_situation" | null,
+        "split_type": "risp" | "bases_loaded" | "runner_on_1b" | "inning" | "pitcher_throws" | "pitch_type" | "game_score_situation" | "monthly" | null,
         "inning": ["integer"] | null,
         "strikes": "integer | null",
         "balls": "integer | null",
@@ -115,6 +116,9 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
 
     質問: 「大谷さんの2024年の、1点ビハインドでの主要スタッツは？」
     JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["main_stats"], "split_type": "game_score_situation", "game_score": "one_run_trail", "order_by": null, "limit": 1 }}
+
+    質問: 「大谷さんの2024年の打率を月毎の推移をチャートで教えて」
+    JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["batting_average"], "split_type": "monthly", "order_by": null }}
 
     # 複合質問の例
     質問: 「大谷さんの2024年の7イニング目以降、フルカウントでの、RISP時の主要スタッツは？」
@@ -342,10 +346,13 @@ def _build_dynamic_sql(params: Dict[str, Any]) -> str:
     
     table_name = config["table_id"]
     year_column = config["year_col"]
+    month_column = config.get("month_col", None)
     player_name_col = config["player_col"]
     # default_colsを動的に設定
     if query_type == "career_batting":
         default_cols = [f"{player_name_col} as name", "career_last_team"]
+    elif split_type == "monthly" and month_column:
+        default_cols = [f"{player_name_col} as name", f"{month_column} as month"]
     else:
         default_cols = [f"{player_name_col} as name", f"{year_column} as season"]
     if "team" in config.get("available_metrics", []) or config.get("table_id") in [BATTING_STATS_TABLE_ID, PITCHING_STATS_TABLE_ID]:
@@ -435,6 +442,8 @@ def _build_dynamic_sql(params: Dict[str, Any]) -> str:
         order_by_col = METRIC_MAP.get(params["order_by"], {}).get(metric_map_key_base, params["order_by"])
         order_direction = "ASC" if order_by_col in ("era", "whip", "fip") else "DESC"
         order_by_clause = f"ORDER BY {order_by_col} {order_direction}"
+    elif split_type == "monthly" and month_column:
+        order_by_clause = f"ORDER BY {month_column} ASC"
 
     # LIMIT clause
     if params.get("limit") is not None:
@@ -645,7 +654,34 @@ def get_ai_response_for_qna_enhanced(query: str, season: Optional[int] = None) -
     else:
         logger.info("Generating final response with LLM.")
         final_response = _generate_final_response_with_llm(query, results_df)
+        
+        # Try to enhance with chart data
+        from .simple_chart_service import enhance_response_with_simple_chart
+        try:
+            chart_data = enhance_response_with_simple_chart(
+                query, query_params, results_df, season
+            )
+            
+            if chart_data:
+                # Return response with chart data only (minimal text)
+                response = {
+                    "answer": "📈",  # Just chart emoji to avoid empty content message
+                    "isTable": False
+                }
+                response.update(chart_data)
+                return response
+        except Exception as e:
+            logger.warning(f"Chart enhancement failed: {e}")
+        
+        # Return regular response if no chart enhancement
         return {
             "answer": final_response,
             "isTable": False
         }
+
+
+def get_ai_response_with_simple_chart(query: str, season: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    """既存関数を拡張してシンプルチャート対応"""
+    
+    # Just call the existing function for now - we'll integrate chart logic directly into it
+    return get_ai_response_for_qna_enhanced(query, season)

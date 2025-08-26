@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, TrendingUp, User, Bot, Activity } from 'lucide-react';
+import SimpleChatChart from './components/ChatChart.jsx';
 
 // Force dark mode on app load
 const initializeDarkMode = () => {
@@ -153,6 +154,13 @@ const MLBChatApp = () => {
       if (contentType && contentType.includes('application/json')) {
         apiResponse = await response.json();
         console.log('🔍 デバッグ：JSON レスポンス:', apiResponse);
+        console.log('🔍 デバッグ：Chart fields in JSON response:', {
+          isChart: apiResponse.isChart,
+          chartType: apiResponse.chartType,
+          hasChartData: !!apiResponse.chartData,
+          hasChartConfig: !!apiResponse.chartConfig,
+          chartDataLength: apiResponse.chartData ? apiResponse.chartData.length : 0
+        });
       } else {
         const textResponse = await response.text();
         console.log('📝 デバッグ：テキスト レスポンス:', textResponse.substring(0, 200) + '...');
@@ -169,7 +177,12 @@ const MLBChatApp = () => {
         columns: apiResponse.columns || null,
         decimalColumns: apiResponse.decimalColumns || [],
         grouping: apiResponse.grouping || null,
-        stats: apiResponse.stats || null
+        stats: apiResponse.stats || null,
+        // Chart fields
+        isChart: apiResponse.isChart || false,
+        chartType: apiResponse.chartType || null,
+        chartData: apiResponse.chartData || null,
+        chartConfig: apiResponse.chartConfig || null
       };
 
     } catch (error) {
@@ -184,7 +197,11 @@ const MLBChatApp = () => {
           columns: null,
           decimalColumns: [],
           grouping: null,
-          stats: null
+          stats: null,
+          isChart: false,
+          chartType: null,
+          chartData: null,
+          chartConfig: null
         };
       }
       
@@ -196,7 +213,11 @@ const MLBChatApp = () => {
         columns: null,
         decimalColumns: [],
         grouping: null,
-        stats: null
+        stats: null,
+        isChart: false,
+        chartType: null,
+        chartData: null,
+        chartConfig: null
       };
     }
   };
@@ -252,6 +273,15 @@ const MLBChatApp = () => {
       // バックエンドAPIを呼び出してレスポンスを取得
       const response = await callBackendAPI(inputMessage);
       
+      // Debug: Log the API response
+      console.log('🔍 API Response:', response);
+      console.log('🔍 Chart flags:', {
+        isChart: response.isChart,
+        hasChartData: !!response.chartData,
+        hasChartConfig: !!response.chartConfig,
+        chartType: response.chartType
+      });
+
       // ボットの回答メッセージオブジェクトを作成
       const botMessage = {
         id: Date.now() + 1, // ユーザーメッセージとの重複を避けるため+1
@@ -264,8 +294,21 @@ const MLBChatApp = () => {
         columns: response.columns, // テーブルカラム定義
         decimalColumns: response.decimalColumns, // 小数点表示カラムリスト
         grouping: response.grouping, // グループ分け情報
+        isChart: response.isChart, // チャート表示フラグ
+        chartType: response.chartType, // チャートタイプ
+        chartData: response.chartData, // チャートデータ
+        chartConfig: response.chartConfig, // チャート設定
         timestamp: new Date()
       };
+
+      // Debug: Log the message object
+      console.log('🔍 Bot Message:', botMessage);
+      console.log('🔍 Bot Message Chart Fields:', {
+        isChart: botMessage.isChart,
+        chartType: botMessage.chartType,
+        hasChartData: !!botMessage.chartData,
+        hasChartConfig: !!botMessage.chartConfig
+      });
 
       // メッセージ履歴にボットメッセージを追加
       setMessages(prev => [...prev, botMessage]);
@@ -584,7 +627,7 @@ const MLBChatApp = () => {
             )}
             
             {/* メッセージ本体 */}
-            <div className={`max-w-2xl ${message.type === 'user' ? 'order-2' : ''}`}>
+            <div className={`${message.isChart ? 'max-w-5xl' : 'max-w-2xl'} ${message.type === 'user' ? 'order-2' : ''}`}>
               {/* メッセージバブル */}
               <div
                 className={`px-4 py-3 rounded-lg transition-colors duration-200 ${
@@ -605,6 +648,29 @@ const MLBChatApp = () => {
                     grouping={message.grouping}
                   />
                 )}
+                {/* チャート表示（チャートデータがある場合のみ表示） */}
+                {(() => {
+                  console.log('🔍 Chart render check:', {
+                    messageId: message.id,
+                    isChart: message.isChart,
+                    hasChartData: !!message.chartData,
+                    hasChartConfig: !!message.chartConfig,
+                    chartType: message.chartType,
+                    shouldRender: message.isChart && message.chartData && message.chartConfig
+                  });
+                  return null;
+                })()}
+                {message.isChart && message.chartData && message.chartConfig ? (
+                  <SimpleChatChart 
+                    chartData={message.chartData}
+                    chartConfig={message.chartConfig}
+                    chartType={message.chartType}
+                  />
+                ) : message.isChart ? (
+                  <div className="mt-4 p-4 bg-red-100 dark:bg-red-900 rounded-lg">
+                    <p className="text-red-800 dark:text-red-200">Chart data missing: isChart={String(message.isChart)}, hasData={String(!!message.chartData)}, hasConfig={String(!!message.chartConfig)}</p>
+                  </div>
+                ) : null}
                 {/* 統計データカード（データがある場合のみ表示） */}
                 {message.stats && <StatCard stats={message.stats} />}
               </div>

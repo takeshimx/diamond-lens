@@ -78,6 +78,13 @@ QUERY_TYPE_CONFIG = {
             "year_col": "game_year",
             "player_col": "batter_name",
             "available_metrics": ["ab_by_zone", "avg_by_zone", "obp_by_zone", "slg_by_zone", "homeruns_by_zone", "ops_by_zone"]
+        },
+        "monthly": {
+            "table_id": "tbl_batter_offensive_stats_monthly",
+            "year_col": "game_year",
+            "month_col": "game_month",
+            "player_col": "batter_name",
+            "available_metrics": ["batting_average", "on_base_percentage", "slugging_percentage", "on_base_plus_slugging", "at_bats"]
         }
     }
 }
@@ -177,7 +184,8 @@ METRIC_MAP = {
         "batting_splits_pitch_count": "homeruns_by_pitch_count",
         "batting_splits_pitch_speed": "homeruns_by_pitch_speed",
         "batting_splits_game_score_situation": "homeruns_by_game_score_situation",
-        "batting_splits_zone": "homeruns_by_zone"
+        "batting_splits_zone": "homeruns_by_zone",
+        "batting_splits_monthly": "home_runs"
     },
     "batting_average": {
         "season_batting": "avg",
@@ -196,7 +204,8 @@ METRIC_MAP = {
         "batting_splits_pitch_count": "avg_by_pitch_count",
         "batting_splits_pitch_speed": "avg_by_pitch_speed",
         "batting_splits_game_score_situation": "avg_by_game_score_situation",
-        "batting_splits_zone": "avg_by_zone"
+        "batting_splits_zone": "avg_by_zone",
+        "batting_splits_monthly": "batting_average"
     },
     "on_base_percentage": {
         "season_batting": "obp",
@@ -214,7 +223,8 @@ METRIC_MAP = {
         "batting_splits_pitch_count": "obp_by_pitch_count",
         "batting_splits_pitch_speed": "obp_by_pitch_speed",
         "batting_splits_game_score_situation": "obp_by_game_score_situation",
-        "batting_splits_zone": "obp_by_zone"
+        "batting_splits_zone": "obp_by_zone",
+        "batting_splits_monthly": "on_base_percentage"
     },
     "slugging_percentage": {
         "season_batting": "slg",
@@ -233,7 +243,8 @@ METRIC_MAP = {
         "batting_splits_pitch_count": "slg_by_pitch_count",
         "batting_splits_pitch_speed": "slg_by_pitch_speed",
         "batting_splits_game_score_situation": "slg_by_game_score_situation",
-        "batting_splits_zone": "slg_by_zone"
+        "batting_splits_zone": "slg_by_zone",
+        "batting_splits_monthly": "slugging_percentage"
     },
     "on_base_plus_slugging": {
         "season_batting": "ops",
@@ -252,7 +263,8 @@ METRIC_MAP = {
         "batting_splits_pitch_count": "ops_by_pitch_count",
         "batting_splits_pitch_speed": "ops_by_pitch_speed",
         "batting_splits_game_score_situation": "ops_by_game_score_situation",
-        "batting_splits_zone": "ops_by_zone"
+        "batting_splits_zone": "ops_by_zone",
+        "batting_splits_monthly": "on_base_plus_slugging"
     },
     "at_bats": {
         "season_batting": "ab",
@@ -271,7 +283,8 @@ METRIC_MAP = {
         "batting_splits_pitch_count": "ab_by_pitch_count",
         "batting_splits_pitch_speed": "ab_by_pitch_speed",
         "batting_splits_game_score_situation": "ab_by_game_score_situation",
-        "batting_splits_zone": "ab_by_zone"
+        "batting_splits_zone": "ab_by_zone",
+        "batting_splits_monthly": "at_bats"
     },
     "hits": {
         "season_batting": "h",

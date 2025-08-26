@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(gcloud logging read:*)"
+      "Bash(gcloud logging read:*)",
+      "Bash(yarn add:*)"
     ],
     "deny": [],
     "ask": []
