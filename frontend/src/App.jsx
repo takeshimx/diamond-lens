@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, TrendingUp, User, Bot, Activity } from 'lucide-react';
+import { Send, TrendingUp, User, Bot, Activity, MessageCircle, Zap, Settings } from 'lucide-react';
 import SimpleChatChart from './components/ChatChart.jsx';
+import QuickQuestions from './components/QuickQuestions.jsx';
+import CustomQueryBuilder from './components/CustomQueryBuilder.jsx';
 
 // Force dark mode on app load
 const initializeDarkMode = () => {
@@ -41,6 +43,15 @@ const MLBChatApp = () => {
   const [authError, setAuthError] = useState('');
   const [isCheckingAuth, setIsCheckingAuth] = useState(false);
 
+  // UIモード管理のstate
+  const [uiMode, setUiMode] = useState('chat'); // 'chat', 'quick', または 'custom'
+  
+  // Quick Questions result state
+  const [quickResult, setQuickResult] = useState(null);
+  
+  // Custom Query result state
+  const [customResult, setCustomResult] = useState(null);
+
   // 重要: 簡易的なパスワード認証用（本番では安全な方法を使用）
   const CORRECT_PASSWORD = (import.meta.env.VITE_APP_PASSWORD || 'defaultpassword').trim();
 
@@ -56,44 +67,68 @@ const MLBChatApp = () => {
   }, [messages]);
 
   // ===== API呼び出し関数 =====
+
+  // Environment-aware backend URL detection (shared function)
+  const getBackendURL = () => {
+    console.log('🔍 デバッグ：getBackendURL called');
+    console.log('🔍 デバッグ：window.location.hostname:', window.location.hostname);
+    
+    // Cloud Run environment detection
+    if (window.location.hostname.includes('run.app')) {
+      const backendURL = 'https://mlb-diamond-lens-api-907924272679.asia-northeast1.run.app';
+      console.log('🔄 デバッグ：Cloud Run environment detected, using backend URL:', backendURL);
+      return backendURL;
+    }
+    
+    // GitHub Codespaces environment detection
+    if (window.location.hostname.includes('github.dev')) {
+      const frontendHostname = window.location.hostname;
+      console.log('🔍 デバッグ：Codespaces environment, original frontend hostname:', frontendHostname);
+      
+      // 複数の方法を試す
+      const method1 = frontendHostname.replace('-5173.app.github.dev', '-8000.app.github.dev');
+      const method2 = frontendHostname.replace(/5173/g, '8000');
+      
+      console.log('🔍 デバッグ：Method 1 result:', method1);
+      console.log('🔍 デバッグ：Method 2 result:', method2);
+      
+      const backendHostname = method1;
+      const backendURL = `https://${backendHostname}`;
+      
+      console.log('🔄 デバッグ：Final backend URL:', backendURL);
+      return backendURL;
+    }
+    
+    console.log('🔍 デバッグ：Using localhost fallback');
+    return 'http://localhost:8000';
+  };
+
+  // Function to search players
+  const searchPlayers = async (searchTerm) => {
+    console.log('🚀 選手検索API呼び出し開始:', searchTerm);
+
+    const baseURL = getBackendURL();
+    const endpoint = `${baseURL}/api/v1/players/search?q=${encodeURIComponent(searchTerm)}`;
+
+    try {
+      const response = await fetch(endpoint);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      return data.results || [];
+    } catch (error) {
+      console.error('🚀 選手検索API呼び出しエラー:', error);
+      return [];
+    }
+  };
+
+
+
+
   // バックエンドAPIを呼び出してMLBデータとGemini回答を取得する関数
   const callBackendAPI = async (query) => {
     console.log('🚀 デバッグ：API呼び出し開始:', query);
-    
-    // Environment-aware backend URL detection (Cloud Run, Codespaces, localhost)
-    const getBackendURL = () => {
-      console.log('🔍 デバッグ：getBackendURL called');
-      console.log('🔍 デバッグ：window.location.hostname:', window.location.hostname);
-      
-      // Cloud Run environment detection
-      if (window.location.hostname.includes('run.app')) {
-        const backendURL = 'https://mlb-diamond-lens-api-907924272679.asia-northeast1.run.app';
-        console.log('🔄 デバッグ：Cloud Run environment detected, using backend URL:', backendURL);
-        return backendURL;
-      }
-      
-      // GitHub Codespaces environment detection
-      if (window.location.hostname.includes('github.dev')) {
-        const frontendHostname = window.location.hostname;
-        console.log('🔍 デバッグ：Codespaces environment, original frontend hostname:', frontendHostname);
-        
-        // 複数の方法を試す
-        const method1 = frontendHostname.replace('-5173.app.github.dev', '-8000.app.github.dev');
-        const method2 = frontendHostname.replace(/5173/g, '8000');
-        
-        console.log('🔍 デバッグ：Method 1 result:', method1);
-        console.log('🔍 デバッグ：Method 2 result:', method2);
-        
-        const backendHostname = method1;
-        const backendURL = `https://${backendHostname}`;
-        
-        console.log('🔄 デバッグ：Final backend URL:', backendURL);
-        return backendURL;
-      }
-      
-      console.log('🔍 デバッグ：Using localhost fallback');
-      return 'http://localhost:8000';
-    };
 
     console.log('🌐 デバッグ：Current location:', {
       hostname: window.location.hostname,
@@ -222,6 +257,203 @@ const MLBChatApp = () => {
     }
   };
 
+  // ===== 固定クエリ用API呼び出し関数 =====
+  // 事前定義されたクエリのためのパフォーマンスアナリティクスエンドポイントを呼び出す
+  const callFixedQueryAPI = async (questionParams) => {
+    console.log('🚀 デバッグ：固定クエリ API呼び出し開始:', questionParams);
+
+    try {
+      const baseURL = getBackendURL();
+      console.log('🎯 デバッグ：Fixed Query baseURL:', baseURL);
+      
+      // Build endpoint based on query type
+      let endpoint;
+      if (questionParams.queryType === 'monthly_offensive_stats') {
+        endpoint = `${baseURL}/api/v1/players/${questionParams.playerId}/monthly-offensive-stats?season=${questionParams.season}&metric=${questionParams.metric}`;
+      } else if (questionParams.queryType === 'monthly_risp_stats') {
+        endpoint = `${baseURL}/api/v1/players/${questionParams.playerId}/performance-at-risp?season=${questionParams.season}&metric=${questionParams.metric}`;
+      } else {
+        throw new Error(`Unsupported query type: ${questionParams.queryType}`);
+      }
+      
+      console.log('🎯 デバッグ：Fixed Query endpoint:', endpoint);
+      
+      // Timeout setup
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        console.log('⏰ デバッグ：リクエストタイムアウト（60秒）');
+        controller.abort();
+      }, 60000);
+
+      const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+      
+      console.log('📥 デバッグ：Fixed Query response received:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        url: response.url
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
+      }
+
+      // Handle different response types
+      let apiResponse;
+      if (response.ok) {
+        apiResponse = await response.json();
+        console.log('🔍 デバッグ：Fixed Query JSON response:', apiResponse);
+        
+        // Check if we got valid data
+        if (Array.isArray(apiResponse) && apiResponse.length > 0) {
+          // Transform the response to chart format
+          // Use the actual metric field instead of metric_value
+          const metricField = questionParams.metric; // e.g., 'batting_average'
+          console.log('🔍 Debug - Metric field:', metricField);
+          console.log('🔍 Debug - Sample item:', apiResponse[0]);
+          console.log('🔍 Debug - Sample metric value:', apiResponse[0][metricField]);
+          
+          const chartData = apiResponse.map(item => ({
+            month: `${item.game_month}月`,
+            batting_average: item[metricField] || 0
+          }));
+          
+          console.log('🔍 Debug - Chart data:', chartData);
+          
+          // Generate dynamic chart configuration based on metric
+          const getChartConfig = (metric, season) => {
+            const configs = {
+              'batting_average': {
+                title: `大谷翔平 ${season}年月別打率推移`,
+                yAxisLabel: '打率',
+                yDomain: [0, 0.500],
+                lineColor: '#3B82F6',
+                chartType: 'line'
+              },
+              'batting_average_at_risp': {
+                title: `大谷翔平 ${season}年月別RISP打率推移`,
+                yAxisLabel: 'RISP打率',
+                yDomain: [0, 0.600],
+                lineColor: '#10B981',
+                chartType: 'line'
+              },
+              'home_runs': {
+                title: `大谷翔平 ${season}年月別ホームラン数`,
+                yAxisLabel: 'ホームラン数',
+                yDomain: [0, 15],
+                lineColor: '#EF4444',
+                chartType: 'bar'
+              }
+            };
+            
+            const config = configs[metric] || configs['batting_average'];
+            
+            return {
+              title: config.title,
+              xAxis: 'month',
+              dataKey: 'batting_average', // Always use this as the data key in chartData
+              lineColor: config.lineColor,
+              lineName: config.yAxisLabel,
+              yDomain: config.yDomain,
+              chartType: config.chartType
+            };
+          };
+          
+          const chartConfig = getChartConfig(questionParams.metric, questionParams.season);
+          
+          console.log('✅ デバッグ：Fixed Query API呼び出し成功');
+          
+          // Generate dynamic answer text
+          const getAnswerText = (metric, season) => {
+            const texts = {
+              'batting_average': `大谷翔平選手の${season}年月別打率推移をチャートで表示します。`,
+              'batting_average_at_risp': `大谷翔平選手の${season}年月別RISP打率推移をチャートで表示します。`,
+              'home_runs': `大谷翔平選手の${season}年月別ホームラン数をチャートで表示します。`
+            };
+            return texts[metric] || texts['batting_average'];
+          };
+          
+          return {
+            answer: getAnswerText(questionParams.metric, questionParams.season),
+            isTable: false,
+            isTransposed: false,
+            tableData: null,
+            columns: null,
+            decimalColumns: [],
+            grouping: null,
+            stats: null,
+            isChart: true,
+            chartType: chartConfig.chartType,
+            chartData: chartData,
+            chartConfig: chartConfig
+          };
+        } else {
+          // No data found, provide mock data for demonstration
+          console.log('⚠️ デバッグ：No data found, using mock data');
+          const mockChartData = [
+            { month: '3月', batting_average: 0.125 },
+            { month: '4月', batting_average: 0.238 },
+            { month: '5月', batting_average: 0.278 },
+            { month: '6月', batting_average: 0.301 },
+            { month: '7月', batting_average: 0.295 },
+            { month: '8月', batting_average: 0.264 },
+            { month: '9月', batting_average: 0.289 }
+          ];
+          
+          const chartConfig = {
+            title: '大谷翔平 2024年月別打率推移 (サンプルデータ)',
+            xAxis: 'month',
+            dataKey: 'batting_average',
+            lineColor: '#3B82F6',
+            lineName: '打率',
+            yDomain: [0, 0.400]
+          };
+          
+          return {
+            answer: `現在データが取得できないため、サンプルデータで大谷翔平選手の月別打率推移を表示しています。`,
+            isTable: false,
+            isTransposed: false,
+            tableData: null,
+            columns: null,
+            decimalColumns: [],
+            grouping: null,
+            stats: null,
+            isChart: true,
+            chartType: 'line',
+            chartData: mockChartData,
+            chartConfig: chartConfig
+          };
+        }
+      }
+
+    } catch (error) {
+      console.error('❌ デバッグ：Fixed Query API呼び出しエラー:', error);
+      
+      if (error.name === 'AbortError') {
+        return {
+          answer: 'リクエストがタイムアウトしました（60秒）。バックエンドの処理が重い可能性があります。',
+          isTable: false,
+          isChart: false
+        };
+      }
+      
+      return {
+        answer: `エラーが発生しました: ${error.message}`,
+        isTable: false,
+        isChart: false
+      };
+    }
+  };
+
   // 認証関連の処理
   const handleAuthentication = async () => {
     if (!password.trim()) return;
@@ -313,6 +545,7 @@ const MLBChatApp = () => {
       // メッセージ履歴にボットメッセージを追加
       setMessages(prev => [...prev, botMessage]);
     } catch (error) {
+      console.error('❌ Chat API Error:', error);
       // エラーが発生した場合のエラーメッセージを作成
       const errorMessage = {
         id: Date.now() + 1,
@@ -324,6 +557,274 @@ const MLBChatApp = () => {
     }
 
     // ローディング状態を終了
+    setIsLoading(false);
+  };
+
+  // ===== クイック質問処理 =====
+  const handleQuickQuestion = async (question) => {
+    console.log('🚀 Quick Question clicked:', question);
+    
+    // Clear any existing result and start loading
+    setQuickResult(null);
+    setIsLoading(true);
+    
+    try {
+      // Fixed Query APIを呼び出し
+      const response = await callFixedQueryAPI(question.params);
+      
+      console.log('🔍 Quick Question API Response:', response);
+      
+      // Store the result for display in Quick Questions section
+      setQuickResult({
+        question: question.title,
+        answer: response.answer,
+        stats: response.stats,
+        isTable: response.isTable,
+        isTransposed: response.isTransposed,
+        tableData: response.tableData,
+        columns: response.columns,
+        decimalColumns: response.decimalColumns,
+        grouping: response.grouping,
+        isChart: response.isChart,
+        chartType: response.chartType,
+        chartData: response.chartData,
+        chartConfig: response.chartConfig,
+        timestamp: new Date()
+      });
+      
+    } catch (error) {
+      console.error('❌ Quick Question Error:', error);
+      setQuickResult({
+        question: question.title,
+        answer: 'エラーが発生しました。しばらく後でもう一度お試しください。',
+        isChart: false,
+        isTable: false,
+        timestamp: new Date()
+      });
+    }
+    
+    setIsLoading(false);
+  };
+
+  // ===== カスタムクエリ処理 =====
+  const handleCustomQuery = async (queryState) => {
+    console.log('🚀 Custom Query execution:', queryState);
+    
+    // Clear any existing result and start loading
+    setCustomResult(null);
+    setIsLoading(true);
+    
+    try {
+      // Extract parameters from queryState for direct BigQuery API calls
+      const params = {
+        playerId: queryState.player.id,
+        season: queryState.seasonMode === 'all' ? null : queryState.specificYear,
+        metrics: queryState.metrics,
+        category: queryState.category.id
+      };
+
+      console.log('🔍 Custom Query Params:', params);
+
+      // Determine which endpoint to call based on category and metrics
+      let response;
+      const primaryMetric = queryState.metrics[0]; // Use first metric for API call
+
+      // Route to appropriate endpoint based on category
+      if (queryState.category.id === 'monthly_trends' && primaryMetric) {
+        // Monthly trends - use existing endpoint
+        const queryParams = {
+          playerId: params.playerId,
+          season: params.season || 2024,
+          metric: primaryMetric,
+          queryType: 'monthly_offensive_stats'
+        };
+        response = await callFixedQueryAPI(queryParams);
+        
+      } else if (queryState.category.id === 'batting_splits' && primaryMetric) {
+        // Batting splits - use RISP endpoint for now
+        const queryParams = {
+          playerId: params.playerId,
+          season: params.season || 2024,
+          metric: primaryMetric.includes('risp') ? primaryMetric : 'batting_average_at_risp',
+          queryType: 'monthly_risp_stats'
+        };
+        response = await callFixedQueryAPI(queryParams);
+        
+      } else {
+        // For categories not yet implemented, generate appropriate mock data
+        console.log('⚠️ Category not implemented yet, using mock data:', queryState.category.id);
+        
+        const mockDataGenerators = {
+          season_batting: () => ({
+            answer: `${queryState.player.name}の${params.season || 2024}年シーズン打撃成績を表示します。（バックエンド実装予定）`,
+            isTable: true,
+            tableData: [
+              {
+                metric: '打率',
+                value: (Math.random() * 0.200 + 0.200).toFixed(3),
+                rank: Math.floor(Math.random() * 10) + 1
+              },
+              {
+                metric: 'ホームラン',
+                value: Math.floor(Math.random() * 30) + 10,
+                rank: Math.floor(Math.random() * 15) + 1
+              },
+              {
+                metric: 'RBI',
+                value: Math.floor(Math.random() * 60) + 40,
+                rank: Math.floor(Math.random() * 20) + 1
+              }
+            ],
+            columns: [
+              { key: 'metric', label: '指標' },
+              { key: 'value', label: '値' },
+              { key: 'rank', label: 'リーグ順位' }
+            ]
+          }),
+          
+          season_pitching: () => ({
+            answer: `${queryState.player.name}の${params.season || 2024}年シーズン投手成績を表示します。（バックエンド実装予定）`,
+            isTable: true,
+            tableData: [
+              {
+                metric: '防御率',
+                value: (Math.random() * 2.0 + 2.0).toFixed(2),
+                rank: Math.floor(Math.random() * 15) + 1
+              },
+              {
+                metric: '奪三振',
+                value: Math.floor(Math.random() * 100) + 150,
+                rank: Math.floor(Math.random() * 10) + 1
+              },
+              {
+                metric: 'WHIP',
+                value: (Math.random() * 0.5 + 1.0).toFixed(2),
+                rank: Math.floor(Math.random() * 20) + 1
+              }
+            ],
+            columns: [
+              { key: 'metric', label: '指標' },
+              { key: 'value', label: '値' },
+              { key: 'rank', label: 'リーグ順位' }
+            ]
+          }),
+          
+          team_comparison: () => ({
+            answer: `チーム比較データを表示します。（バックエンド実装予定）`,
+            isChart: true,
+            chartType: 'bar',
+            chartData: [
+              { team: 'LAA', value: Math.random() * 50 + 70 },
+              { team: 'NYY', value: Math.random() * 50 + 80 },
+              { team: 'HOU', value: Math.random() * 50 + 85 },
+              { team: 'LAD', value: Math.random() * 50 + 90 },
+              { team: 'TB', value: Math.random() * 50 + 75 }
+            ],
+            chartConfig: {
+              title: `${params.season || 2024}年 チーム成績比較 (サンプルデータ)`,
+              xAxis: 'team',
+              dataKey: 'value',
+              lineColor: '#EF4444',
+              lineName: primaryMetric || 'チーム成績',
+              yDomain: [0, 150]
+            }
+          }),
+          
+          career_stats: () => ({
+            answer: `${queryState.player.name}の通算成績推移を表示します。（バックエンド実装予定）`,
+            isChart: true,
+            chartType: 'line',
+            chartData: Array.from({ length: 8 }, (_, i) => ({
+              year: `${2017 + i}`,
+              value: Math.random() * 0.150 + 0.200
+            })),
+            chartConfig: {
+              title: `${queryState.player.name} 通算成績推移 (サンプルデータ)`,
+              xAxis: 'year',
+              dataKey: 'value',
+              lineColor: '#10B981',
+              lineName: primaryMetric || 'キャリア成績',
+              yDomain: [0, 0.400]
+            }
+          })
+        };
+        
+        const generator = mockDataGenerators[queryState.category.id] || mockDataGenerators.season_batting;
+        response = {
+          isTable: false,
+          isChart: false,
+          ...generator()
+        };
+      }
+
+      // Generate summary text for the query
+      const generateSummaryText = (queryState) => {
+        const categoryNames = {
+          season_batting: 'シーズン打撃成績',
+          season_pitching: 'シーズン投手成績', 
+          batting_splits: '場面別打撃成績',
+          monthly_trends: '月別推移',
+          team_comparison: 'チーム比較',
+          career_stats: '通算成績'
+        };
+
+        const seasonText = queryState.seasonMode === 'all' 
+          ? '全シーズン'
+          : `${queryState.specificYear}年シーズン`;
+
+        const metricsText = queryState.metrics.length === 1 
+          ? queryState.metrics[0]
+          : `${queryState.metrics.join('、')}など`;
+
+        return `${queryState.player.name}の${seasonText}における${categoryNames[queryState.category.id]}から${metricsText}の分析結果`;
+      };
+      
+      console.log('🔍 Custom Query API Response:', response);
+      
+      // Store the result for display in Custom Query section
+      setCustomResult({
+        query: generateSummaryText(queryState),
+        queryState: queryState,
+        answer: response.answer,
+        stats: response.stats,
+        isTable: response.isTable || false,
+        isTransposed: response.isTransposed || false,
+        tableData: response.tableData || null,
+        columns: response.columns || null,
+        decimalColumns: response.decimalColumns || [],
+        grouping: response.grouping || null,
+        isChart: response.isChart || false,
+        chartType: response.chartType || null,
+        chartData: response.chartData || null,
+        chartConfig: response.chartConfig || null,
+        timestamp: new Date()
+      });
+      
+    } catch (error) {
+      console.error('❌ Custom Query Error:', error);
+      
+      // Generate error summary
+      const categoryNames = {
+        season_batting: 'シーズン打撃成績',
+        season_pitching: 'シーズン投手成績', 
+        batting_splits: '場面別打撃成績',
+        monthly_trends: '月別推移',
+        team_comparison: 'チーム比較',
+        career_stats: '通算成績'
+      };
+
+      const errorSummary = `${queryState.player.name}の${categoryNames[queryState.category.id]}クエリでエラーが発生`;
+      
+      setCustomResult({
+        query: errorSummary,
+        queryState: queryState,
+        answer: 'エラーが発生しました。しばらく後でもう一度お試しください。',
+        isChart: false,
+        isTable: false,
+        timestamp: new Date()
+      });
+    }
+    
     setIsLoading(false);
   };
 
@@ -605,14 +1106,70 @@ const MLBChatApp = () => {
                 {/* アプリタイトルと説明 */}
                 <div>
                   <h1 className="text-xl font-bold text-gray-900 dark:text-white transition-colors duration-200">MLB Stats Assistant</h1>
-                  <p className="text-sm text-gray-600 dark:text-gray-300 transition-colors duration-200">MLBの統計データについて質問してください</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 transition-colors duration-200">
+                    {uiMode === 'chat' && 'MLBの統計データについて質問してください'}
+                    {uiMode === 'quick' && 'よく使われる質問をワンクリックで実行'}
+                    {uiMode === 'custom' && 'カスタムクエリを作成して詳細な分析を実行'}
+                  </p>
                 </div>
+              </div>
+              
+              {/* モード切り替えボタン */}
+              <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1 transition-colors duration-200">
+                <button
+                  onClick={() => {
+                    setUiMode('chat');
+                    setQuickResult(null); // Clear quick result when switching to chat
+                    setCustomResult(null); // Clear custom result when switching to chat
+                  }}
+                  className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 flex items-center gap-2 ${
+                    uiMode === 'chat' 
+                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' 
+                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                  }`}
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  チャット
+                </button>
+                <button
+                  onClick={() => {
+                    setUiMode('quick');
+                    setCustomResult(null); // Clear custom result when switching to quick
+                    // Keep quick result when switching to quick mode
+                  }}
+                  className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 flex items-center gap-2 ${
+                    uiMode === 'quick' 
+                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' 
+                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Zap className="w-4 h-4" />
+                  クイック質問
+                </button>
+                <button
+                  onClick={() => {
+                    setUiMode('custom');
+                    setQuickResult(null); // Clear quick result when switching to custom
+                    // Keep custom result when switching to custom mode
+                  }}
+                  className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 flex items-center gap-2 ${
+                    uiMode === 'custom' 
+                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' 
+                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Settings className="w-4 h-4" />
+                  カスタムクエリ
+                </button>
               </div>
             </div>
           </div>
 
-      {/* ===== メッセージ表示エリア ===== */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+      {/* ===== メインコンテンツエリア ===== */}
+      <div className="flex-1 overflow-y-auto">
+        {uiMode === 'chat' ? (
+          /* ===== メッセージ表示エリア ===== */
+          <div className="px-6 py-4 space-y-4 h-full">
         {/* 各メッセージをレンダリング */}
         {messages.map((message) => (
           <div
@@ -711,10 +1268,34 @@ const MLBChatApp = () => {
         
         {/* 自動スクロール用の要素 */}
         <div ref={messagesEndRef} />
+          </div>
+        ) : uiMode === 'quick' ? (
+          /* ===== クイック質問エリア ===== */
+          <div className="px-6 py-8 h-full flex items-center justify-center">
+            <QuickQuestions 
+              onQuestionClick={handleQuickQuestion} 
+              isLoading={isLoading}
+              quickResult={quickResult}
+              onClearResult={() => setQuickResult(null)}
+            />
+          </div>
+        ) : (
+          /* ===== カスタムクエリビルダーエリア ===== */
+          <div className="px-6 py-8 h-full">
+            <CustomQueryBuilder 
+              isLoading={isLoading}
+              onExecuteQuery={handleCustomQuery}
+              customResult={customResult}
+              onClearResult={() => setCustomResult(null)}
+              onSearchPlayers={searchPlayers}
+            />
+          </div>
+        )}
       </div>
 
       {/* ===== メッセージ入力エリア ===== */}
-      <div className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 px-6 py-4 transition-colors duration-200">
+      {uiMode === 'chat' && (
+        <div className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 px-6 py-4 transition-colors duration-200">
         <div className="flex gap-3 items-end">
           {/* テキストエリア */}
           <div className="flex-1">
@@ -745,8 +1326,9 @@ const MLBChatApp = () => {
             サンプル質問: 「大谷翔平 打率」「ヤンキース 勝率」「2024年のホームラン王トップ10を表で」
           </p>
         </div>
-      </div>
-        </>
+        </div>
+      )}
+      </>
       )}
     </div>
   );

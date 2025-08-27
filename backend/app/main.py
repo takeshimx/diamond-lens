@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
-from backend.app.api.endpoints import players  # For Development, add backend. path
+from backend.app.api.endpoints.router import api_router  # For Development, add backend. path
+# from backend.app.api.endpoints import ai_analytics_endpoints  # For Development, add backend. path
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 
@@ -31,6 +32,7 @@ app = FastAPI(
 origins = [
     "https://mlb-diamond-lens-frontend-907924272679.asia-northeast1.run.app", # React app at Cloud run
     "http://localhost:5173",  # ローカルReact開発サーバー
+    "http://localhost:5174",  # ローカルReact開発サーバー (alternative port)
     "http://localhost:3000",
 ]
 
@@ -46,7 +48,7 @@ app.add_middleware(
 
 
 # Include the players router into FastAPI app
-app.include_router(players.router, prefix="/api/v1", tags=["Players"])
+app.include_router(api_router, prefix="/api/v1", tags=["Players"])
 
 
 @app.get("/", summary="API router", description="API router endpoint")

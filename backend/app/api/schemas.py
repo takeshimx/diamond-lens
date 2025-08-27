@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 
+
 # PyDantic model for players information
 class PlayerBasicInfo(BaseModel):
     """
@@ -16,6 +17,8 @@ class PlayerBasicInfo(BaseModel):
     mlb_debut_year: Optional[int] = Field(None, description="MLBデビュー年")
     mlb_last_year: Optional[int] = Field(None, description="MLB最終年")
     full_name: Optional[str] = Field(None, description="選手フルネーム")
+    team: Optional[str] = Field(None, description="所属チーム名")
+    league: Optional[str] = Field(None, description="所属リーグ名")
 
 
 # Pydantic model for Shohei Ohtani's two-way stats
@@ -244,26 +247,26 @@ class PlayerStatcastData(BaseModel):
 
 
 # Pydantic model for offensive stats monthly
-class PlayerMonethlyOffensiveStats(BaseModel):
+class PlayerMonthlyOffensiveStats(BaseModel):
     """
     選手の月別打撃成績を表すスキーマ。
     APIエンドポイントのレスポンスモデルとして使用されます。
     """
-    game_year: int = Field(..., description="シーズン年")
-    game_month: int = Field(..., description="月 (1-12)")
-    batter_name: str = Field(..., description="選手名")
-    batter_id: int = Field(..., description="選手ID（MLB）")
-    hits: int = Field(..., description="安打数")
-    home_runs: int = Field(..., description="本塁打数")
-    doubles: int = Field(..., description="二塁打数")
-    triples: int = Field(..., description="三塁打数")
-    singles: int = Field(..., description="単打数")
-    walks_and_hbp: int = Field(..., description="四死球数")
-    at_bats: int = Field(..., description="打席数")
-    batting_average: float = Field(..., description="打率", ge=0.0, le=1.0)  # 打率は0.0から1.0の範囲
-    on_base_percentage: float = Field(..., description="出塁率", ge=0.0, le=1.0)  # 出塁率も0.0から1.0の範囲
-    slugging_percentage: float = Field(..., description="長打率", ge=0.0, le=4.0)  # 長打率は1.0を超えることがあるため、最大値を調整
-    on_base_plus_slugging: float = Field(..., description="OPS", ge=0.0, le=5.0)  # OPSも1.0を超えることがあるため、最大値を調整
+    game_year: Optional[int] = Field(None, description="シーズン年")
+    game_month: Optional[int] = Field(None, description="月 (1-12)")
+    batter_name: Optional[str] = Field(None, description="選手名")
+    batter_id: Optional[int] = Field(None, description="選手ID（MLB）")
+    hits: Optional[int] = Field(None, description="安打数")
+    home_runs: Optional[int] = Field(None, description="本塁打数")
+    doubles: Optional[int] = Field(None, description="二塁打数")
+    triples: Optional[int] = Field(None, description="三塁打数")
+    singles: Optional[int] = Field(None, description="単打数")
+    walks_and_hbp: Optional[int] = Field(None, description="四死球数")
+    at_bats: Optional[int] = Field(None, description="打席数")
+    batting_average: Optional[float] = Field(None, description="打率", ge=0.0, le=1.0)  # 打率は0.0から1.0の範囲
+    on_base_percentage: Optional[float] = Field(None, description="出塁率", ge=0.0, le=1.0)  # 出塁率も0.0から1.0の範囲
+    slugging_percentage: Optional[float] = Field(None, description="長打率", ge=0.0, le=4.0)  # 長打率は1.0を超えることがあるため、最大値を調整
+    on_base_plus_slugging: Optional[float] = Field(None, description="OPS", ge=0.0, le=5.0)  # OPSも1.0を超えることがあるため、最大値を調整
 
 
 # Pydantic model for batter perfomance by strike count
@@ -296,18 +299,18 @@ class PlayerBatterPerformanceAtRISPMonthly(BaseModel):
     選手の月別RISP (Runners In Scoring Position) パフォーマンスを表すスキーマ。
     APIエンドポイントのレスポンスモデルとして使用されます。
     """
-    game_year: int = Field(..., description="シーズン年")
-    game_month: int = Field(..., description="月 (1-12)")
-    batter_name: str = Field(..., description="選手名")
-    batter_id: int = Field(..., description="選手ID（MLB）")
-    hits_at_risp: int = Field(..., description="RISPでの安打数")
-    home_runs_at_risp: int = Field(..., description="RISPでの本塁打数")
-    doubles_at_risp: int = Field(..., description="RISPでの二塁打数")
-    triples_at_risp: int = Field(..., description="RISPでの三塁打数")
-    singles_at_risp: int = Field(..., description="RISPでの単打数")
-    at_bats_at_risp: int = Field(..., description="RISPでの打席数")
-    batting_average_at_risp: float = Field(..., description="RISPでの打率", ge=0.0, le=1.0)  # RISPでの打率は0.0から1.0の範囲
-    slugging_percentage_at_risp: float = Field(..., description="RISPでの長打率", ge=0.0, le=4.0)  # RISPでの長打率は1.0を超えることがあるため、最大値を調整
+    game_year: Optional[int] = Field(None, description="シーズン年")
+    game_month: Optional[int] = Field(None, description="月 (1-12)")
+    batter_name: Optional[str] = Field(None, description="選手名")
+    batter_id: Optional[int] = Field(None, description="選手ID（MLB）")
+    hits_at_risp: Optional[int] = Field(None, description="RISPでの安打数")
+    home_runs_at_risp: Optional[int] = Field(None, description="RISPでの本塁打数")
+    doubles_at_risp: Optional[int] = Field(None, description="RISPでの二塁打数")
+    triples_at_risp: Optional[int] = Field(None, description="RISPでの三塁打数")
+    singles_at_risp: Optional[int] = Field(None, description="RISPでの単打数")
+    at_bats_at_risp: Optional[int] = Field(None, description="RISPでの打席数")
+    batting_average_at_risp: Optional[float] = Field(None, description="RISPでの打率", ge=0.0, le=1.0)  # RISPでの打率は0.0から1.0の範囲
+    slugging_percentage_at_risp: Optional[float] = Field(None, description="RISPでの長打率", ge=0.0, le=4.0)  # RISPでの長打率は1.0を超えることがあるため、最大値を調整
 
 
 # Pydantic model for batter performance rolling vs season stats
@@ -496,6 +499,8 @@ class PlayerSearchItem(BaseModel):
     idfg: Optional[int] = Field(None, description="FanGraphs選手ID")
     mlb_id: Optional[int] = Field(None, description="MLB選手ID")
     player_name: str = Field(..., description="選手名") # full_nameがここに入る
+    team: Optional[str] = Field(None, description="所属チーム名")
+    league: Optional[str] = Field(None, description="所属リーグ")
 
 
 class PlayerSearchResults(BaseModel):

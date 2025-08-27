@@ -2,7 +2,18 @@
 // Start with basic line charts only
 
 import React from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { 
+  LineChart, 
+  Line, 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  Legend, 
+  ResponsiveContainer 
+} from 'recharts';
 
 const SimpleChatChart = ({ chartData, chartConfig, chartType }) => {
   console.log('🔍 SimpleChatChart props:', { chartData, chartConfig, chartType });
@@ -61,6 +72,50 @@ const SimpleChatChart = ({ chartData, chartConfig, chartType }) => {
     );
   };
 
+  const renderBarChart = () => {
+    return (
+      <ResponsiveContainer width="100%" height={350}>
+        <BarChart 
+          data={chartData} 
+          margin={{ top: 20, right: 50, left: 40, bottom: 40 }}
+        >
+          <CartesianGrid strokeDasharray="3 3" className="stroke-gray-300 dark:stroke-gray-600" />
+          <XAxis 
+            dataKey={chartConfig.xAxis} 
+            className="fill-gray-600 dark:fill-gray-300"
+            tick={{ fontSize: 12 }}
+          />
+          <YAxis 
+            className="fill-gray-600 dark:fill-gray-300"
+            tick={{ fontSize: 12 }}
+            domain={chartConfig.yDomain || ['auto', 'auto']}
+          />
+          <Tooltip 
+            contentStyle={{ 
+              backgroundColor: 'rgb(31 41 55)', 
+              border: '1px solid rgb(75 85 99)',
+              borderRadius: '0.5rem',
+              color: 'white'
+            }}
+            formatter={(value, name) => [
+              typeof value === 'number' ? Math.round(value) : value, // Round integers for bar charts
+              name
+            ]}
+          />
+          <Legend />
+          
+          {/* 単一のバー表示 */}
+          <Bar
+            dataKey={chartConfig.dataKey}
+            fill={chartConfig.lineColor || "#EF4444"}
+            name={chartConfig.lineName || "値"}
+            radius={[4, 4, 0, 0]} // Rounded top corners
+          />
+        </BarChart>
+      </ResponsiveContainer>
+    );
+  };
+
   return (
     <div className="mt-4 -mx-4 p-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
       <h4 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-4">
@@ -71,9 +126,10 @@ const SimpleChatChart = ({ chartData, chartConfig, chartType }) => {
       </div>
       <div className="w-full min-w-[600px] overflow-x-auto">
         {chartType === 'line' && renderLineChart()}
-        {chartType !== 'line' && (
+        {chartType === 'bar' && renderBarChart()}
+        {chartType !== 'line' && chartType !== 'bar' && (
           <div className="text-center text-gray-500">
-            このチャート形式は現在サポートされていません
+            このチャート形式は現在サポートされていません: {chartType}
           </div>
         )}
       </div>
@@ -81,27 +137,5 @@ const SimpleChatChart = ({ chartData, chartConfig, chartType }) => {
   );
 };
 
-// メッセージコンポーネント内での使用例
-const MessageBubble = ({ message }) => {
-  return (
-    <div className="message-bubble">
-      <p className="whitespace-pre-wrap">{message.content}</p>
-      
-      {/* 既存のテーブル表示 */}
-      {message.isTable && message.tableData && (
-        <DataTable tableData={message.tableData} columns={message.columns} />
-      )}
-      
-      {/* 新規追加: シンプルチャート表示 */}
-      {message.isChart && message.chartData && (
-        <SimpleChatChart 
-          chartData={message.chartData}
-          chartConfig={message.chartConfig}
-          chartType={message.chartType}
-        />
-      )}
-    </div>
-  );
-};
 
 export default SimpleChatChart;
