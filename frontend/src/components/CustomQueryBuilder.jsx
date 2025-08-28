@@ -291,6 +291,107 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
               </div>
             )}
 
+            {/* KPI Cards Display */}
+            {customResult.isCards && customResult.cardsData && (
+              <div className="mb-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {customResult.cardsData.map((card, index) => {
+                    // Define metric display names and formatting
+                    const metricDisplayNames = {
+                      'avg': '打率',
+                      'obp': '出塁率',
+                      'slg': '長打率',
+                      'ops': 'OPS',
+                      'h': '安打数',
+                      'hr': '本塁打',
+                      'doubles': '二塁打',
+                      'triples': '三塁打',
+                      'singles': '単打',
+                      'rbi': '打点',
+                      'r': '得点',
+                      'bb': '四球',
+                      'so': '三振',
+                      'war': 'fWAR',
+                      'woba': 'wOBA',
+                      'babip': 'BABIP',
+                      'iso': 'ISO',
+                      'wrcplus': 'wRC+',
+                      'hardhitpct': 'ハードヒット率',
+                      'barrelpct': 'バレル率'
+                    };
+
+                    // Define rate stats that should show 3 decimal places
+                    const rateStats = ['avg', 'obp', 'slg', 'ops', 'woba', 'hardhitpct', 'barrelpct', 'babip', 'iso'];
+                    // Define rate stats that should show 1 decimal place
+                    const oneDecimalRateStats = ['war'];
+
+                    // Format value based on metric type
+                    const formatValue = (value, metric) => {
+                      if (value === null || value === undefined) return 'N/A';
+                      
+                      if (rateStats.includes(metric)) {
+                        return Number(value).toFixed(3);
+                      } else if (oneDecimalRateStats.includes(metric)) {
+                        return Number(value).toFixed(1);
+                      } else {
+                        return Math.round(Number(value)).toLocaleString('ja-JP');
+                      }
+                    };
+
+                    // Get gradient colors based on metric type
+                    const getCardColors = (metric) => {
+                      if (rateStats.includes(metric)) {
+                        return {
+                          bg: 'from-blue-500 to-blue-600',
+                          icon: 'text-blue-100',
+                          text: 'text-blue-100'
+                        };
+                      } else {
+                        return {
+                          bg: 'from-green-500 to-green-600', 
+                          icon: 'text-green-100',
+                          text: 'text-green-100'
+                        };
+                      }
+                    };
+
+                    const colors = getCardColors(card.metric);
+                    const displayName = metricDisplayNames[card.metric] || card.metric;
+                    const formattedValue = formatValue(card.value, card.metric);
+
+                    return (
+                      <div 
+                        key={index}
+                        className={`p-6 rounded-xl bg-gradient-to-br ${colors.bg} shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1`}
+                      >
+                        <div className="flex items-center justify-between mb-4">
+                          <div className={`p-3 rounded-lg bg-white bg-opacity-20 ${colors.icon}`}>
+                            <TrendingUp className="w-6 h-6" />
+                          </div>
+                          <div className={`text-sm font-medium ${colors.text} opacity-90`}>
+                            {card.season}年
+                          </div>
+                        </div>
+                        
+                        <div className="mb-2">
+                          <div className={`text-3xl font-bold ${colors.text} mb-1`}>
+                            {formattedValue}
+                          </div>
+                          <div className={`text-lg font-medium ${colors.text} opacity-90`}>
+                            {displayName}
+                          </div>
+                        </div>
+                        
+                        <div className={`text-sm ${colors.text} opacity-75 border-t border-white border-opacity-20 pt-3 mt-3`}>
+                          {card.playerName}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Stats Display */}
             {customResult.stats && (
               <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">

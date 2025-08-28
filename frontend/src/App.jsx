@@ -268,7 +268,12 @@ const MLBChatApp = () => {
       
       // Build endpoint based on query type
       let endpoint;
-      if (questionParams.queryType === 'monthly_offensive_stats') {
+      if (questionParams.queryType === 'season_batting_stats') {
+        // Placeholder endpoint for season-level batting stats (will be implemented by backend)
+        endpoint = `${baseURL}/api/v1/players/${questionParams.playerId}/season-batting-stats?season=${questionParams.season}&metrics=${questionParams.metrics || questionParams.metric}`;
+      } else if (questionParams.queryType === 'monthly_batting_stats') {
+        endpoint = `${baseURL}/api/v1/players/${questionParams.playerId}/monthly-batting-stats?season=${questionParams.season}&metric=${questionParams.metric}`;
+      } else if (questionParams.queryType === 'monthly_offensive_stats') {
         endpoint = `${baseURL}/api/v1/players/${questionParams.playerId}/monthly-offensive-stats?season=${questionParams.season}&metric=${questionParams.metric}`;
       } else if (questionParams.queryType === 'monthly_risp_stats') {
         endpoint = `${baseURL}/api/v1/players/${questionParams.playerId}/performance-at-risp?season=${questionParams.season}&metric=${questionParams.metric}`;
@@ -313,54 +318,294 @@ const MLBChatApp = () => {
         apiResponse = await response.json();
         console.log('🔍 デバッグ：Fixed Query JSON response:', apiResponse);
         
-        // Check if we got valid data
-        if (Array.isArray(apiResponse) && apiResponse.length > 0) {
-          // Transform the response to chart format
+        // Check if we got valid data and handle different query types
+        if (questionParams.queryType === 'season_batting_stats') {
+          // Handle season batting stats - display as KPI cards
+          if (apiResponse && (Array.isArray(apiResponse) ? apiResponse.length > 0 : typeof apiResponse === 'object')) {
+            
+            // Handle both array and object responses
+            const data = Array.isArray(apiResponse) ? apiResponse[0] : apiResponse;
+            const playerName = data.name || data.player_name || data.batter_name || 'Selected Player';
+            const season = data.season || questionParams.season;
+            
+            console.log('🔍 Debug - Season batting stats response:', apiResponse);
+            console.log('🔍 Debug - Extracted data:', data);
+            console.log('🔍 Debug - Player name:', playerName);
+            console.log('🔍 Debug - Season:', season);
+            
+            // Create KPI cards data from the season stats response
+            const createKPICards = (data, metrics, season, playerName) => {
+              const cards = [];
+              
+              // If metrics is a string, convert to array
+              const metricsArray = typeof metrics === 'string' ? [metrics] : (metrics || []);
+              
+              console.log('🔍 Debug - Metrics array:', metricsArray);
+              console.log('🔍 Debug - Data keys:', Object.keys(data));
+              
+              metricsArray.forEach(metricKey => {
+                const value = data[metricKey];
+                console.log(`🔍 Debug - Checking metric "${metricKey}":`, value);
+                
+                if (value !== undefined && value !== null) {
+                  cards.push({
+                    metric: metricKey,
+                    value: value,
+                    playerName: playerName,
+                    season: season
+                  });
+                }
+              });
+              
+              return cards;
+            };
+            
+            const kpiCards = createKPICards(
+              data, 
+              questionParams.metrics || [questionParams.metric], 
+              season, 
+              playerName
+            );
+            
+            console.log('🔍 Debug - KPI cards data:', kpiCards);
+            
+            return {
+              answer: `${playerName}選手の${season}年シーズン成績をKPIカードで表示します。`,
+              isTable: false,
+              isTransposed: false,
+              tableData: null,
+              columns: null,
+              decimalColumns: [],
+              grouping: null,
+              stats: null,
+              isChart: false,
+              chartType: null,
+              chartData: null,
+              chartConfig: null,
+              isCards: true, // New property to indicate card display
+              cardsData: kpiCards
+            };
+          } else {
+            // No data found for season batting stats
+            console.log('⚠️ デバッグ：No season batting stats data found');
+            return {
+              answer: 'シーズン打撃成績データが見つかりませんでした。',
+              isTable: false,
+              isChart: false,
+              isCards: false
+            };
+          }
+        } else if (Array.isArray(apiResponse) && apiResponse.length > 0) {
+          // Transform the response to chart format (for monthly data)
           // Use the actual metric field instead of metric_value
-          const metricField = questionParams.metric; // e.g., 'batting_average'
+          const metricField = questionParams.metric; // e.g., 'avg', 'homeruns', etc.
+          const playerName = apiResponse[0].batter_name || 'Selected Player';
           console.log('🔍 Debug - Metric field:', metricField);
+          console.log('🔍 Debug - Player name:', playerName);
           console.log('🔍 Debug - Sample item:', apiResponse[0]);
           console.log('🔍 Debug - Sample metric value:', apiResponse[0][metricField]);
           
+          // Create chart data with dynamic data key based on metric
           const chartData = apiResponse.map(item => ({
             month: `${item.game_month}月`,
-            batting_average: item[metricField] || 0
+            value: item[metricField] || 0  // Use 'value' as consistent data key
           }));
           
           console.log('🔍 Debug - Chart data:', chartData);
           
           // Generate dynamic chart configuration based on metric
-          const getChartConfig = (metric, season) => {
+          const getChartConfig = (metric, season, playerName) => {
             const configs = {
-              'batting_average': {
-                title: `大谷翔平 ${season}年月別打率推移`,
+              // Rate stats (line charts)
+              'avg': {
+                title: `${playerName} ${season}年月別打率推移`,
                 yAxisLabel: '打率',
                 yDomain: [0, 0.500],
                 lineColor: '#3B82F6',
                 chartType: 'line'
               },
-              'batting_average_at_risp': {
-                title: `大谷翔平 ${season}年月別RISP打率推移`,
-                yAxisLabel: 'RISP打率',
-                yDomain: [0, 0.600],
+              'batting_average': {
+                title: `${playerName} ${season}年月別打率推移`,
+                yAxisLabel: '打率',
+                yDomain: [0, 0.500],
+                lineColor: '#3B82F6',
+                chartType: 'line'
+              },
+              'obp': {
+                title: `${playerName} ${season}年月別出塁率推移`,
+                yAxisLabel: '出塁率',
+                yDomain: [0, 0.500],
                 lineColor: '#10B981',
                 chartType: 'line'
               },
-              'home_runs': {
-                title: `大谷翔平 ${season}年月別ホームラン数`,
+              'slg': {
+                title: `${playerName} ${season}年月別長打率推移`,
+                yAxisLabel: '長打率',
+                yDomain: [0, 0.800],
+                lineColor: '#F59E0B',
+                chartType: 'line'
+              },
+              'ops': {
+                title: `${playerName} ${season}年月別OPS推移`,
+                yAxisLabel: 'OPS',
+                yDomain: [0, 1.500],
+                lineColor: '#8B5CF6',
+                chartType: 'line'
+              },
+              'woba': {
+                title: `${playerName} ${season}年月別wOBA推移`,
+                yAxisLabel: 'wOBA',
+                yDomain: [0, 0.500],
+                lineColor: '#EC4899',
+                chartType: 'line'
+              },
+              'war': {
+                title: `${playerName} ${season}年月別WAR推移`,
+                yAxisLabel: 'WAR',
+                yDomain: [-1, 4],
+                lineColor: '#6366F1',
+                chartType: 'line'
+              },
+              'wrc_plus': {
+                title: `${playerName} ${season}年月別wRC+推移`,
+                yAxisLabel: 'wRC+',
+                yDomain: [0, 200],
+                lineColor: '#DC2626',
+                chartType: 'line'
+              },
+              
+              // Counting stats (bar charts)
+              'hits': {
+                title: `${playerName} ${season}年月別安打数`,
+                yAxisLabel: '安打数',
+                yDomain: [0, 50],
+                lineColor: '#10B981',
+                chartType: 'bar'
+              },
+              'homeruns': {
+                title: `${playerName} ${season}年月別ホームラン数`,
                 yAxisLabel: 'ホームラン数',
                 yDomain: [0, 15],
                 lineColor: '#EF4444',
                 chartType: 'bar'
+              },
+              'home_runs': {
+                title: `${playerName} ${season}年月別ホームラン数`,
+                yAxisLabel: 'ホームラン数', 
+                yDomain: [0, 15],
+                lineColor: '#EF4444',
+                chartType: 'bar'
+              },
+              'doubles': {
+                title: `${playerName} ${season}年月別二塁打数`,
+                yAxisLabel: '二塁打数',
+                yDomain: [0, 12],
+                lineColor: '#F59E0B',
+                chartType: 'bar'
+              },
+              'triples': {
+                title: `${playerName} ${season}年月別三塁打数`,
+                yAxisLabel: '三塁打数',
+                yDomain: [0, 5],
+                lineColor: '#8B5CF6',
+                chartType: 'bar'
+              },
+              'singles': {
+                title: `${playerName} ${season}年月別単打数`,
+                yAxisLabel: '単打数',
+                yDomain: [0, 40],
+                lineColor: '#06B6D4',
+                chartType: 'bar'
+              },
+              'rbi': {
+                title: `${playerName} ${season}年月別打点数`,
+                yAxisLabel: '打点数',
+                yDomain: [0, 30],
+                lineColor: '#DC2626',
+                chartType: 'bar'
+              },
+              'runs': {
+                title: `${playerName} ${season}年月別得点数`,
+                yAxisLabel: '得点数',
+                yDomain: [0, 30],
+                lineColor: '#059669',
+                chartType: 'bar'
+              },
+              'walks': {
+                title: `${playerName} ${season}年月別四球数`,
+                yAxisLabel: '四球数',
+                yDomain: [0, 25],
+                lineColor: '#7C3AED',
+                chartType: 'bar'
+              },
+              'strikeouts': {
+                title: `${playerName} ${season}年月別三振数`,
+                yAxisLabel: '三振数',
+                yDomain: [0, 40],
+                lineColor: '#DC2626',
+                chartType: 'bar'
+              },
+              
+              // Rate percentage stats (line charts)
+              'hard_hit_rate': {
+                title: `${playerName} ${season}年月別ハードヒット率推移`,
+                yAxisLabel: 'ハードヒット率',
+                yDomain: [0, 1],
+                lineColor: '#F59E0B',
+                chartType: 'line'
+              },
+              'barrels_rate': {
+                title: `${playerName} ${season}年月別バレル率推移`,
+                yAxisLabel: 'バレル率',
+                yDomain: [0, 1],
+                lineColor: '#10B981',
+                chartType: 'line'
+              },
+              'walk_rate': {
+                title: `${playerName} ${season}年月別四球率推移`,
+                yAxisLabel: '四球率 (%)',
+                yDomain: [0, 25],
+                lineColor: '#7C3AED',
+                chartType: 'line'
+              },
+              'strikeout_rate': {
+                title: `${playerName} ${season}年月別三振率推移`,
+                yAxisLabel: '三振率 (%)',
+                yDomain: [0, 40],
+                lineColor: '#DC2626',
+                chartType: 'line'
+              },
+              'swing_rate': {
+                title: `${playerName} ${season}年月別スイング率推移`,
+                yAxisLabel: 'スイング率 (%)',
+                yDomain: [0, 100],
+                lineColor: '#F59E0B',
+                chartType: 'line'
+              },
+              'contact_rate': {
+                title: `${playerName} ${season}年月別コンタクト率推移`,
+                yAxisLabel: 'コンタクト率 (%)',
+                yDomain: [0, 100],
+                lineColor: '#10B981',
+                chartType: 'line'
+              },
+              
+              // Legacy/other stats
+              'batting_average_at_risp': {
+                title: `${playerName} ${season}年月別RISP打率推移`,
+                yAxisLabel: 'RISP打率',
+                yDomain: [0, 0.600],
+                lineColor: '#10B981',
+                chartType: 'line'
               }
             };
             
-            const config = configs[metric] || configs['batting_average'];
+            const config = configs[metric] || configs['avg'];
             
             return {
               title: config.title,
               xAxis: 'month',
-              dataKey: 'batting_average', // Always use this as the data key in chartData
+              dataKey: 'value', // Use consistent 'value' data key
               lineColor: config.lineColor,
               lineName: config.yAxisLabel,
               yDomain: config.yDomain,
@@ -368,22 +613,48 @@ const MLBChatApp = () => {
             };
           };
           
-          const chartConfig = getChartConfig(questionParams.metric, questionParams.season);
+          const chartConfig = getChartConfig(questionParams.metric, questionParams.season, playerName);
           
           console.log('✅ デバッグ：Fixed Query API呼び出し成功');
           
           // Generate dynamic answer text
-          const getAnswerText = (metric, season) => {
+          const getAnswerText = (metric, season, playerName) => {
             const texts = {
-              'batting_average': `大谷翔平選手の${season}年月別打率推移をチャートで表示します。`,
-              'batting_average_at_risp': `大谷翔平選手の${season}年月別RISP打率推移をチャートで表示します。`,
-              'home_runs': `大谷翔平選手の${season}年月別ホームラン数をチャートで表示します。`
+              // Rate stats
+              'avg': `${playerName}選手の${season}年月別打率推移をチャートで表示します。`,
+              'batting_average': `${playerName}選手の${season}年月別打率推移をチャートで表示します。`,
+              'obp': `${playerName}選手の${season}年月別出塁率推移をチャートで表示します。`,
+              'slg': `${playerName}選手の${season}年月別長打率推移をチャートで表示します。`,
+              'ops': `${playerName}選手の${season}年月別OPS推移をチャートで表示します。`,
+              
+              // Counting stats
+              'hits': `${playerName}選手の${season}年月別安打数をチャートで表示します。`,
+              'homeruns': `${playerName}選手の${season}年月別ホームラン数をチャートで表示します。`,
+              'home_runs': `${playerName}選手の${season}年月別ホームラン数をチャートで表示します。`,
+              'doubles': `${playerName}選手の${season}年月別二塁打数をチャートで表示します。`,
+              'triples': `${playerName}選手の${season}年月別三塁打数をチャートで表示します。`,
+              'singles': `${playerName}選手の${season}年月別単打数をチャートで表示します。`,
+              'rbi': `${playerName}選手の${season}年月別打点数をチャートで表示します。`,
+              'runs': `${playerName}選手の${season}年月別得点数をチャートで表示します。`,
+              'walks': `${playerName}選手の${season}年月別四球数をチャートで表示します。`,
+              'strikeouts': `${playerName}選手の${season}年月別三振数をチャートで表示します。`,
+              
+              // Rate percentage stats  
+              'hard_hit_rate': `${playerName}選手の${season}年月別ハードヒット率推移をチャートで表示します。`,
+              'barrels_rate': `${playerName}選手の${season}年月別バレル率推移をチャートで表示します。`,
+              'walk_rate': `${playerName}選手の${season}年月別四球率推移をチャートで表示します。`,
+              'strikeout_rate': `${playerName}選手の${season}年月別三振率推移をチャートで表示します。`,
+              'swing_rate': `${playerName}選手の${season}年月別スイング率推移をチャートで表示します。`,
+              'contact_rate': `${playerName}選手の${season}年月別コンタクト率推移をチャートで表示します。`,
+              
+              // Legacy/other stats
+              'batting_average_at_risp': `${playerName}選手の${season}年月別RISP打率推移をチャートで表示します。`
             };
-            return texts[metric] || texts['batting_average'];
+            return texts[metric] || texts['avg'];
           };
           
           return {
-            answer: getAnswerText(questionParams.metric, questionParams.season),
+            answer: getAnswerText(questionParams.metric, questionParams.season, playerName),
             isTable: false,
             isTransposed: false,
             tableData: null,
@@ -453,6 +724,7 @@ const MLBChatApp = () => {
       };
     }
   };
+
 
   // 認証関連の処理
   const handleAuthentication = async () => {
@@ -617,7 +889,7 @@ const MLBChatApp = () => {
     try {
       // Extract parameters from queryState for direct BigQuery API calls
       const params = {
-        playerId: queryState.player.id,
+        playerId: queryState.player.mlb_id || queryState.player.id, // Use mlb_id when available
         season: queryState.seasonMode === 'all' ? null : queryState.specificYear,
         metrics: queryState.metrics,
         category: queryState.category.id
@@ -630,13 +902,118 @@ const MLBChatApp = () => {
       const primaryMetric = queryState.metrics[0]; // Use first metric for API call
 
       // Route to appropriate endpoint based on category
-      if (queryState.category.id === 'monthly_trends' && primaryMetric) {
-        // Monthly trends - use existing endpoint
+      if (queryState.category.id === 'season_batting' && primaryMetric) {
+        // Season batting stats - use season-level batting stats endpoint for KPI cards
+        // Backend will use fact_batting_stats_with_risp table with PlayerBattingSeasonStats model
+        const metricMapping = {
+          // Direct mapping to backend fields (based on PlayerBattingSeasonStats schema)
+          'plate_appearances': 'pa',
+          'at_bats': 'ab',
+          'games': 'g',
+          'batting_average': 'avg',
+          'hits': 'h', 
+          'home_runs': 'hr',
+          'doubles': '2b',
+          'triples': '3b',
+          'singles': '1b',
+          'obp': 'obp',
+          'slg': 'slg',
+          'ops': 'ops',
+          'walks': 'bb',
+          'rbi': 'rbi',
+          'runs': 'r',
+          'woba': 'woba',
+          'war': 'war',
+          'wrc_plus': 'wrcplus',
+          'strikeouts': 'so',
+
+          // Advanced metrics (may be added later)
+          'babip': 'babip',
+          'iso': 'iso',
+          'hard_hit_rate': 'hardhitpct',
+          'barrels_rate': 'barrelpct',
+          'launch_angle': null,
+          'exit_velocity': null,
+          'walk_rate': null,
+          'strikeout_rate': null,
+          'swing_rate': null,
+          'contact_rate': null
+        };
+        
+        // Map all selected metrics
+        const mappedMetrics = queryState.metrics
+          .map(metric => {
+            const backendMetric = metricMapping[metric];
+            if (backendMetric === null) {
+              console.warn(`Metric "${metric}" not supported yet`);
+              return null;
+            }
+            if (!backendMetric) {
+              console.warn(`Unknown metric: ${metric}`);
+              return null;
+            }
+            return backendMetric;
+          })
+          .filter(Boolean);
+          
+        console.log('🔍 Season batting - Frontend metrics:', queryState.metrics, '-> Backend metrics:', mappedMetrics);
+        
+        if (mappedMetrics.length === 0) {
+          throw new Error(`選択された指標はサポートされていません。`);
+        }
+        
         const queryParams = {
           playerId: params.playerId,
           season: params.season || 2024,
-          metric: primaryMetric,
-          queryType: 'monthly_offensive_stats'
+          metrics: mappedMetrics, // Pass all mapped metrics
+          queryType: 'season_batting_stats' // New query type for season-level KPI cards
+        };
+        response = await callFixedQueryAPI(queryParams);
+        
+      } else if (queryState.category.id === 'monthly_trends' && primaryMetric) {
+        // Monthly trends - use endpoint depending on metric
+
+        const metricMapping = {
+          // Direct mapping to backend fields
+          'monthly_avg': 'avg',
+          'monthly_hits': 'hits', 
+          'monthly_hr': 'homeruns',
+          'monthly_singles': 'singles',
+          'monthly_doubles': 'doubles',
+          'monthly_triples': 'triples',
+          'monthly_obp': 'obp',
+          'monthly_slg': 'slg',
+          'monthly_ops': 'ops',
+          'monthly_bb_hbp': 'bb_hbp',  // walks + HBP combined
+          'monthly_rbi': 'rbi',
+          'monthly_so': 'so',
+          'monthly_hard_hit_rate': 'hard_hit_rate',
+          'monthly_barrels_rate': 'barrels_rate',
+          'monthly_strikeout_rate': 'strikeout_rate',
+
+          // Metrics not supported by backend yet (will show as unavailable)
+          'walk_rate': null,
+          'swing_rate': null,
+          'contact_rate': null
+        };
+
+        const backendMetric = metricMapping[primaryMetric];
+        console.log('🔍 Monthly trends - Frontend metric:', primaryMetric, '-> Backend metric:', backendMetric);
+        
+        // Check if metric is supported by backend
+        if (backendMetric === null) {
+          throw new Error(`指標「${primaryMetric}」は現在サポートされていません。サポート済み指標: 打率、安打数、打点、ホームラン数、二塁打、三塁打、単打、四球、出塁率、長打率、OPS`);
+        }
+        
+        if (!backendMetric) {
+          throw new Error(`未知の指標です: ${primaryMetric}`);
+        }
+
+        const queryParams = {
+          playerId: params.playerId,
+          season: params.season || 2024,
+          metric: backendMetric,
+          queryType: 'monthly_batting_stats'
         };
         response = await callFixedQueryAPI(queryParams);
         
@@ -797,6 +1174,8 @@ const MLBChatApp = () => {
         chartType: response.chartType || null,
         chartData: response.chartData || null,
         chartConfig: response.chartConfig || null,
+        isCards: response.isCards || false,
+        cardsData: response.cardsData || null,
         timestamp: new Date()
       });
       

@@ -52,11 +52,6 @@ const PlayerAutocomplete = ({ selectedPlayer, onPlayerSelect, isActive, onSearch
     { id: 592450, name: 'ムーキー・ベッツ', name_en: 'Mookie Betts', team: 'LAD', league: 'NL' },
     { id: 596019, name: 'アーロン・ジャッジ', name_en: 'Aaron Judge', team: 'NYY', league: 'AL' },
     { id: 408234, name: 'クレイトン・カーショウ', name_en: 'Clayton Kershaw', team: 'LAD', league: 'NL' },
-    { id: 502110, name: 'ホセ・アルトゥーベ', name_en: 'Jose Altuve', team: 'HOU', league: 'AL' },
-    { id: 608369, name: '前田健太', name_en: 'Kenta Maeda', team: 'MIN', league: 'AL' },
-    { id: 553882, name: 'ダルビッシュ有', name_en: 'Yu Darvish', team: 'SD', league: 'NL' },
-    { id: 666201, name: '鈴木誠也', name_en: 'Seiya Suzuki', team: 'CHC', league: 'NL' },
-    { id: 678394, name: 'フアン・ソト', name_en: 'Juan Soto', team: 'SD', league: 'NL' }
   ];
 
   // Search players using API when search term changes

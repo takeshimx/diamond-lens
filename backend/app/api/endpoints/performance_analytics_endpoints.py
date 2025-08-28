@@ -5,13 +5,16 @@ import logging
 # サービス層とスキーマをインポート
 from backend.app.services.stats_service import ( # For Development, add backend. path
     get_batter_monthly_offensive_stats,
-    get_batter_performance_at_risp
+    get_batter_performance_at_risp,
+    get_season_batting_stats,
+    get_monthly_batting_stats
 )
 from backend.app.api.schemas import (
     PlayerMonthlyOffensiveStats,
-    PlayerBatterPerformanceAtRISPMonthly
+    PlayerBatterPerformanceAtRISPMonthly,
+    PlayerBattingSeasonStats,
+    PlayerMonthlyBattingStats
 )
-
 
 # ロガーの設定
 logging.basicConfig(level=logging.INFO)
@@ -19,6 +22,67 @@ logger = logging.getLogger(__name__)
 
 # APIRouterインスタンスを作成
 router = APIRouter(tags=["performance-analytics"])
+
+
+@router.get(
+    "/players/{player_id}/season-batting-stats",
+    response_model=List[PlayerBattingSeasonStats],
+    summary="選手のシーズン打撃成績を取得",
+    description="指定された選手IDに基づいて、シーズンの打撃成績を取得します。",
+    tags=["players"]
+)
+async def get_season_batting_stats_endpoint(
+    player_id: int = Path(..., description="取得したい選手のID"),
+    season: Optional[int] = Query(None, description="取得するシーズン (年)"),
+    metrics: Optional[List[str]] = Query(None, description="取得するメトリックのリスト")
+):
+    """
+    指定された選手のシーズン打撃成績を取得します。
+    """
+
+    # Convert the metrics list to a tuple (hashable object) for the service layer
+    metrics_tuple = tuple(metrics) if metrics else ()
+
+    # Get data from the service layer
+    stats_data = get_season_batting_stats(player_id, season, metrics_tuple)
+
+    # If no data is found, raise a 404 error
+    if stats_data is None:
+        raise HTTPException(status_code=404, detail="Batting stats data not found for the specified parameters.")
+
+    # Return the list of stats items
+    return stats_data
+
+
+
+@router.get(
+    "/players/{player_id}/monthly-batting-stats",
+    response_model=List[PlayerMonthlyBattingStats],
+    summary="選手の月別打撃成績を取得",
+    description="指定された選手IDに基づいて、月別の打撃成績を取得します。",
+    tags=["players"]
+)
+async def get_monthly_batting_stats_endpoint(
+    player_id: int = Path(..., description="取得したい選手のID"),
+    season: Optional[int] = Query(None, description="取得するシーズン (年) を指定。省略時は全シーズンを対象"),
+    month: Optional[int] = Query(None, description="取得する月を指定。省略時は全月を対象"),
+    metric: Optional[str] = Query(None, description="取得するメトリックを指定。省略時は全メトリックを対象")
+):
+    """
+    指定された選手の月別打撃成績を取得します。
+    シーズンを指定しない場合は、全シーズンの成績を返します。
+    成績が見つからない場合は404エラーを返します。
+    """
+    # Get data from the service layer
+    monthly_stats = get_monthly_batting_stats(player_id, season, month, metric)
+
+    # If no data is found, raise a 404 error
+    if monthly_stats is None:
+        raise HTTPException(status_code=404, detail=f"Monthly batting stats not found for player {player_id}.")
+    
+    # Return the list of monthly stats
+    return monthly_stats
+
 
 # Router for monthly offensive stats
 @router.get(

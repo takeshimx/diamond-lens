@@ -13,6 +13,9 @@ const MetricSelector = ({ category, selectedMetrics, onMetricsChange, isActive }
         icon: BarChart3,
         color: 'bg-blue-500',
         metrics: [
+          { id: 'plate_appearances', name: '打席数', description: '打席数', unit: 'PA' },
+          { id: 'at_bats', name: '打数', description: '打数', unit: 'AB' },
+          { id: 'games', name: '試合数', description: '試合数', unit: '試合' },
           { id: 'batting_average', name: '打率', description: '安打数 ÷ 打数', unit: '' },
           { id: 'home_runs', name: 'ホームラン', description: 'ホームラン数', unit: '本' },
           { id: 'rbi', name: 'RBI', description: '打点', unit: '点' },
@@ -20,6 +23,7 @@ const MetricSelector = ({ category, selectedMetrics, onMetricsChange, isActive }
           { id: 'hits', name: '安打', description: '安打数', unit: '本' },
           { id: 'doubles', name: '二塁打', description: '二塁打数', unit: '本' },
           { id: 'triples', name: '三塁打', description: '三塁打数', unit: '本' },
+          { id: 'singles', name: '一塁打', description: '一塁打数', unit: '本' }
         ]
       },
       advanced: {
@@ -46,6 +50,18 @@ const MetricSelector = ({ category, selectedMetrics, onMetricsChange, isActive }
           { id: 'strikeout_rate', name: 'K%', description: '三振率', unit: '%' },
           { id: 'swing_rate', name: 'Swing%', description: 'スイング率', unit: '%' },
           { id: 'contact_rate', name: 'Contact%', description: 'コンタクト率', unit: '%' },
+        ]
+      },
+      batted_ball: {
+        title: '打球特性',
+        icon: Activity,
+        color: 'bg-red-500',
+        metrics: [
+          { id: 'babip', name: 'BABIP', description: '被本塁打以外の打球がヒットになる割合', unit: '' },
+          { id: 'hard_hit_rate', name: 'ハードヒット率', description: 'ハードヒットの割合', unit: '%' },
+          { id: 'barrels_rate', name: 'バレル率', description: 'バレルの割合', unit: '%' },
+          { id: 'launch_angle', name: '打球角度', description: '平均打球角度', unit: '度' },
+          { id: 'exit_velocity', name: '打球速度', description: '平均打球速度', unit: 'mph' },
         ]
       }
     },
@@ -112,6 +128,17 @@ const MetricSelector = ({ category, selectedMetrics, onMetricsChange, isActive }
           { id: 'monthly_hr', name: '月別ホームラン', description: '各月のホームラン数', unit: '本' },
           { id: 'monthly_rbi', name: '月別RBI', description: '各月の打点数', unit: '点' },
           { id: 'monthly_ops', name: '月別OPS', description: '各月のOPS', unit: '' },
+          { id: 'monthly_obp', name: '月別出塁率', description: '各月の出塁率', unit: '' },
+          { id: 'monthly_slg', name: '月別長打率', description: '各月の長打率', unit: '' },
+          { id: 'monthly_singles', name: '月別単打', description: '各月の単打数', unit: '本' },
+          { id: 'monthly_doubles', name: '月別二塁打', description: '各月の二塁打数', unit: '本' },
+          { id: 'monthly_triples', name: '月別三塁打', description: '各月の三塁打数', unit: '本' },
+          { id: 'monthly_hits', name: '月別ヒット', description: '各月のヒット数', unit: '本' },
+          { id: 'monthly_bb_hbp', name: '月別四球・死球', description: '各月の四球・死球数', unit: '個' },
+          { id: 'monthly_so', name: '月別三振', description: '各月の三振数', unit: '個' },
+          { id: 'monthly_hard_hit_rate', name: '月別ハードヒット率', description: '各月のハードヒット率', unit: '%' },
+          { id: 'monthly_barrels_rate', name: '月別バレル率', description: '各月のバレル率', unit: '%' },
+          { id: 'monthly_strikeout_rate', name: '月別三振率', description: '各月の三振率', unit: '%' },
         ]
       }
     }

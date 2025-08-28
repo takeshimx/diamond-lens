@@ -10,11 +10,14 @@ import numpy as np
 from functools import lru_cache
 from backend.app.api.schemas import (
     PlayerMonthlyOffensiveStats,
-    PlayerBatterPerformanceAtRISPMonthly
+    PlayerBatterPerformanceAtRISPMonthly,
+    PlayerMonthlyBattingStats,
+    PlayerBattingSeasonStats
 )
 from .base import (
     get_bq_client, client, logger,
     PROJECT_ID, DATASET_ID,
+    BATTING_STATS_TABLE_ID,
     BATTING_OFFENSIVE_STATS_TABLE_ID,
     BAT_PERFORMANCE_SC_TABLE_ID,
     BAT_PERFORMANCE_RISP_TABLE_ID,
@@ -23,6 +26,150 @@ from .base import (
     PITCHING_PERFORMANCE_BY_INNING_TABLE_ID,
 )
 
+
+@lru_cache(maxsize=128)
+def get_season_batting_stats(
+    player_id: int,
+    season: int,
+    metrics: List[str]
+) -> Optional[List[PlayerBattingSeasonStats]]:
+    """
+    指定された選手、シーズン、打撃シーズン統計を取得します。
+    """
+
+    selected_metrics = f"{', '.join(metrics)}" if metrics else "*"
+
+    query = f"""
+        SELECT
+            mlbid,
+            season,
+            name,
+            team,
+            league,
+            g,
+            ab,
+            pa,
+            {selected_metrics}
+        FROM
+            `{PROJECT_ID}.{DATASET_ID}.{BATTING_STATS_TABLE_ID}`
+        WHERE
+            mlbid = @player_id
+            AND season = @season
+        ORDER BY
+            season ASC
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("player_id", "INT64", player_id),
+            bigquery.ScalarQueryParameter("season", "INT64", season)
+        ]
+    )
+
+    # ★★★ デバッグログの追加 ★★★
+    logger.debug(f"Executing BigQuery query for season batting stats:")
+    logger.debug(f"Query: {query}")
+    logger.debug(f"Parameters: {job_config.query_parameters}")
+    # ★★★ デバッグログの追加ここまで ★★★
+
+    try:
+        df = client.query(query, job_config=job_config).to_dataframe()
+
+        # ★★★ デバッグログの追加: データフレームの内容を確認 ★★★
+        logger.debug(f"DataFrame fetched. Shape: {df.shape}")
+        if not df.empty:
+            logger.debug(f"DataFrame head:\n{df.head().to_string()}")
+        # ★★★ デバッグログの追加ここまで ★★★
+
+        if df.empty:
+            print(f"DEBUG: No batting leaderboard data found for player {player_id}, season {season}")
+            return []
+        
+        results: List[PlayerBattingSeasonStats] = [] # PlayerBattingSeasonStatsのリストとして初期化
+        for _, row in df.iterrows():
+            results.append(PlayerBattingSeasonStats(**row.to_dict()))
+        return results
+
+    except GoogleCloudError as e:
+        print(f"ERROR: BigQuery query for batting leaderboard failed for player {player_id}, season {season}: {e}")
+        return None
+    except Exception as e:
+        print(f"ERROR: An unexpected error occurred while fetching batting leaderboard for player {player_id}, season {season}: {e}")
+        return None
+
+
+# function to get batter monthly offensive stats
+@lru_cache(maxsize=128)
+def get_monthly_batting_stats(
+    player_id: int,
+    season: int, 
+    month: Optional[int],
+    metric: Optional[str] = None
+) -> Optional[List[PlayerMonthlyBattingStats]]:
+    """
+    指定された選手名とシーズンに基づいて、選手の月別打撃成績を取得します。
+    """
+    available_metrics = ["hits", "homeruns", "doubles", "triples", "singles", "rbi", 
+                         "bb_hbp", "ab", "avg", "obp", "slg", "ops", "hard_hit_rate", "barrels_rate", "strikeout_rate"]
+    if not metric or metric not in available_metrics:
+        logger.warning(f"Invalid or no metric provided: {metric}.")
+        return []
+
+    query = f"""
+        SELECT
+            game_year,
+            game_month,
+            batter_name,
+            batter_id,
+            {metric}
+        FROM
+            `{PROJECT_ID}.{DATASET_ID}.tbl_batting_stats_monthly`
+        WHERE
+            batter_id = @player_id
+            AND game_year = @season
+        ORDER BY
+            game_year ASC, game_month ASC
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("player_id", "INT64", player_id),
+            bigquery.ScalarQueryParameter("season", "INT64", season),
+        ]
+    )
+
+    # Debugging
+    logger.debug(f"Executing BigQuery query for batter monthly batting stats: {query}")
+
+    try:
+        df = client.query(query, job_config=job_config).to_dataframe()
+
+        # Debugging
+        logger.debug(f"Batter Monthly Batting Stats DataFrame fetched. Shape: {df.shape} First row: {df.iloc[0] if not df.empty else 'N/A'}")
+
+        if df.empty:
+            logger.debug(f"No monthly offensive stats found for player {player_id} in season {season}")
+            return []
+
+        results: List[PlayerMonthlyBattingStats] = []  # PlayerMonthlyOffensiveStatsのリストとして初期化
+        for _, row in df.iterrows():
+            stat_data = {
+                "game_year": row['game_year'],
+                "game_month": row['game_month'],
+                "batter_name": row['batter_name'],
+                "batter_id": row['batter_id']
+            }
+            # Add metric value
+            stat_data[metric] = row[metric]
+
+            # Generate Pydantic model
+            results.append(PlayerMonthlyBattingStats(**stat_data))
+
+        return results
+    except GoogleCloudError as e:
+        print(f"ERROR: BigQuery query for batter monthly batting stats failed for player {player_id} in season {season}: {e}")
+        return None
+
+
+# NOTE: This will be deprecated
 # function to get batter monthly offensive stats
 @lru_cache(maxsize=128)
 def get_batter_monthly_offensive_stats(
