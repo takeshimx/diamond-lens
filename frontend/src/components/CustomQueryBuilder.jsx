@@ -6,6 +6,9 @@ import SeasonSelector from './SeasonSelector.jsx';
 import MetricSelector from './MetricSelector.jsx';
 import QueryPreview from './QueryPreview.jsx';
 import SimpleChatChart from './ChatChart.jsx';
+import LeagueSelector from './LeagueSelector.jsx';
+import MetricOrderSelector from './MetricOrderSelector.jsx';
+import LeaderboardTable from './LeaderboardTable.jsx';
 
 const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearResult, onSearchPlayers }) => {
   // Query builder state
@@ -15,6 +18,8 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
     seasonMode: 'specific', // 'all' or 'specific'
     specificYear: 2024,
     metrics: [],
+    league: 'MLB', // For leaderboard categories
+    metricOrder: '', // For leaderboard categories
     step: 1 // Current step in the builder (1-5)
   });
 
@@ -31,6 +36,8 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
       seasonMode: 'specific',
       specificYear: 2024,
       metrics: [],
+      league: 'MLB',
+      metricOrder: '',
       step: 1
     });
     if (onClearResult) {
@@ -47,12 +54,21 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
 
   // Check if current step is complete
   const isStepComplete = (step) => {
+    const isLeaderboard = queryState.category && 
+      (queryState.category.id === 'batting_leaderboard' || queryState.category.id === 'pitching_leaderboard');
+    
     switch (step) {
       case 1: return queryState.category !== null;
-      case 2: return queryState.player !== null;
+      case 2: 
+        if (isLeaderboard) return true; // Skip player selection for leaderboards
+        return queryState.player !== null;
       case 3: return true; // Season selection always valid (has default)
-      case 4: return queryState.metrics.length > 0;
-      case 5: return isStepComplete(1) && isStepComplete(2) && isStepComplete(4);
+      case 4: 
+        if (isLeaderboard) return queryState.metricOrder !== '';
+        return queryState.metrics.length > 0;
+      case 5: 
+        if (isLeaderboard) return isStepComplete(1) && isStepComplete(3) && isStepComplete(4);
+        return isStepComplete(1) && isStepComplete(2) && isStepComplete(4);
       default: return false;
     }
   };
@@ -93,11 +109,32 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
 
       {/* Step Labels */}
       <div className="grid grid-cols-5 gap-4 text-center text-xs text-gray-500 dark:text-gray-400">
-        <div>カテゴリ</div>
-        <div>選手選択</div>
-        <div>シーズン</div>
-        <div>指標選択</div>
-        <div>実行</div>
+        {(() => {
+          const isLeaderboard = queryState.category && 
+            (queryState.category.id === 'batting_leaderboard' || queryState.category.id === 'pitching_leaderboard');
+          
+          if (isLeaderboard) {
+            return (
+              <>
+                <div>カテゴリ</div>
+                <div>リーグ</div>
+                <div>シーズン</div>
+                <div>ソート指標</div>
+                <div>実行</div>
+              </>
+            );
+          } else {
+            return (
+              <>
+                <div>カテゴリ</div>
+                <div>選手選択</div>
+                <div>シーズン</div>
+                <div>指標選択</div>
+                <div>実行</div>
+              </>
+            );
+          }
+        })()}
       </div>
 
       {/* Query Builder Steps */}
@@ -110,28 +147,57 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
             <CategorySelector 
               selectedCategory={queryState.category}
               onCategorySelect={(category) => {
-                updateQueryState({ category, step: 2 });
+                const isLeaderboard = category.id === 'batting_leaderboard' || category.id === 'pitching_leaderboard';
+                // Set default metricOrder for leaderboards
+                const defaultMetricOrder = category.id === 'batting_leaderboard' ? 'ops' : 
+                                         category.id === 'pitching_leaderboard' ? 'era' : '';
+                updateQueryState({ 
+                  category, 
+                  metricOrder: isLeaderboard ? defaultMetricOrder : queryState.metricOrder,
+                  step: 2 
+                });
               }}
               isActive={queryState.step === 1}
             />
           </div>
         )}
 
-        {/* Step 2: Player Selection */}
-        {queryState.step >= 2 && (
-          <div className={`transition-opacity duration-300 ${
-            queryState.step === 2 ? 'opacity-100' : 'opacity-75'
-          }`}>
-            <PlayerAutocomplete
-              selectedPlayer={queryState.player}
-              onPlayerSelect={(player) => {
-                updateQueryState({ player, step: 3 });
-              }}
-              isActive={queryState.step === 2}
-              onSearchPlayers={onSearchPlayers}
-            />
-          </div>
-        )}
+        {/* Step 2: Player Selection or League Selection */}
+        {queryState.step >= 2 && (() => {
+          const isLeaderboard = queryState.category && 
+            (queryState.category.id === 'batting_leaderboard' || queryState.category.id === 'pitching_leaderboard');
+          
+          if (isLeaderboard) {
+            return (
+              <div className={`transition-opacity duration-300 ${
+                queryState.step === 2 ? 'opacity-100' : 'opacity-75'
+              }`}>
+                <LeagueSelector
+                  selectedLeague={queryState.league}
+                  onLeagueChange={(league) => {
+                    updateQueryState({ league, step: 3 });
+                  }}
+                  isActive={queryState.step === 2}
+                />
+              </div>
+            );
+          } else {
+            return (
+              <div className={`transition-opacity duration-300 ${
+                queryState.step === 2 ? 'opacity-100' : 'opacity-75'
+              }`}>
+                <PlayerAutocomplete
+                  selectedPlayer={queryState.player}
+                  onPlayerSelect={(player) => {
+                    updateQueryState({ player, step: 3 });
+                  }}
+                  isActive={queryState.step === 2}
+                  onSearchPlayers={onSearchPlayers}
+                />
+              </div>
+            );
+          }
+        })()}
 
         {/* Step 3: Season Selection */}
         {queryState.step >= 3 && (
@@ -149,24 +215,53 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
           </div>
         )}
 
-        {/* Step 4: Metrics Selection */}
-        {queryState.step >= 4 && queryState.category && (
-          <div className={`transition-opacity duration-300 ${
-            queryState.step === 4 ? 'opacity-100' : 'opacity-75'
-          }`}>
-            <MetricSelector
-              category={queryState.category}
-              selectedMetrics={queryState.metrics}
-              onMetricsChange={(metrics) => {
-                updateQueryState({ 
-                  metrics, 
-                  step: metrics.length > 0 ? 5 : 4 
-                });
-              }}
-              isActive={queryState.step === 4}
-            />
-          </div>
-        )}
+        {/* Step 4: Metrics Selection or Metric Order Selection */}
+        {queryState.step >= 4 && queryState.category && (() => {
+          const isLeaderboard = queryState.category && 
+            (queryState.category.id === 'batting_leaderboard' || queryState.category.id === 'pitching_leaderboard');
+          
+          if (isLeaderboard) {
+            return (
+              <div className={`transition-opacity duration-300 ${
+                queryState.step === 4 ? 'opacity-100' : 'opacity-75'
+              }`}>
+                <MetricOrderSelector
+                  selectedMetricOrder={queryState.metricOrder}
+                  onMetricOrderChange={(metricOrder) => {
+                    updateQueryState({ 
+                      metricOrder, 
+                      step: metricOrder ? 5 : 4 
+                    });
+                  }}
+                  category={queryState.category}
+                  isActive={queryState.step === 4}
+                />
+              </div>
+            );
+          } else {
+            return (
+              <div className={`transition-opacity duration-300 ${
+                queryState.step === 4 ? 'opacity-100' : 'opacity-75'
+              }`}>
+                <MetricSelector
+                  category={queryState.category}
+                  selectedMetrics={queryState.metrics}
+                  onMetricsChange={(metrics) => {
+                    console.log('CustomQueryBuilder: Received metrics update:', metrics);
+                    console.log('CustomQueryBuilder: Current queryState.metrics:', queryState.metrics);
+                    console.log('CustomQueryBuilder: Current step:', queryState.step);
+                    console.log('CustomQueryBuilder: isActive will be:', queryState.step === 4);
+                    updateQueryState({ 
+                      metrics 
+                      // Don't auto-advance step - let user manually go to step 5
+                    });
+                  }}
+                  isActive={queryState.step === 4}
+                />
+              </div>
+            );
+          }
+        })()}
 
         {/* Step 5: Query Preview & Execute */}
         {queryState.step >= 5 && (
@@ -204,7 +299,41 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
       )}
 
       {/* Results Display Section */}
-      {customResult && (
+      {customResult && (() => {
+        console.log('🔍 CustomQueryBuilder - customResult:', customResult);
+        console.log('🔍 CustomQueryBuilder - isMultiChart:', customResult.isMultiChart);
+        console.log('🔍 CustomQueryBuilder - charts:', customResult.charts);
+        const isLeaderboardResult = customResult.isLeaderboard || 
+          (queryState.category && 
+           (queryState.category.id === 'batting_leaderboard' || queryState.category.id === 'pitching_leaderboard'));
+        
+        if (isLeaderboardResult) {
+          return (
+            <div className="mt-8 border-t border-gray-200 dark:border-gray-700 pt-8">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-white transition-colors duration-200">
+                  リーダーボード結果
+                </h3>
+                <button
+                  onClick={onClearResult}
+                  className="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors duration-200 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
+                >
+                  結果をクリア
+                </button>
+              </div>
+              
+              <LeaderboardTable
+                data={customResult.data || customResult.leaderboardData}
+                category={queryState.category}
+                metricOrder={queryState.metricOrder}
+                isLoading={false}
+                error={customResult.error}
+              />
+            </div>
+          );
+        }
+        
+        return (
         <div className="mt-8 border-t border-gray-200 dark:border-gray-700 pt-8">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-xl font-semibold text-gray-900 dark:text-white transition-colors duration-200">
@@ -236,6 +365,24 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
                 {customResult.answer}
               </p>
             </div>
+
+            {/* Multiple Charts Display */}
+            {customResult.isMultiChart && customResult.charts && (
+              <div className="mb-4 space-y-6">
+                {customResult.charts.map((chart, index) => (
+                  <div key={index} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                    <h5 className="text-lg font-medium text-gray-900 dark:text-white mb-3">
+                      {chart.metricDisplayName} の月別推移
+                    </h5>
+                    <SimpleChatChart 
+                      chartData={chart.chartData}
+                      chartConfig={chart.chartConfig}
+                      chartType={chart.chartType}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Chart Display */}
             {customResult.isChart && customResult.chartData && customResult.chartConfig && (
@@ -296,34 +443,88 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
               <div className="mb-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {customResult.cardsData.map((card, index) => {
-                    // Define metric display names and formatting
-                    const metricDisplayNames = {
-                      'avg': '打率',
-                      'obp': '出塁率',
-                      'slg': '長打率',
-                      'ops': 'OPS',
-                      'h': '安打数',
-                      'hr': '本塁打',
-                      'doubles': '二塁打',
-                      'triples': '三塁打',
-                      'singles': '単打',
-                      'rbi': '打点',
-                      'r': '得点',
-                      'bb': '四球',
-                      'so': '三振',
-                      'war': 'fWAR',
-                      'woba': 'wOBA',
-                      'babip': 'BABIP',
-                      'iso': 'ISO',
-                      'wrcplus': 'wRC+',
-                      'hardhitpct': 'ハードヒット率',
-                      'barrelpct': 'バレル率'
+                    // Define metric display names based on context (batting vs pitching)
+                    const getMetricDisplayName = (metric, isPitching = false) => {
+                      const battingMetrics = {
+                        'pa': '打席数',
+                        'ab': '打数',
+                        'g': '試合数',
+                        'avg': '打率',
+                        'obp': '出塁率',
+                        'slg': '長打率',
+                        'ops': 'OPS',
+                        'h': '安打数',
+                        'hr': '本塁打',
+                        'doubles': '二塁打',
+                        'triples': '三塁打',
+                        'singles': '単打',
+                        'rbi': '打点',
+                        'r': '得点',
+                        'bb': '四球',
+                        'so': '三振',
+                        'war': 'fWAR',
+                        'woba': 'wOBA',
+                        'babip': 'BABIP',
+                        'iso': 'ISO',
+                        'wrcplus': 'wRC+',
+                        'hardhitpct': 'ハードヒット率',
+                        'barrelpct': 'バレル率',
+                        'batting_average_at_risp': 'RISP時打率',
+                        'slugging_percentage_at_risp': 'RISP時長打率',
+                        'home_runs_at_risp': 'RISP時HR'
+                      };
+                      
+                      const pitchingMetrics = {
+                        'era': '防御率',
+                        'whip': 'WHIP',
+                        'fip': 'FIP',
+                        'w': '勝利数',
+                        'l': '敗戦数',
+                        'sv': 'セーブ数',
+                        'g': '登板数',
+                        'gs': '先発数',
+                        'cg': '完投数',
+                        'sho': '完封数',
+                        'ip': '投球回',
+                        'so': '奪三振数',
+                        'avg': '被打率',
+                        'h': '被安打数',
+                        'hr': '被本塁打数',
+                        'bb': '与四球数',
+                        'r': '失点',
+                        'er': '自責点',
+                        'k_9': 'K/9',
+                        'bb_9': 'BB/9',
+                        'k_bb': 'K/BB',
+                        'hr_9': 'HR/9',
+                        'lobpct': '残塁率',
+                        'gbpct': 'ゴロ率',
+                        'swstrpct': 'スイングミス率',
+                        'hardhitpct': '被ハードヒット率',
+                        'barrelpct': '被バレル率',
+                        'war': 'fWAR'
+                      };
+                      
+                      if (isPitching) {
+                        return pitchingMetrics[metric] || metric;
+                      } else {
+                        return battingMetrics[metric] || metric;
+                      }
                     };
+                    
+                    // Detect if this is a pitching metric card
+                    // Check if ANY card in the current result set contains pitching-only metrics
+                    const isPitchingContext = customResult.cardsData.some(c => 
+                      ['era', 'whip', 'fip', 'w', 'l', 'sv', 'gs', 'cg', 'sho', 'ip', 'k_9', 'bb_9', 'k_bb', 'hr_9', 'lobpct', 'gbpct', 'swstrpct'].includes(c.metric)
+                    );
+                    const isPitchingCard = isPitchingContext;
 
                     // Define rate stats that should show 3 decimal places
-                    const rateStats = ['avg', 'obp', 'slg', 'ops', 'woba', 'hardhitpct', 'barrelpct', 'babip', 'iso'];
+                    const rateStats = ['avg', 'obp', 'slg', 'ops', 'woba', 'hardhitpct', 'barrelpct', 'babip', 'iso', 'lobpct', 'gbpct', 'swstrpct', 'batting_average_at_risp', 'slugging_percentage_at_risp'];
                     // Define rate stats that should show 1 decimal place
-                    const oneDecimalRateStats = ['war'];
+                    const oneDecimalRateStats = ['ip', 'war', 'k_9', 'bb_9', 'k_bb', 'hr_9'];
+                    // Define rate stats that should show 2 decimal places
+                    const twoDecimalRateStats = ['era', 'fip', 'whip'];
 
                     // Format value based on metric type
                     const formatValue = (value, metric) => {
@@ -333,6 +534,8 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
                         return Number(value).toFixed(3);
                       } else if (oneDecimalRateStats.includes(metric)) {
                         return Number(value).toFixed(1);
+                      } else if (twoDecimalRateStats.includes(metric)) {
+                        return Number(value).toFixed(2);
                       } else {
                         return Math.round(Number(value)).toLocaleString('ja-JP');
                       }
@@ -356,7 +559,7 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
                     };
 
                     const colors = getCardColors(card.metric);
-                    const displayName = metricDisplayNames[card.metric] || card.metric;
+                    const displayName = getMetricDisplayName(card.metric, isPitchingCard);
                     const formattedValue = formatValue(card.value, card.metric);
 
                     return (
@@ -422,7 +625,8 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 };

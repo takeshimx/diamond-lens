@@ -193,9 +193,10 @@ class PlayerPitchingSeasonStats(BaseModel):
     選手の年度別投手成績を表すスキーマ。
     APIエンドポイントのレスポンスモデルとして使用されます。
     """
-    idfg: int = Field(..., description="選手ID（FanGraphs）")
+    idfg: Optional[int] = Field(None, description="選手ID（FanGraphs）")
+    mlbid: Optional[int] = Field(None, description="選手ID（MLB）")
     season: Optional[int] = Field(None, description="シーズン年")
-    name: str = Field(..., description="選手名")
+    name: Optional[str] = Field(None, description="選手名")
     team: Optional[str] = Field(None, description="所属チーム名")
     league: Optional[str] = Field(None, description="所属リーグ")
     w: Optional[int] = Field(None, description="勝利数")
@@ -203,17 +204,19 @@ class PlayerPitchingSeasonStats(BaseModel):
     sv: Optional[int] = Field(None, description="セーブ数")
     g: Optional[int] = Field(None, description="出場試合数")
     gs: Optional[int] = Field(None, description="先発試合数")
+    cg: Optional[int] = Field(None, description="完投数")
+    sho: Optional[int] = Field(None, description="完封数")
     ip: Optional[float] = Field(None, description="投球回数")
     h: Optional[int] = Field(None, description="被安打数")
     hr: Optional[int] = Field(None, description="被本塁打数")
     r: Optional[int] = Field(None, description="自責点")
     er: Optional[int] = Field(None, description="")
     bb: Optional[int] = Field(None, description="与四球数")
-    so: int = Field(..., description="三振数")
+    so: Optional[int] = Field(None, description="三振数")
     hbp: Optional[int] = Field(None, description="被死球数")  # Hit By Pitch
-    whip: float = Field(..., description="WHIP", ge=0.0)  # WHIPは0以上の値
-    era: float = Field(..., description="防御率", ge=0.0)  # 防御率も0以上の値
-    fip: Optional[float] = Field(None, description="FIP", ge=0.0)  # FIPも0以上の値
+    whip: Optional[float] = Field(None, description="WHIP", ge=0.0)  # WHIPは0以上の値
+    era: Optional[float] = Field(None, description="防御率", ge=0.0)  # 防御率も0以上の値
+    fip: Optional[float] = Field(None, description="FIP: 投手の守備力や運に依存しない、純粋な投手力（奪三振、与四死球、被本塁打など）を評価するための指標 ", ge=0.0)  # FIPも0以上の値
     k_9: Optional[float] = Field(None, description="9イニングあたりの三振数", ge=0.0)  # 9イニングあたりの三振数も0以上の値
     bb_9: Optional[float] = Field(None, description="9イニングあたりの与四球数", ge=0.0)  # 9イニングあたりの与四球数も0以上の値
     k_bb: Optional[float] = Field(None, description="三振と四球の比率", ge=0.0)  # 三振と四球の比率も0以上の値

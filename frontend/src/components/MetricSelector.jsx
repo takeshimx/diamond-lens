@@ -4,6 +4,9 @@ import { BarChart3, Target, Activity, TrendingUp, CheckCircle2, Circle } from 'l
 const MetricSelector = ({ category, selectedMetrics, onMetricsChange, isActive }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedGroups, setExpandedGroups] = useState({});
+  
+  console.log('MetricSelector: Received selectedMetrics prop:', selectedMetrics);
+  console.log('MetricSelector: isActive prop:', isActive);
 
   // Metric definitions based on category
   const metricDefinitions = {
@@ -21,9 +24,9 @@ const MetricSelector = ({ category, selectedMetrics, onMetricsChange, isActive }
           { id: 'rbi', name: 'RBI', description: '打点', unit: '点' },
           { id: 'runs', name: '得点', description: '得点数', unit: '点' },
           { id: 'hits', name: '安打', description: '安打数', unit: '本' },
-          { id: 'doubles', name: '二塁打', description: '二塁打数', unit: '本' },
-          { id: 'triples', name: '三塁打', description: '三塁打数', unit: '本' },
-          { id: 'singles', name: '一塁打', description: '一塁打数', unit: '本' }
+          // { id: 'doubles', name: '二塁打', description: '二塁打数', unit: '本' },
+          // { id: 'triples', name: '三塁打', description: '三塁打数', unit: '本' },
+          // { id: 'singles', name: '一塁打', description: '一塁打数', unit: '本' }
         ]
       },
       advanced: {
@@ -37,6 +40,9 @@ const MetricSelector = ({ category, selectedMetrics, onMetricsChange, isActive }
           { id: 'woba', name: 'wOBA', description: '加重出塁率', unit: '' },
           { id: 'war', name: 'WAR', description: '代替選手に対する価値', unit: '' },
           { id: 'wrc_plus', name: 'wRC+', description: '調整済み得点創造', unit: '' },
+          { id: 'batting_average_at_risp', name: 'RISP時打率', description: 'RISP時の打率', unit: '' },
+          { id: 'slugging_percentage_at_risp', name: 'RISP時長打率', description: 'RISP時の長打率', unit: '' },
+          { id: 'home_runs_at_risp', name: 'RISP時HR', description: 'RISP時のホームラン数', unit: '' }
         ]
       },
       plate_discipline: {
@@ -46,10 +52,10 @@ const MetricSelector = ({ category, selectedMetrics, onMetricsChange, isActive }
         metrics: [
           { id: 'walks', name: '四球', description: '四球数', unit: '個' },
           { id: 'strikeouts', name: '三振', description: '三振数', unit: '個' },
-          { id: 'walk_rate', name: 'BB%', description: '四球率', unit: '%' },
+          // { id: 'walk_rate', name: 'BB%', description: '四球率', unit: '%' },
           { id: 'strikeout_rate', name: 'K%', description: '三振率', unit: '%' },
-          { id: 'swing_rate', name: 'Swing%', description: 'スイング率', unit: '%' },
-          { id: 'contact_rate', name: 'Contact%', description: 'コンタクト率', unit: '%' },
+          // { id: 'swing_rate', name: 'Swing%', description: 'スイング率', unit: '%' },
+          // { id: 'contact_rate', name: 'Contact%', description: 'コンタクト率', unit: '%' },
         ]
       },
       batted_ball: {
@@ -58,10 +64,11 @@ const MetricSelector = ({ category, selectedMetrics, onMetricsChange, isActive }
         color: 'bg-red-500',
         metrics: [
           { id: 'babip', name: 'BABIP', description: '被本塁打以外の打球がヒットになる割合', unit: '' },
+          { id: 'iso', name: 'ISO', description: '長打率から単打を除外した、純粋な長打力を示す指標', unit: '' },
           { id: 'hard_hit_rate', name: 'ハードヒット率', description: 'ハードヒットの割合', unit: '%' },
           { id: 'barrels_rate', name: 'バレル率', description: 'バレルの割合', unit: '%' },
-          { id: 'launch_angle', name: '打球角度', description: '平均打球角度', unit: '度' },
-          { id: 'exit_velocity', name: '打球速度', description: '平均打球速度', unit: 'mph' },
+          // { id: 'launch_angle', name: '打球角度', description: '平均打球角度', unit: '度' },
+          // { id: 'exit_velocity', name: '打球速度', description: '平均打球速度', unit: 'mph' },
         ]
       }
     },
@@ -71,50 +78,35 @@ const MetricSelector = ({ category, selectedMetrics, onMetricsChange, isActive }
         icon: Target,
         color: 'bg-green-500',
         metrics: [
+          { id: 'inning_pitched', name: '投球回', description: '投球回数', unit: '回' },
+          { id: 'game_started', name: '先発試合数', description: '先発した試合数', unit: '試合' },
           { id: 'era', name: '防御率', description: '自責点 × 9 ÷ 投球回数', unit: '' },
+          { id: 'whip', name: 'WHIP', description: '(被安打+与四球) ÷ 投球回数', unit: '' },
           { id: 'wins', name: '勝利', description: '勝利数', unit: '勝' },
           { id: 'losses', name: '敗戦', description: '敗戦数', unit: '敗' },
           { id: 'saves', name: 'セーブ', description: 'セーブ数', unit: 'S' },
-          { id: 'innings_pitched', name: '投球回', description: '投球回数', unit: '回' },
           { id: 'strikeouts', name: '奪三振', description: '奪三振数', unit: '個' },
           { id: 'walks', name: '四球', description: '与四球数', unit: '個' },
+          { id: 'hits', name: '被安打', description: '被安打数', unit: '個' },
+          { id: 'home_runs', name: '被本塁打', description: '被本塁打数', unit: '本' },
+          { id: 'batting_average_against', name: '被打率', description: '被打率', unit: '%' }
         ]
+
       },
       advanced: {
         title: '高度投手指標',
         icon: Activity,
         color: 'bg-purple-500',
         metrics: [
-          { id: 'whip', name: 'WHIP', description: '(被安打+与四球) ÷ 投球回数', unit: '' },
           { id: 'fip', name: 'FIP', description: '守備無関係防御率', unit: '' },
-          { id: 'xfip', name: 'xFIP', description: '予想FIP', unit: '' },
           { id: 'war', name: 'WAR', description: '代替選手に対する価値', unit: '' },
           { id: 'k_9', name: 'K/9', description: '9回あたり奪三振', unit: '' },
           { id: 'bb_9', name: 'BB/9', description: '9回あたり与四球', unit: '' },
-        ]
-      }
-    },
-    batting_splits: {
-      situational: {
-        title: '場面別成績',
-        icon: Activity,
-        color: 'bg-orange-500',
-        metrics: [
-          { id: 'risp_avg', name: 'RISP打率', description: '得点圏打率', unit: '' },
-          { id: 'bases_loaded_avg', name: '満塁時打率', description: '満塁での打率', unit: '' },
-          { id: 'clutch_avg', name: 'クラッチ打率', description: '接戦時の打率', unit: '' },
-          { id: 'two_outs_risp', name: '2死得点圏打率', description: '2死得点圏での打率', unit: '' },
-        ]
-      },
-      vs_pitcher: {
-        title: '対投手別',
-        icon: Target,
-        color: 'bg-red-500',
-        metrics: [
-          { id: 'vs_lhp_avg', name: '対左投手打率', description: '左投手に対する打率', unit: '' },
-          { id: 'vs_rhp_avg', name: '対右投手打率', description: '右投手に対する打率', unit: '' },
-          { id: 'vs_lhp_ops', name: '対左投手OPS', description: '左投手に対するOPS', unit: '' },
-          { id: 'vs_rhp_ops', name: '対右投手OPS', description: '右投手に対するOPS', unit: '' },
+          { id: 'k_bb', name: 'K/BB', description: '奪三振と与四球の比率', unit: '' },
+          { id: 'left_on_base_percentage', name: 'LOB%', description: '残塁率', unit: '%' },
+          { id: 'ground_ball_percentage', name: 'GB%', description: 'ゴロ打球割合', unit: '%' },
+          { id: 'barrel_percentage', name: 'Barrel%', description: '被バレル率', unit: '%' },
+          { id: 'hard_hit_percentage', name: 'Hard Hit%', description: '被ハードヒット率', unit: '%' }
         ]
       }
     },
@@ -176,6 +168,10 @@ const MetricSelector = ({ category, selectedMetrics, onMetricsChange, isActive }
     const updatedMetrics = selectedMetrics.includes(metricId)
       ? selectedMetrics.filter(id => id !== metricId)
       : [...selectedMetrics, metricId];
+    
+    console.log('MetricSelector: Toggling metric:', metricId);
+    console.log('MetricSelector: Current selected:', selectedMetrics);
+    console.log('MetricSelector: Updated selected:', updatedMetrics);
     
     onMetricsChange(updatedMetrics);
   };
@@ -273,7 +269,6 @@ const MetricSelector = ({ category, selectedMetrics, onMetricsChange, isActive }
           const isExpanded = expandedGroups[groupKey];
           const groupMetricIds = group.metrics.map(m => m.id);
           const allSelected = groupMetricIds.every(id => selectedMetrics.includes(id));
-          const someSelected = groupMetricIds.some(id => selectedMetrics.includes(id));
 
           return (
             <div key={groupKey} className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
@@ -310,7 +305,7 @@ const MetricSelector = ({ category, selectedMetrics, onMetricsChange, isActive }
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      isActive && handleSelectAll(group.metrics);
+                      handleSelectAll(group.metrics);
                     }}
                     disabled={!isActive}
                     className={`text-sm font-medium transition-colors duration-200 ${
@@ -342,7 +337,7 @@ const MetricSelector = ({ category, selectedMetrics, onMetricsChange, isActive }
                       return (
                         <button
                           key={metric.id}
-                          onClick={() => isActive && handleMetricToggle(metric.id)}
+                          onClick={() => handleMetricToggle(metric.id)}
                           disabled={!isActive}
                           className={`
                             flex items-start space-x-3 p-3 text-left rounded-lg border transition-all duration-200

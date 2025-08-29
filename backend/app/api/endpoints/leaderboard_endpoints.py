@@ -82,32 +82,32 @@ async def get_batting_leaderboard_endpoint(
 #     return leaderboard_data
 
 
-# @router.get(
-#     "/leaderboards/pitching",
-#     response_model=List[PlayerPitchingSeasonStats],
-#     summary="投球リーダーボードを取得",
-#     description="指定されたシーズン、リーグ、最小投球回で投球リーダーボードのトップ20選手を取得します。",
-#     tags=["leaderboards"]
-# )
-# async def get_pitching_leaderboard_endpoint(
-#     season: int = Query(..., description="取得したいシーズン年"),
-#     league: str = Query("MLB", description="リーグ (MLB, AL, NL)", regex="^(MLB|AL|NL)$"),
-#     min_ip: int = Query(..., ge=1, description="最小投球回"),
-#     metric_order: str = Query("era", description="")
-# ):
-#     """
-#     指定されたシーズン、リーグ、最小投球回で投球リーダーボードのトップ20選手を取得します。
-#     データが見つからない場合は404エラーを返します。
-#     """
-#     # Get data from the service layer
-#     leaderboard_data = get_pitching_leaderboard(season, league, min_ip, metric_order)
+@router.get(
+    "/leaderboards/pitching",
+    response_model=List[PlayerPitchingSeasonStats],
+    summary="投球リーダーボードを取得",
+    description="指定されたシーズン、リーグ、最小投球回で投球リーダーボードのトップ20選手を取得します。",
+    tags=["leaderboards"]
+)
+async def get_pitching_leaderboard_endpoint(
+    season: int = Query(..., description="取得したいシーズン年"),
+    league: str = Query("MLB", description="リーグ (MLB, AL, NL)", regex="^(MLB|AL|NL)$"),
+    min_ip: int = Query(..., ge=1, description="最小投球回"),
+    metric_order: str = Query("era", description="")
+):
+    """
+    指定されたシーズン、リーグ、最小投球回で投球リーダーボードのトップ20選手を取得します。
+    データが見つからない場合は404エラーを返します。
+    """
+    # Get data from the service layer
+    leaderboard_data = get_pitching_leaderboard(season, league, min_ip, metric_order)
 
-#     # If no data is found, raise a 404 error
-#     if leaderboard_data is None:
-#         raise HTTPException(status_code=404, detail="Pitching leaderboard data not found for the specified parameters.")
+    # If no data is found, raise a 404 error
+    if leaderboard_data is None:
+        raise HTTPException(status_code=404, detail="Pitching leaderboard data not found for the specified parameters.")
 
-#     # Return the list of leaderboard items
-#     return leaderboard_data
+    # Return the list of leaderboard items
+    return leaderboard_data
 
 
 # @router.get(

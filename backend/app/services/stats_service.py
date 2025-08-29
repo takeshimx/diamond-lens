@@ -12,7 +12,8 @@ from backend.app.api.schemas import (
     PlayerMonthlyOffensiveStats,
     PlayerBatterPerformanceAtRISPMonthly,
     PlayerMonthlyBattingStats,
-    PlayerBattingSeasonStats
+    PlayerBattingSeasonStats,
+    PlayerPitchingSeasonStats
 )
 from .base import (
     get_bq_client, client, logger,
@@ -30,14 +31,29 @@ from .base import (
 @lru_cache(maxsize=128)
 def get_season_batting_stats(
     player_id: int,
-    season: int,
-    metrics: List[str]
+    season: Optional[int],  # Allow None for all seasons
+    metrics: tuple  # Changed from List[str] to tuple for caching
 ) -> Optional[List[PlayerBattingSeasonStats]]:
     """
     指定された選手、シーズン、打撃シーズン統計を取得します。
     """
 
     selected_metrics = f"{', '.join(metrics)}" if metrics else "*"
+
+    # Build WHERE clause based on season parameter
+    if season is not None:
+        # Specific season
+        where_clause = "mlbid = @player_id AND season = @season"
+        query_parameters = [
+            bigquery.ScalarQueryParameter("player_id", "INT64", player_id),
+            bigquery.ScalarQueryParameter("season", "INT64", season)
+        ]
+    else:
+        # All seasons
+        where_clause = "mlbid = @player_id"
+        query_parameters = [
+            bigquery.ScalarQueryParameter("player_id", "INT64", player_id)
+        ]
 
     query = f"""
         SELECT
@@ -53,21 +69,17 @@ def get_season_batting_stats(
         FROM
             `{PROJECT_ID}.{DATASET_ID}.{BATTING_STATS_TABLE_ID}`
         WHERE
-            mlbid = @player_id
-            AND season = @season
+            {where_clause}
         ORDER BY
             season ASC
     """
-    job_config = bigquery.QueryJobConfig(
-        query_parameters=[
-            bigquery.ScalarQueryParameter("player_id", "INT64", player_id),
-            bigquery.ScalarQueryParameter("season", "INT64", season)
-        ]
-    )
+    
+    job_config = bigquery.QueryJobConfig(query_parameters=query_parameters)
 
     # ★★★ デバッグログの追加 ★★★
     logger.debug(f"Executing BigQuery query for season batting stats:")
-    logger.debug(f"Query: {query}")
+    logger.debug(f"Player ID: {player_id}, Season: {season}, Metrics: {metrics}")
+    logger.debug(f"Generated SQL Query: {query}")
     logger.debug(f"Parameters: {job_config.query_parameters}")
     # ★★★ デバッグログの追加ここまで ★★★
 
@@ -81,7 +93,7 @@ def get_season_batting_stats(
         # ★★★ デバッグログの追加ここまで ★★★
 
         if df.empty:
-            print(f"DEBUG: No batting leaderboard data found for player {player_id}, season {season}")
+            print(f"DEBUG: No batting stats data found for player {player_id}, season {season}")
             return []
         
         results: List[PlayerBattingSeasonStats] = [] # PlayerBattingSeasonStatsのリストとして初期化
@@ -90,10 +102,10 @@ def get_season_batting_stats(
         return results
 
     except GoogleCloudError as e:
-        print(f"ERROR: BigQuery query for batting leaderboard failed for player {player_id}, season {season}: {e}")
+        print(f"ERROR: BigQuery query for batting stats failed for player {player_id}, season {season}: {e}")
         return None
     except Exception as e:
-        print(f"ERROR: An unexpected error occurred while fetching batting leaderboard for player {player_id}, season {season}: {e}")
+        print(f"ERROR: An unexpected error occurred while fetching batting stats for player {player_id}, season {season}: {e}")
         return None
 
 
@@ -235,6 +247,85 @@ def get_batter_monthly_offensive_stats(
         print(f"ERROR: BigQuery query for batter monthly offensive stats failed for player {player_id} in season {season}: {e}")
         return None
 
+
+@lru_cache(maxsize=128)
+def get_season_pitching_stats(
+    player_id: int,
+    season: Optional[int],  # Allow None for all seasons
+    metrics: tuple  # Changed from List[str] to tuple for caching
+) -> Optional[List[PlayerPitchingSeasonStats]]:
+    """
+    指定された選手、シーズン、投手シーズン統計を取得します。
+    """
+
+    selected_metrics = f"{', '.join(metrics)}" if metrics else "*"
+
+    # Build WHERE clause based on season parameter
+    if season is not None:
+        # Specific season
+        where_clause = "mlbid = @player_id AND season = @season"
+        query_parameters = [
+            bigquery.ScalarQueryParameter("player_id", "INT64", player_id),
+            bigquery.ScalarQueryParameter("season", "INT64", season)
+        ]
+    else:
+        # All seasons
+        where_clause = "mlbid = @player_id"
+        query_parameters = [
+            bigquery.ScalarQueryParameter("player_id", "INT64", player_id)
+        ]
+
+    query = f"""
+        SELECT
+            mlbid,
+            season,
+            name,
+            team,
+            league,
+            g,
+            ip,
+            {selected_metrics}
+        FROM
+            `{PROJECT_ID}.{DATASET_ID}.fact_pitching_stats_master`
+        WHERE
+            {where_clause}
+        ORDER BY
+            season ASC
+    """
+    
+    job_config = bigquery.QueryJobConfig(query_parameters=query_parameters)
+
+    # ★★★ デバッグログの追加 ★★★
+    logger.debug(f"Executing BigQuery query for season pitching stats:")
+    logger.debug(f"Player ID: {player_id}, Season: {season}, Metrics: {metrics}")
+    logger.debug(f"Generated SQL Query: {query}")
+    logger.debug(f"Parameters: {job_config.query_parameters}")
+    # ★★★ デバッグログの追加ここまで ★★★
+
+    try:
+        df = client.query(query, job_config=job_config).to_dataframe()
+
+        # ★★★ デバッグログの追加: データフレームの内容を確認 ★★★
+        logger.debug(f"DataFrame fetched. Shape: {df.shape}")
+        if not df.empty:
+            logger.debug(f"DataFrame head:\n{df.head().to_string()}")
+        # ★★★ デバッグログの追加ここまで ★★★
+
+        if df.empty:
+            print(f"DEBUG: No pitching stats data found for player {player_id}, season {season}")
+            return []
+
+        results: List[PlayerPitchingSeasonStats] = [] # PlayerPitchingSeasonStatsのリストとして初期化
+        for _, row in df.iterrows():
+            results.append(PlayerPitchingSeasonStats(**row.to_dict()))
+        return results
+
+    except GoogleCloudError as e:
+        print(f"ERROR: BigQuery query for pitching stats failed for player {player_id}, season {season}: {e}")
+        return None
+    except Exception as e:
+        print(f"ERROR: An unexpected error occurred while fetching pitching stats for player {player_id}, season {season}: {e}")
+        return None
 
 # # Function to get batter performance by strike count
 # @lru_cache(maxsize=128)

@@ -21,11 +21,11 @@ const CategorySelector = ({ selectedCategory, onCategorySelect, isActive }) => {
     },
     {
       id: 'batting_splits',
-      title: '場面別打撃成績',
+      title: '場面別打撃成績 (TBU)',
       description: 'RISP、対左右投手など特定場面での成績',
       icon: Activity,
       color: 'bg-purple-500',
-      examples: ['RISP打率', '対左投手', '満塁時', 'イニング別']
+      examples: ['RISP', '対左投手', '満塁時', 'イニング別']
     },
     {
       id: 'monthly_trends',
@@ -36,20 +36,52 @@ const CategorySelector = ({ selectedCategory, onCategorySelect, isActive }) => {
       examples: ['月別打率', '月別ホームラン', '月別防御率']
     },
     {
-      id: 'team_comparison',
-      title: 'チーム比較',
-      description: 'リーグ内でのチーム成績比較',
-      icon: Users,
-      color: 'bg-red-500',
-      examples: ['チーム打率', 'チーム防御率', 'ホームラン数']
+      id: 'pitching_splits',
+      title: '場面別投手成績 (TBU)',
+      description: 'イニング別、RISPなど特定場面での成績',
+      icon: Activity,
+      color: 'bg-purple-500',
+      examples: ['RISP', '対左打者', '満塁時', 'イニング別']
     },
+    // { [P1] TBU
+    //   id: 'team_comparison',
+    //   title: 'チーム比較',
+    //   description: 'リーグ内でのチーム成績比較',
+    //   icon: Users,
+    //   color: 'bg-red-500',
+    //   examples: ['チーム打率', 'チーム防御率', 'ホームラン数']
+    // },
     {
       id: 'career_stats',
-      title: '通算成績',
+      title: '通算成績 (TBU)',
       description: '選手のキャリア全体の成績推移',
       icon: Calendar,
       color: 'bg-indigo-500',
       examples: ['年度別推移', '通算記録', 'キャリアハイ']
+    },
+    {
+      id: 'batting_leaderboard',
+      title: '打撃リーダーボード',
+      description: 'MLB全体、リーグ別の打撃トップ選手',
+      icon: BarChart3,
+      color: 'bg-blue-500',
+      examples: ['打率', 'ホームラン数', 'RBI', 'OPS']
+    },
+    {
+      id: 'pitching_leaderboard',
+      title: '投手リーダーボード',
+      description: 'MLB全体、リーグ別の投手トップ選手',
+      icon: BarChart3,
+      color: 'bg-green-500',
+      examples: ['防御率', '奪三振数', 'WHIP', '勝利数']
+    },
+    {
+      id: 'pitching_advanced_analysis',
+      title: '投手高度分析 (TBU)',
+      description: '投手の詳細なパフォーマンス分析',
+      icon: BarChart3,
+      color: 'bg-green-500',
+      examples: ['球種割合分析', '配球分析']
     }
   ];
 

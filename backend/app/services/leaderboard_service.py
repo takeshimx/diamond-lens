@@ -35,6 +35,7 @@ def get_batting_leaderboard(season: int, league: str, min_pa: int, metric_order:
     query = f"""
         SELECT
             idfg,
+            mlbid,
             season,
             name,
             team,
@@ -57,8 +58,6 @@ def get_batting_leaderboard(season: int, league: str, min_pa: int, metric_order:
             wrcplus,
             woba,
             war,
-            wpa,
-            wpa_li,
             hardhitpct,
             barrelpct,
             batting_average_at_risp,
@@ -79,8 +78,6 @@ def get_batting_leaderboard(season: int, league: str, min_pa: int, metric_order:
                 WHEN 'wrcplus' THEN wrcplus
                 WHEN 'woba' THEN woba
                 WHEN 'war' THEN war
-                WHEN 'wpa' THEN wpa
-                -- WHEN 'wpa_li' THEN wpa_li
                 WHEN 'hr' THEN hr
                 WHEN 'rbi' THEN rbi
                 WHEN 'h' THEN h
@@ -96,7 +93,6 @@ def get_batting_leaderboard(season: int, league: str, min_pa: int, metric_order:
                 WHEN 'home_runs_at_risp' THEN home_runs_at_risp
                 ELSE ops -- sort by OPS as default
             END DESC
-        -- LIMIT 20
     """
     job_config = bigquery.QueryJobConfig(
         query_parameters=[
@@ -247,113 +243,123 @@ def get_batting_leaderboard(season: int, league: str, min_pa: int, metric_order:
 
 
 
-# @lru_cache(maxsize=128)
-# def get_pitching_leaderboard(season: int, league: str, min_ip: int, metric_order: str) -> Optional[List[PlayerPitchingSeasonStats]]:
-#     """
-#     指定されたシーズン、リーグ、および最小投球回数に基づいて、投球リーダーボードを取得します。
-#     """
-#     # 2025年の場合は最小IPを75に調整するロジックをサービス層で持つ (As of Jul 8, 2025)
-#     adjusted_min_ip = 75 if season == 2025 else min_ip
+@lru_cache(maxsize=128)
+def get_pitching_leaderboard(season: int, league: str, min_ip: int, metric_order: str) -> Optional[List[PlayerPitchingSeasonStats]]:
+    """
+    指定されたシーズン、リーグ、および最小投球回数に基づいて、投球リーダーボードを取得します。
+    """
+    # 2025年の場合は最小IPを75に調整するロジックをサービス層で持つ (As of Jul 8, 2025)
+    adjusted_min_ip = 75 if season == 2025 else min_ip
     
-#     processed_league = league.lower()
-#     if processed_league == 'mlb':
-#         league_filtered_clause = "AND league IN ('al', 'nl')" # If MLB is selected, filter by AL and NL
-#     elif processed_league == 'al' or processed_league == 'nl':
-#         league_filtered_clause = "AND league = @league" # If AL or NL is selected, filter by that league
+    processed_league = league.lower()
+    if processed_league == 'mlb':
+        league_filtered_clause = "AND league IN ('al', 'nl')" # If MLB is selected, filter by AL and NL
+    elif processed_league == 'al' or processed_league == 'nl':
+        league_filtered_clause = "AND league = @league" # If AL or NL is selected, filter by that league
 
-#     query = f"""
-#         SELECT
-#             idfg,
-#             season,
-#             name,
-#             team,
-#             league,
-#             -- w,
-#             l,
-#             sv,
-#             g,
-#             gs,
-#             h,
-#             r,
-#             er,
-#             era,
-#             w,
-#             so,
-#             k_9,
-#             fip,
-#             war,
-#             whip,
-#             ip,
-#             bb,
-#             bb_9,
-#             k_bb,
-#             hr,
-#             hr_9,
-#             avg,
-#             barrelpct,
-#             hardhitpct
-#         FROM
-#             `{PROJECT_ID}.{DATASET_ID}.{PITCHING_STATS_TABLE_ID}`
-#         WHERE
-#             season = @season
-#             AND ip >= @min_ip
-#             {league_filtered_clause}
-#         ORDER BY
-#             CASE @metric_order -- Dynamic ORDER BY
-#                 WHEN 'era' THEN era
-#                 -- WHEN 'w' THEN w
-#                 WHEN 'so' THEN so
-#                 WHEN 'k_9' THEN k_9
-#                 WHEN 'fip' THEN fip
-#                 WHEN 'war' THEN war
-#                 WHEN 'whip' THEN whip
-#                 WHEN 'ip' THEN ip
-#                 WHEN 'bb' THEN bb
-#                 WHEN 'bb_9' THEN bb_9
-#                 WHEN 'k_bb' THEN k_bb
-#                 WHEN 'hr' THEN hr
-#                 WHEN 'hr_9' THEN hr_9
-#                 WHEN 'avg' THEN avg
-#                 WHEN 'barrelpct' THEN barrelpct
-#                 WHEN 'hardhitpct' THEN hardhitpct
-#                 ELSE era -- sort by ERA as default
-#             END ASC
-#         -- LIMIT 20
-#     """
+    query = f"""
+        SELECT
+            idfg,
+            mlbid,
+            season,
+            name,
+            team,
+            league,
+            w,
+            l,
+            sv,
+            g,
+            gs,
+            h,
+            r,
+            er,
+            era,
+            so,
+            k_9,
+            fip,
+            war,
+            whip,
+            ip,
+            bb,
+            bb_9,
+            k_bb,
+            hr,
+            hr_9,
+            avg,
+            barrelpct,
+            hardhitpct
+        FROM
+            `{PROJECT_ID}.{DATASET_ID}.fact_pitching_stats_master`
+        WHERE
+            season = @season
+            AND ip >= @min_ip
+            {league_filtered_clause}
+        ORDER BY
+            CASE 
+                -- For ASC metrics (lower is better)
+                WHEN @metric_order IN ('era', 'whip', 'fip', 'bb_9', 'hr_9', 'avg', 'barrelpct', 'hardhitpct') THEN
+                    CASE @metric_order
+                        WHEN 'era' THEN era
+                        WHEN 'whip' THEN whip
+                        WHEN 'fip' THEN fip
+                        WHEN 'bb_9' THEN bb_9
+                        WHEN 'hr_9' THEN hr_9
+                        WHEN 'avg' THEN avg
+                        WHEN 'barrelpct' THEN barrelpct
+                        WHEN 'hardhitpct' THEN hardhitpct
+                        ELSE era
+                    END
+                -- For DESC metrics (higher is better), use negative values to reverse sort
+                ELSE
+                    -CASE @metric_order
+                        WHEN 'w' THEN w
+                        WHEN 'so' THEN so
+                        WHEN 'k_9' THEN k_9
+                        WHEN 'war' THEN war
+                        WHEN 'ip' THEN ip
+                        WHEN 'k_bb' THEN k_bb
+                        WHEN 'sv' THEN sv
+                        WHEN 'l' THEN l -- for losses, we want fewer (smaller values), so negative makes it work
+                        WHEN 'g' THEN g
+                        WHEN 'gs' THEN gs
+                        ELSE era -- default to era for unknown metrics
+                    END
+            END ASC
+    """
 
-#     job_config = bigquery.QueryJobConfig(
-#         query_parameters=[
-#             bigquery.ScalarQueryParameter("season", "INT64", season),
-#             # bigquery.ScalarQueryParameter("league", "STRING", processed_league),
-#             *([] if processed_league == 'mlb' else [bigquery.ScalarQueryParameter("league", "STRING", processed_league)]),
-#             bigquery.ScalarQueryParameter("min_ip", "INT64", adjusted_min_ip),
-#             bigquery.ScalarQueryParameter("metric_order", "STRING", metric_order)  # 動的なORDER BYのためのパラメータ
-#         ]
-#     )
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("season", "INT64", season),
+            # bigquery.ScalarQueryParameter("league", "STRING", processed_league),
+            *([] if processed_league == 'mlb' else [bigquery.ScalarQueryParameter("league", "STRING", processed_league)]),
+            bigquery.ScalarQueryParameter("min_ip", "INT64", adjusted_min_ip),
+            bigquery.ScalarQueryParameter("metric_order", "STRING", metric_order)  # 動的なORDER BYのためのパラメータ
+        ]
+    )
 
-#     # # ★★★ デバッグログの追加 ★★★
-#     # print(f"DEBUG: Executing BigQuery query for pitching leaderboard:")
-#     # print(f"DEBUG: Query: {query}")
-#     # print(f"DEBUG: Parameters: {job_config.query_parameters}")
-#     # # ★★★ デバッグログの追加ここまで ★★★
+    # # ★★★ デバッグログの追加 ★★★
+    # print(f"DEBUG: Executing BigQuery query for pitching leaderboard:")
+    # print(f"DEBUG: Query: {query}")
+    # print(f"DEBUG: Parameters: {job_config.query_parameters}")
+    # # ★★★ デバッグログの追加ここまで ★★★
 
-#     try:
-#         df = client.query(query, job_config=job_config).to_dataframe()
-#         if df.empty:
-#             print(f"DEBUG: No pitching leaderboard data found for season {season}, league {processed_league}, min_ip {adjusted_min_ip}")
-#             return []
+    try:
+        df = client.query(query, job_config=job_config).to_dataframe()
+        if df.empty:
+            print(f"DEBUG: No pitching leaderboard data found for season {season}, league {processed_league}, min_ip {adjusted_min_ip}")
+            return []
         
-#         results: List[PlayerPitchingSeasonStats] = [] # PlayerPitchingSeasonStatsのリストとして初期化
-#         for _, row in df.iterrows():
-#             results.append(PlayerPitchingSeasonStats(**row.to_dict()))
-#         return results
+        results: List[PlayerPitchingSeasonStats] = [] # PlayerPitchingSeasonStatsのリストとして初期化
+        for _, row in df.iterrows():
+            results.append(PlayerPitchingSeasonStats(**row.to_dict()))
+        return results
 
-#     except GoogleCloudError as e:
-#         print(f"ERROR: BigQuery query for pitching leaderboard failed for season {season}, league {processed_league}, min_ip {adjusted_min_ip}: {e}")
-#         return None
-#     except Exception as e:
-#         print(f"ERROR: An unexpected error occurred while fetching pitching leaderboard for season {season}, league {processed_league}, min_ip {adjusted_min_ip}: {e}")
-#         return None
+    except GoogleCloudError as e:
+        print(f"ERROR: BigQuery query for pitching leaderboard failed for season {season}, league {processed_league}, min_ip {adjusted_min_ip}: {e}")
+        return None
+    except Exception as e:
+        print(f"ERROR: An unexpected error occurred while fetching pitching leaderboard for season {season}, league {processed_league}, min_ip {adjusted_min_ip}: {e}")
+        return None
 
 
 # # Service function to get team batting stats leaderboard

@@ -163,7 +163,7 @@ const SeasonSelector = ({ seasonMode, specificYear, onSeasonChange, isActive }) 
               クイック選択
             </label>
             <div className="grid grid-cols-3 gap-2">
-              {[currentYear, currentYear - 1, currentYear - 2].map(year => (
+              {[currentYear, currentYear - 1, currentYear - 2, currentYear - 3, currentYear - 4].map(year => (
                 <button
                   key={year}
                   onClick={() => handleYearChange(year)}

@@ -4,16 +4,16 @@ import logging
 
 # サービス層とスキーマをインポート
 from backend.app.services.stats_service import ( # For Development, add backend. path
-    get_batter_monthly_offensive_stats,
-    get_batter_performance_at_risp,
-    get_season_batting_stats,
-    get_monthly_batting_stats
+    get_batter_monthly_offensive_stats, get_batter_performance_at_risp,
+    get_season_batting_stats, get_monthly_batting_stats,
+    get_season_pitching_stats
 )
 from backend.app.api.schemas import (
     PlayerMonthlyOffensiveStats,
     PlayerBatterPerformanceAtRISPMonthly,
     PlayerBattingSeasonStats,
-    PlayerMonthlyBattingStats
+    PlayerMonthlyBattingStats,
+    PlayerPitchingSeasonStats
 )
 
 # ロガーの設定
@@ -112,6 +112,37 @@ async def get_monthly_offensive_stats_endpoint(
     
     # Return the list of monthly stats
     return monthly_stats
+
+
+@router.get(
+    "/players/{player_id}/season-pitching-stats",
+    response_model=List[PlayerPitchingSeasonStats],
+    summary="選手のシーズン投球成績を取得",
+    description="指定された選手IDに基づいて、シーズンの投球成績を取得します。",
+    tags=["players"]
+)
+async def get_season_pitching_stats_endpoint(
+    player_id: int = Path(..., description="取得したい選手のID"),
+    season: Optional[int] = Query(None, description="取得するシーズン (年)"),
+    metrics: Optional[List[str]] = Query(None, description="取得するメトリックのリスト")
+):
+    """
+    指定された選手のシーズン投球成績を取得します。
+    """
+
+    # Convert the metrics list to a tuple (hashable object) for the service layer
+    metrics_tuple = tuple(metrics) if metrics else ()
+
+    # Get data from the service layer
+    stats_data = get_season_pitching_stats(player_id, season, metrics_tuple)
+
+    # If no data is found, raise a 404 error
+    if stats_data is None:
+        raise HTTPException(status_code=404, detail="Pitching stats data not found for the specified parameters.")
+
+    # Return the list of stats items
+    return stats_data
+
 
 
 # @router.get(
