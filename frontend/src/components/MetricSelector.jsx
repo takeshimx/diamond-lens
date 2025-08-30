@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart3, Target, Activity, TrendingUp, CheckCircle2, Circle } from 'lucide-react';
+import { BarChart3, Target, Activity, TrendingUp, CheckCircle2, Circle, Settings } from 'lucide-react';
 
-const MetricSelector = ({ category, selectedMetrics, onMetricsChange, isActive }) => {
+const MetricSelector = ({ category, selectedMetrics, onMetricsChange, isActive, selectedSplitType }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedGroups, setExpandedGroups] = useState({});
   
@@ -110,6 +110,68 @@ const MetricSelector = ({ category, selectedMetrics, onMetricsChange, isActive }
         ]
       }
     },
+    batting_splits: {
+      risp: {
+        title: 'RISP指標',
+        icon: Target,
+        color: 'bg-blue-500',
+        metrics: [
+          { id: 'hits_at_risp', name: 'RISP時安打', description: '得点圏での安打数', unit: '本' },
+          { id: 'homeruns_at_risp', name: 'RISP時ホームラン', description: '得点圏でのホームラン数', unit: '本' },
+          { id: 'doubles_at_risp', name: 'RISP時二塁打', description: '得点圏での二塁打数', unit: '本' },
+          { id: 'triples_at_risp', name: 'RISP時三塁打', description: '得点圏での三塁打数', unit: '本' },
+          { id: 'singles_at_risp', name: 'RISP時単打', description: '得点圏での単打数', unit: '本' },
+          { id: 'ab_at_risp', name: 'RISP時打数', description: '得点圏での打数', unit: '回' },
+          { id: 'avg_at_risp', name: 'RISP時打率', description: '得点圏での打率', unit: '' },
+          { id: 'obp_at_risp', name: 'RISP時出塁率', description: '得点圏での出塁率', unit: '' },
+          { id: 'slg_at_risp', name: 'RISP時長打率', description: '得点圏での長打率', unit: '' },
+          { id: 'ops_at_risp', name: 'RISP時OPS', description: '得点圏でのOPS', unit: '' },
+          { id: 'strikeout_rate_at_risp', name: 'RISP時三振率', description: '得点圏での三振率', unit: '%' }
+        ]
+      },
+      bases_loaded: {
+        title: '満塁指標',
+        icon: Activity,
+        color: 'bg-green-500',
+        metrics: [
+          { id: 'hits_at_bases_loaded', name: '満塁時安打', description: '満塁での安打数', unit: '本' },
+          { id: 'grandslam', name: 'グランドスラム', description: '満塁ホームラン数', unit: '本' },
+          { id: 'doubles_at_bases_loaded', name: '満塁時二塁打', description: '満塁での二塁打数', unit: '本' },
+          { id: 'triples_at_bases_loaded', name: '満塁時三塁打', description: '満塁での三塁打数', unit: '本' },
+          { id: 'singles_at_bases_loaded', name: '満塁時単打', description: '満塁での単打数', unit: '本' },
+          { id: 'ab_at_bases_loaded', name: '満塁時打数', description: '満塁での打数', unit: '回' },
+          { id: 'avg_at_bases_loaded', name: '満塁時打率', description: '満塁での打率', unit: '' },
+          { id: 'obp_at_bases_loaded', name: '満塁時出塁率', description: '満塁での出塁率', unit: '' },
+          { id: 'slg_at_bases_loaded', name: '満塁時長打率', description: '満塁での長打率', unit: '' },
+          { id: 'ops_at_bases_loaded', name: '満塁時OPS', description: '満塁でのOPS', unit: '' },
+          { id: 'strikeout_rate_at_bases_loaded', name: '満塁時三振率', description: '満塁での三振率', unit: '%' }
+        ]
+      },
+      custom: {
+        title: 'カスタム状況指標',
+        icon: Settings,
+        color: 'bg-purple-500',
+        metrics: [
+          { id: 'hits', name: '安打', description: '安打数', unit: '本' },
+          { id: 'homeruns', name: 'ホームラン', description: 'ホームラン数', unit: '本' },
+          { id: 'doubles', name: '二塁打', description: '二塁打数', unit: '本' },
+          { id: 'triples', name: '三塁打', description: '三塁打数', unit: '本' },
+          { id: 'singles', name: '単打', description: '単打数', unit: '本' },
+          { id: 'at_bats', name: '打数', description: '打数', unit: '回' },
+          { id: 'avg', name: '打率', description: '打率', unit: '' },
+          { id: 'obp', name: '出塁率', description: '出塁率', unit: '' },
+          { id: 'slg', name: '長打率', description: '長打率', unit: '' },
+          { id: 'ops', name: 'OPS', description: 'OPS', unit: '' },
+          { id: 'strikeouts', name: '三振', description: '三振数', unit: '回' },
+          { id: 'bb_hbp', name: '四死球', description: '四球・死球数', unit: '回' },
+          { id: 'strikeout_rate', name: '三振率', description: '三振率', unit: '%' },
+          { id: 'hard_hit_rate', name: 'ハードヒット率', description: 'ハードヒット率', unit: '%' },
+          { id: 'barrels_rate', name: 'バレル率', description: 'バレル率', unit: '%' },
+          { id: 'avg_exit_velocity', name: '平均打球速度', description: '平均打球速度', unit: 'mph' },
+          { id: 'avg_launch_angle', name: '平均打球角度', description: '平均打球角度', unit: '度' }
+        ]
+      }
+    },
     monthly_trends: {
       monthly: {
         title: '月別指標',
@@ -136,7 +198,22 @@ const MetricSelector = ({ category, selectedMetrics, onMetricsChange, isActive }
     }
   };
 
-  const availableMetrics = category ? metricDefinitions[category.id] || {} : {};
+  // Get available metrics based on category and split type
+  const getAvailableMetrics = () => {
+    if (!category) return {};
+    
+    const categoryMetrics = metricDefinitions[category.id] || {};
+    
+    // For batting_splits, filter by selected split type
+    if (category.id === 'batting_splits' && selectedSplitType) {
+      const splitTypeMetrics = categoryMetrics[selectedSplitType.id];
+      return splitTypeMetrics ? { [selectedSplitType.id]: splitTypeMetrics } : {};
+    }
+    
+    return categoryMetrics;
+  };
+  
+  const availableMetrics = getAvailableMetrics();
 
   // Filter metrics based on search term
   const filteredMetrics = {};

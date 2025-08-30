@@ -282,6 +282,13 @@ const MLBChatApp = () => {
         // Endpoint for pitching stats - handles both single season (KPI cards) and all seasons (trend chart)
         const seasonParam = questionParams.season ? `season=${questionParams.season}&` : '';
         endpoint = `${baseURL}/api/v1/players/${questionParams.playerId}/season-pitching-stats?${seasonParam}metrics=${questionParams.metrics || questionParams.metric}`;
+      } else if (questionParams.queryType === 'season_batting_splits') {
+        // Endpoint for batting splits stats
+        const seasonParam = questionParams.season ? `season=${questionParams.season}&` : '';
+        const metricsParams = Array.isArray(questionParams.metrics) 
+          ? questionParams.metrics.map(m => `metrics=${m}`).join('&')
+          : `metrics=${questionParams.metrics}`;
+        endpoint = `${baseURL}/api/v1/players/${questionParams.playerId}/season-batting-splits?${seasonParam}split_type=${questionParams.split_type}&${metricsParams}`;
       } else {
         throw new Error(`Unsupported query type: ${questionParams.queryType}`);
       }
@@ -426,6 +433,46 @@ const MLBChatApp = () => {
               isTable: false,
               isChart: false,
               isCards: false
+            };
+          }
+        } else if (questionParams.queryType === 'season_batting_splits') {
+          if (apiResponse && Array.isArray(apiResponse) && apiResponse.length > 0) {
+            const data = apiResponse[0];
+            const playerName = data.batter_name || data.player_name || 'Selected Player';
+            const season = data.game_year || questionParams.season || 2024;
+            
+            const createKPICards = (data, metrics, season, playerName) => {
+              const cards = [];
+              const metricsArray = typeof metrics === 'string' ? [metrics] : (metrics || []);
+              
+              metricsArray.forEach(metricKey => {
+                const value = data[metricKey];
+                if (value !== undefined && value !== null) {
+                  cards.push({
+                    metric: metricKey,
+                    value: value,
+                    playerName: playerName,
+                    season: season
+                  });
+                }
+              });
+              
+              return cards;
+            };
+            
+            const kpiCards = createKPICards(
+              data, 
+              questionParams.metrics, 
+              season, 
+              playerName
+            );
+            
+            return {
+              answer: `${playerName}選手の${season}年場面別成績をKPIカードで表示します。`,
+              isCards: true,
+              cardsData: kpiCards,
+              isTable: false,
+              isChart: false
             };
           }
         } else if (questionParams.queryType === 'season_pitching_stats') {
@@ -1280,15 +1327,309 @@ const MLBChatApp = () => {
           return nameMap[metric] || metric;
         }
         
-      } else if (queryState.category.id === 'batting_splits' && primaryMetric) {
-        // Batting splits - use RISP endpoint for now
-        const queryParams = {
-          playerId: params.playerId,
-          season: params.season || 2024,
-          metric: primaryMetric.includes('risp') ? primaryMetric : 'batting_average_at_risp',
-          queryType: 'monthly_risp_stats'
-        };
-        response = await callFixedQueryAPI(queryParams);
+      } else if (queryState.category.id === 'batting_splits' && queryState.splitType && queryState.metrics.length > 0) {
+        
+        if (queryState.splitType.id === 'custom') {
+          // Custom situation splits using statcast endpoint
+          const baseURL = getBackendURL();
+          const cs = queryState.customSituation;
+          
+          if (queryState.seasonMode === 'all') {
+            // Multiple seasons - create YoY trend charts
+            const chartPromises = [];
+            
+            for (const metric of queryState.metrics) {
+              let endpoint = `${baseURL}/api/v1/players/${params.playerId}/statcast/batter/advanced-stats?`;
+              const urlParams = new URLSearchParams();
+              
+              if (cs?.innings?.length > 0) {
+                cs.innings.forEach(inning => urlParams.append('innings', inning.toString()));
+              }
+              if (cs?.strikes !== null) urlParams.append('strikes', cs.strikes.toString());
+              if (cs?.balls !== null) urlParams.append('balls', cs.balls.toString());
+              if (cs?.pitcherType) urlParams.append('p_throws', cs.pitcherType);
+              if (cs?.runnersOnBase?.length > 0) {
+                cs.runnersOnBase.forEach(runner => urlParams.append('runners', runner));
+              }
+              if (cs?.pitchTypes?.length > 0) {
+                cs.pitchTypes.forEach(pitch => urlParams.append('pitch_types', pitch));
+              }
+              
+              endpoint += urlParams.toString();
+              
+              chartPromises.push(
+                fetch(endpoint).then(res => res.json()).then(apiResponse => ({
+                  metric: metric,
+                  data: apiResponse
+                }))
+              );
+            }
+            
+            const chartResults = await Promise.all(chartPromises);
+            
+            // Format response with multiple charts
+            response = {
+              isMultiChart: true,
+              isChart: false,
+              isCards: false,
+              charts: chartResults.map(result => {
+                let chartData = [];
+                let chartConfig = {};
+                
+                if (Array.isArray(result.data) && result.data.length > 0) {
+                  const playerName = result.data[0]?.batter_name || 'Selected Player';
+                  
+                  chartData = result.data.map(seasonData => {
+                    const value = seasonData[result.metric];
+                    return {
+                      year: seasonData.game_year?.toString() || 'Unknown',
+                      value: value
+                    };
+                  }).filter(item => item.value !== null && item.value !== undefined);
+                  
+                  // Determine chart type based on metric
+                  const countingStats = ['hits', 'homeruns', 'doubles', 'triples', 'singles', 'at_bats', 'strikeouts', 'bb_hbp'];
+                  const chartType = countingStats.includes(result.metric) ? 'bar' : 'line';
+                  
+                  // Get display name for metric
+                  const metricDisplayNames = {
+                    'hits': '安打', 'homeruns': 'ホームラン', 'doubles': '二塁打', 'triples': '三塁打', 'singles': '単打',
+                    'at_bats': '打数', 'avg': '打率', 'obp': '出塁率', 'slg': '長打率', 'ops': 'OPS',
+                    'strikeouts': '三振', 'bb_hbp': '四死球', 'strikeout_rate': '三振率'
+                  };
+                  
+                  const displayName = metricDisplayNames[result.metric] || result.metric;
+                  
+                  chartConfig = {
+                    title: `${playerName} ${displayName} 年次推移`,
+                    xAxis: 'year',
+                    dataKey: 'value',
+                    lineColor: '#3B82F6',
+                    lineName: displayName,
+                    yDomain: [0, 'dataMax']
+                  };
+                  
+                  return {
+                    metric: result.metric,
+                    isChart: chartData.length > 0,
+                    chartType: chartType,
+                    chartData: chartData,
+                    chartConfig: chartConfig,
+                    answer: `${result.metric}の年次推移`
+                  };
+                } else {
+                  return {
+                    metric: result.metric,
+                    isChart: false,
+                    chartType: 'line',
+                    chartData: [],
+                    chartConfig: {},
+                    answer: `${result.metric}のデータがありません`
+                  };
+                }
+              }),
+              answer: `${queryState.metrics.length}個の指標の年次推移を表示します。`
+            };
+            
+          } else {
+            // Single season - create KPI cards
+            let endpoint = `${baseURL}/api/v1/players/${params.playerId}/statcast/batter/advanced-stats?`;
+            const urlParams = new URLSearchParams();
+            
+            if (params.season) urlParams.append('season', params.season.toString());
+            
+            if (cs?.innings?.length > 0) {
+              cs.innings.forEach(inning => urlParams.append('innings', inning.toString()));
+            }
+            if (cs?.strikes !== null) urlParams.append('strikes', cs.strikes.toString());
+            if (cs?.balls !== null) urlParams.append('balls', cs.balls.toString());
+            if (cs?.pitcherType) urlParams.append('p_throws', cs.pitcherType);
+            if (cs?.runnersOnBase?.length > 0) {
+              cs.runnersOnBase.forEach(runner => urlParams.append('runners', runner));
+            }
+            if (cs?.pitchTypes?.length > 0) {
+              cs.pitchTypes.forEach(pitch => urlParams.append('pitch_types', pitch));
+            }
+            
+            endpoint += urlParams.toString();
+            
+            const apiResponse = await fetch(endpoint);
+            if (!apiResponse.ok) {
+              throw new Error(`Custom situation API call failed: ${apiResponse.status}`);
+            }
+            
+            const data = await apiResponse.json();
+            
+            // Format as KPI cards for single season
+            if (Array.isArray(data) && data.length > 0) {
+              const seasonData = data[0];
+              const playerName = seasonData.batter_name || 'Selected Player';
+              
+              const createKPICards = (data, metrics, playerName) => {
+                const cards = [];
+                const metricsArray = Array.isArray(metrics) ? metrics : [metrics];
+                
+                metricsArray.forEach(metricKey => {
+                  const value = data[metricKey];
+                  if (value !== undefined && value !== null) {
+                    cards.push({
+                      metric: metricKey,
+                      value: value,
+                      playerName: playerName,
+                      season: params.season || 'カスタム状況'
+                    });
+                  }
+                });
+                
+                return cards;
+              };
+              
+              const kpiCards = createKPICards(
+                seasonData, 
+                queryState.metrics, 
+                playerName
+              );
+              
+              response = {
+                answer: `${playerName}選手のカスタム状況成績をKPIカードで表示します。`,
+                isCards: true,
+                cardsData: kpiCards,
+                isTable: false,
+                isChart: false
+              };
+            } else {
+              response = {
+                answer: 'カスタム状況データが見つかりませんでした。',
+                isTable: false,
+                isChart: false,
+                isCards: false
+              };
+            }
+          }
+        } else if (queryState.seasonMode === 'all') {
+          // Multiple seasons - create YoY trend charts (direct API calls)
+          const chartPromises = [];
+          const baseURL = getBackendURL();
+          
+          for (const metric of queryState.metrics) {
+            const endpoint = `${baseURL}/api/v1/players/${params.playerId}/season-batting-splits?split_type=${queryState.splitType.id}&metrics=${metric}`;
+            
+            chartPromises.push(
+              fetch(endpoint).then(res => res.json()).then(apiResponse => ({
+                metric: metric,
+                data: apiResponse
+              }))
+            );
+          }
+          
+          const chartResults = await Promise.all(chartPromises);
+          console.log('🔍 Debug - Chart results for batting splits:', chartResults);
+          
+          // Format response with multiple charts
+          response = {
+            isMultiChart: true,
+            isChart: false,
+            isCards: false,
+            charts: chartResults.map(result => {
+              let chartData = [];
+              let chartConfig = {};
+              
+              if (Array.isArray(result.data) && result.data.length > 0) {
+                const playerName = result.data[0]?.batter_name || 'Selected Player';
+                
+                console.log('🔍 Debug - Processing data for metric:', result.metric);
+                console.log('🔍 Debug - Raw data:', result.data);
+                
+                chartData = result.data.map(seasonData => {
+                  console.log('🔍 Debug - Season data keys:', Object.keys(seasonData));
+                  const value = seasonData[result.metric];
+                  console.log('🔍 Debug - Value for', result.metric, ':', value);
+                  return {
+                    year: seasonData.game_year?.toString() || 'Unknown',
+                    value: value
+                  };
+                }).filter(item => {
+                  console.log('🔍 Debug - Filtering item:', item);
+                  return item.value !== null && item.value !== undefined;
+                });
+                
+                // Determine chart type based on metric
+                const countingStats = ['hits_at_risp', 'homeruns_at_risp', 'doubles_at_risp', 'triples_at_risp', 'singles_at_risp', 'ab_at_risp',
+                                     'hits_at_bases_loaded', 'grandslam', 'doubles_at_bases_loaded', 'triples_at_bases_loaded', 'singles_at_bases_loaded', 'ab_at_bases_loaded'];
+                const chartType = countingStats.includes(result.metric) ? 'bar' : 'line';
+                
+                // Get display name for metric
+                const metricDisplayNames = {
+                  'hits_at_risp': 'RISP時安打',
+                  'homeruns_at_risp': 'RISP時ホームラン',
+                  'doubles_at_risp': 'RISP時二塁打',
+                  'triples_at_risp': 'RISP時三塁打',
+                  'singles_at_risp': 'RISP時単打',
+                  'ab_at_risp': 'RISP時打数',
+                  'avg_at_risp': 'RISP時打率',
+                  'obp_at_risp': 'RISP時出塁率',
+                  'slg_at_risp': 'RISP時長打率',
+                  'ops_at_risp': 'RISP時OPS',
+                  'strikeout_rate_at_risp': 'RISP時三振率',
+                  'hits_at_bases_loaded': '満塁時安打',
+                  'grandslam': 'グランドスラム',
+                  'doubles_at_bases_loaded': '満塁時二塁打',
+                  'triples_at_bases_loaded': '満塁時三塁打',
+                  'singles_at_bases_loaded': '満塁時単打',
+                  'ab_at_bases_loaded': '満塁時打数',
+                  'avg_at_bases_loaded': '満塁時打率',
+                  'obp_at_bases_loaded': '満塁時出塁率',
+                  'slg_at_bases_loaded': '満塁時長打率',
+                  'ops_at_bases_loaded': '満塁時OPS',
+                  'strikeout_rate_at_bases_loaded': '満塁時三振率'
+                };
+                
+                const displayName = metricDisplayNames[result.metric] || result.metric;
+                
+                chartConfig = {
+                  title: `${playerName} ${displayName} 年次推移`,
+                  xAxis: 'year',
+                  dataKey: 'value',
+                  lineColor: '#3B82F6',
+                  lineName: displayName,
+                  yDomain: [0, 'dataMax']
+                };
+                
+                return {
+                  metric: result.metric,
+                  isChart: chartData.length > 0,
+                  chartType: chartType,
+                  chartData: chartData,
+                  chartConfig: chartConfig,
+                  answer: `${result.metric}の年次推移`
+                };
+              } else {
+                // No data case
+                return {
+                  metric: result.metric,
+                  isChart: false,
+                  chartType: 'line',
+                  chartData: [],
+                  chartConfig: {},
+                  answer: `${result.metric}のデータがありません`
+                };
+              }
+            }),
+            answer: `${queryState.metrics.length}個の指標の年次推移を表示します。`
+          };
+          
+        } else {
+          // Single season - create KPI cards
+          const queryParams = {
+            playerId: params.playerId,
+            season: params.season || 2024,
+            split_type: queryState.splitType.id,
+            metrics: queryState.metrics,
+            queryType: 'season_batting_splits'
+          };
+          
+          response = await callFixedQueryAPI(queryParams);
+        }
         
       } else if (queryState.category.id === 'season_pitching' && primaryMetric) {
         // Direct mapping to backend fields
@@ -1411,7 +1752,7 @@ const MLBChatApp = () => {
           query: `${queryState.category.name} - ${queryYear}年 ${queryState.league} (最小打席数: ${min_pa})`
         };
 
-      } else {
+      } else if (!response) {
         // For categories not yet implemented, generate appropriate mock data
         console.log('⚠️ Category not implemented yet, using mock data:', queryState.category.id);
         
@@ -1549,6 +1890,9 @@ const MLBChatApp = () => {
       };
       
       console.log('🔍 Custom Query API Response:', response);
+      console.log('🔍 Debug - Response isCards:', response.isCards);
+      console.log('🔍 Debug - Response isChart:', response.isChart);
+      console.log('🔍 Debug - Response cardsData:', response.cardsData);
       
       // Store the result for display in Custom Query section
       setCustomResult({

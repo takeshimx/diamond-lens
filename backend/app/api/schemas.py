@@ -139,12 +139,13 @@ class PlayerBattingSplitStats(BaseModel):
     """選手の打撃スプリット成績を表すスキーマ。
     APIエンドポイントのレスポンスモデルとして使用されます。
     """
-    idfg: int = Field(..., description="選手ID（FanGraphs）")
+    idfg: Optional[int] = Field(None, description="選手ID（FanGraphs）")
     mlb_id: Optional[int] = Field(None, description="MLB選手ID")
+    batter_id: Optional[int] = Field(None, description="選手ID（MLB）")
     batter_name: str = Field(..., description="選手名")
     game_year: int = Field(..., description="シーズン年")
-    team: str = Field(..., description="所属チーム名")
-    league: str = Field(..., description="所属リーグ")
+    team: Optional[str] = Field(None, description="所属チーム名")
+    league: Optional[str] = Field(None, description="所属リーグ")
     pa: Optional[int] = Field(None, description="打席数")  # Plate Appearances
     # RISP stats
     hits_at_risp: Optional[int] = Field(None, description="RISPでの安打数")  # Runners In Scoring Positionでの安打数
@@ -159,6 +160,7 @@ class PlayerBattingSplitStats(BaseModel):
     obp_at_risp: Optional[float] = Field(None, description="RISPでの出塁率", ge=0.0, le=1.0)  # Runners In Scoring Positionでの出塁率
     slg_at_risp: Optional[float] = Field(None, description="RISPでの長打率", ge=0.0, le=5.0)  # Runners In Scoring Positionでの長打率
     ops_at_risp: Optional[float] = Field(None, description="RISPでのOPS", ge=0.0, le=5.0)  # Runners In Scoring PositionでのOPS
+    strikeout_rate_at_risp: Optional[float] = Field(None, description="RISPでの三振率", ge=0.0, le=1.0)  # Runners In Scoring Positionでの三振率
     # Bases loaded stats
     hits_at_bases_loaded: Optional[int] = Field(None, description="満塁での安打数")  # 満塁での安打数
     grandslam: Optional[int] = Field(None, description="満塁本塁打数")  # 満塁本塁打数
@@ -172,6 +174,7 @@ class PlayerBattingSplitStats(BaseModel):
     obp_at_bases_loaded: Optional[float] = Field(None, description="満塁での出塁率", ge=0.0, le=1.0)  # 満塁での出塁率
     slg_at_bases_loaded: Optional[float] = Field(None, description="満塁での長打率", ge=0.0, le=5.0)  # 満塁での長打率
     ops_at_bases_loaded: Optional[float] = Field(None, description="満塁でのOPS", ge=0.0, le=5.0)  # 満塁でのOPS
+    strikeout_rate_at_bases_loaded: Optional[float] = Field(None, description="満塁での三振率", ge=0.0, le=1.0)  # 満塁での三振率
     # Runner on 1st base stats
     hits_at_runner_on_1b: Optional[int] = Field(None, description="1塁走者ありでの安打数")  # 1塁走者ありでの安打数
     homeruns_at_runner_on_1b: Optional[int] = Field(None, description="1塁走者ありでの本塁打数")  # 1塁走者ありでの本塁打数
@@ -185,6 +188,7 @@ class PlayerBattingSplitStats(BaseModel):
     obp_at_runner_on_1b: Optional[float] = Field(None, description="1塁走者ありでの出塁率", ge=0.0, le=1.0)  # 1塁走者ありでの出塁率
     slg_at_runner_on_1b: Optional[float] = Field(None, description="1塁走者ありでの長打率", ge=0.0, le=5.0)  # 1塁走者ありでの長打率
     ops_at_runner_on_1b: Optional[float] = Field(None, description="1塁走者ありでのOPS", ge=0.0, le=5.0)
+    strikeout_rate_at_runner_on_1b: Optional[float] = Field(None, description="1塁走者ありでの三振率", ge=0.0, le=1.0)  # 1塁走者ありでの三振率
 
 
 # Pydantic model for season pitching stats
@@ -239,17 +243,17 @@ class PlayerStatcastData(BaseModel):
     APIエンドポイントのレスポンスモデルとして使用されます。
     """
     pitch_type: Optional[str] = Field(None, description="投球タイプ")
-    game_date: datetime = Field(..., description="試合日")
-    pitcher_name: str = Field(..., description="投手名")
-    batter_id: int = Field(..., description="打者ID（MLB）")
-    pitcher_id: int = Field(..., description="投手ID（MLB）")
+    game_date: Optional[datetime] = Field(None, description="試合日")
+    pitcher_name: Optional[str] = Field(None, description="投手名")
+    batter_id: Optional[int] = Field(None, description="打者ID（MLB）")
+    pitcher_id: Optional[int] = Field(None, description="投手ID（MLB）")
     batter_name: Optional[str] = Field(None, description="打者名")
-    game_year: int = Field(..., description="シーズン年")
+    game_year: Optional[int] = Field(None, description="シーズン年")
     events: Optional[str] = Field(None, description="イベントタイプ")  # イベントタイプはオプション
     game_type: Optional[str] = Field(None, description="試合タイプ")  # 試合タイプはオプション
     hit_location: Optional[int] = Field(None, description="ヒット位置")  # ヒット位置はオプション
-    balls: int = Field(..., description="ボール数")
-    strikes: int = Field(..., description="ストライク数")
+    balls: Optional[int] = Field(None, description="ボール数")
+    strikes: Optional[int] = Field(None, description="ストライク数")
     release_speed: Optional[float] = Field(None, description="投球速度 (mph)")  # 投球速度は0以上の値
     release_pos_x: Optional[float] = Field(None, description="投球リリース位置X座標 (フィート)")  # X座標は-100から100の範囲
     release_pos_z: Optional[float] = Field(None, description="投球リリース位置Z座標 (フィート)")  # Z座標は0から10の範囲
@@ -272,7 +276,40 @@ class PlayerStatcastData(BaseModel):
     pitch_number: int = Field(..., description="投球番号")
     at_bat_number: int = Field(..., description="打席番号")
     game_pk: Optional[str] = Field(None, description="試合PK")  # 試合PKはオプション
-
+    swing_length: Optional[float] = Field(None, description="スイングの長さ (フィート)")  # スイングの長さはオプション
+    pitch_name: Optional[str] = Field(None, description="投球名")  # 投球名はオプション
+    p_throws: Optional[str] = Field(None, description="投手の投球手 (LHP/RHP)")  # 投手の投球手はオプション
+    home_score: Optional[int] = Field(None, description="ホームチームの得点")  # ホームチームの得点はオプション
+    away_score: Optional[int] = Field(None, description="アウェイチームの得点")  # アウェイチームの得点はオプション
+    des: Optional[str] = Field(None, description="プレイの詳細。この説明から、特に日レベルでの打点や盗塁などの情報を抽出できます。")  # プレイの詳細はオプション
+    # From here, metrics from derived tables
+    hits: Optional[int] = Field(None, description="安打数")  # 安打数はオプション
+    homeruns: Optional[int] = Field(None, description="本塁打数")  # 本塁打数はオプション
+    doubles: Optional[int] = Field(None, description="二塁打数")  # 二塁打数はオプション
+    triples: Optional[int] = Field(None, description="三塁打数")  # 三塁打数はオプション
+    singles: Optional[int] = Field(None, description="単打数")  # 単打数はオプション
+    bb_hbp: Optional[int] = Field(None, description="四球と死球数")  # 四球と死球数はオプション
+    so: Optional[int] = Field(None, description="三振数")  # 三振数はオプション
+    ab: Optional[int] = Field(None, description="打席数")  # 打席数はオプション
+    avg: Optional[float] = Field(None, description="打率")  # 打率はオプション
+    obp: Optional[float] = Field(None, description="出塁率")  # 出塁率はオプション
+    slg: Optional[float] = Field(None, description="長打率")  # 長打率はオプション
+    ops: Optional[float] = Field(None, description="OPS")  # OPSはオプション
+    hitting_events: Optional[str] = Field(None, description="打撃イベントタイプ")  # 打撃イベントタイプはオプション
+    launch_angle: Optional[int] = Field(None, description="打球の発射角度 (度)")  # 打球の発射角度はオプション
+    exit_velocity: Optional[float] = Field(None, description="打球の初速 (mph)")  # 打球の初速はオプション
+    bat_speed: Optional[float] = Field(None, description="バットスピード (mph)")  # バットスピードはオプション
+    swing_length: Optional[float] = Field(None, description="スイングの長さ (フィート)")  # スイングの長さはオプション
+    hard_hit_count: Optional[int] = Field(None, description="強打数")  # 強打数はオプション
+    denominator_for_hard_hit_rate: Optional[int] = Field(None, description="強打率の分母")  # 強打率の分母はオプション
+    hard_hit_rate: Optional[float] = Field(None, description="強打率")  # 強打率はオプション
+    barrels_count: Optional[int] = Field(None, description="バレル数")  # バレル数はオプション
+    total_batted_balls: Optional[int] = Field(None, description="総打球数")  # 総打球数はオプション
+    barrels_rate: Optional[float] = Field(None, description="バレル率")  # バレル率はオプション
+    strikeout_rate: Optional[float] = Field(None, description="三振率")  # 三振率はオプション
+    swinging_strike_count: Optional[int] = Field(None, description="スイングミス数")  # スイングミス数はオプション
+    swinging_strike_rate: Optional[float] = Field(None, description="スイングミス率")  # スイングミス率はオプション
+    rbi: Optional[int] = Field(None, description="打点")  # 打点はオプション
 
 
 # Pydantic model for offensive stats monthly

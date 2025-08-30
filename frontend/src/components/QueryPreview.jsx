@@ -4,7 +4,10 @@ import { Play, RotateCcw, Eye, Clock, BarChart3, User, Calendar, Target } from '
 const QueryPreview = ({ queryState, onExecute, onReset, isLoading, canExecute }) => {
   // Generate natural language summary
   const generateSummary = () => {
-    if (!queryState.category || !queryState.player || !queryState.metrics.length) {
+    // Check if batting splits and missing split type
+    const isBattingSplits = queryState.category?.id === 'batting_splits';
+    if (!queryState.category || !queryState.player || !queryState.metrics.length || 
+        (isBattingSplits && !queryState.splitType)) {
       return "クエリが不完全です";
     }
 
@@ -24,8 +27,13 @@ const QueryPreview = ({ queryState, onExecute, onReset, isLoading, canExecute })
     const metricsText = queryState.metrics.length === 1 
       ? `${queryState.metrics.length}個の指標`
       : `${queryState.metrics.length}個の指標`;
+    
+    // Add split type for batting splits
+    const splitTypeText = queryState.category.id === 'batting_splits' && queryState.splitType
+      ? `(${queryState.splitType.title})`
+      : '';
 
-    return `${queryState.player.name}の${seasonText}における${categoryNames[queryState.category.id]}から${metricsText}を分析します`;
+    return `${queryState.player.name}の${seasonText}における${categoryNames[queryState.category.id]}${splitTypeText}から${metricsText}を分析します`;
   };
 
   // Get metric names for display
@@ -78,7 +86,31 @@ const QueryPreview = ({ queryState, onExecute, onReset, isLoading, canExecute })
       monthly_avg: '月別打率',
       monthly_hr: '月別ホームラン',
       monthly_rbi: '月別RBI',
-      monthly_ops: '月別OPS'
+      monthly_ops: '月別OPS',
+      // Batting Splits - RISP
+      hits_at_risp: 'RISP時安打',
+      homeruns_at_risp: 'RISP時ホームラン',
+      doubles_at_risp: 'RISP時二塁打',
+      triples_at_risp: 'RISP時三塁打',
+      singles_at_risp: 'RISP時単打',
+      ab_at_risp: 'RISP時打数',
+      avg_at_risp: 'RISP時打率',
+      obp_at_risp: 'RISP時出塁率',
+      slg_at_risp: 'RISP時長打率',
+      ops_at_risp: 'RISP時OPS',
+      strikeout_rate_at_risp: 'RISP時三振率',
+      // Batting Splits - Bases Loaded
+      hits_at_bases_loaded: '満塁時安打',
+      grandslam: 'グランドスラム',
+      doubles_at_bases_loaded: '満塁時二塁打',
+      triples_at_bases_loaded: '満塁時三塁打',
+      singles_at_bases_loaded: '満塁時単打',
+      ab_at_bases_loaded: '満塁時打数',
+      avg_at_bases_loaded: '満塁時打率',
+      obp_at_bases_loaded: '満塁時出塁率',
+      slg_at_bases_loaded: '満塁時長打率',
+      ops_at_bases_loaded: '満塁時OPS',
+      strikeout_rate_at_bases_loaded: '満塁時三振率'
     };
 
     return queryState.metrics.map(metricId => 

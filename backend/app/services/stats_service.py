@@ -13,7 +13,8 @@ from backend.app.api.schemas import (
     PlayerBatterPerformanceAtRISPMonthly,
     PlayerMonthlyBattingStats,
     PlayerBattingSeasonStats,
-    PlayerPitchingSeasonStats
+    PlayerPitchingSeasonStats,
+    PlayerBattingSplitStats
 )
 from .base import (
     get_bq_client, client, logger,
@@ -178,6 +179,83 @@ def get_monthly_batting_stats(
         return results
     except GoogleCloudError as e:
         print(f"ERROR: BigQuery query for batter monthly batting stats failed for player {player_id} in season {season}: {e}")
+        return None
+
+
+# function to get season batting splits stats
+@lru_cache(maxsize=128)
+def get_batter_season_splits_stats(
+    player_id: int,
+    season: Optional[int],
+    split_type: str,
+    metrics: tuple
+) -> Optional[List[PlayerBattingSplitStats]]:
+    """
+    指定された選手名とシーズンに基づいて、選手の打撃スプリット成績を取得します。
+    """
+    if split_type == 'risp':
+        available_metrics = ["hits_at_risp", "homeruns_at_risp", "doubles_at_risp", "triples_at_risp", "singles_at_risp", "ab_at_risp", 
+                             "avg_at_risp", "obp_at_risp", "slg_at_risp", "ops_at_risp", "strikeout_rate_at_risp"]
+        table_id = "tbl_batter_clutch_risp"
+    elif split_type == 'bases_loaded':
+        available_metrics = ["hits_at_bases_loaded", "grandslam", "doubles_at_bases_loaded", "triples_at_bases_loaded", "singles_at_bases_loaded", "ab_at_bases_loaded", 
+                             "avg_at_bases_loaded", "obp_at_bases_loaded", "slg_at_bases_loaded", "ops_at_bases_loaded", "strikeout_rate_at_bases_loaded"]
+        table_id = "tbl_batter_clutch_bases_loaded"
+    # Add more split type if needed
+    
+    selected_metrics = ", ".join([metric for metric in metrics if metric in available_metrics]) if metrics else ""
+
+    # Build WHERE clause based on season parameter
+    if season is not None:
+        where_clause = "batter_id = @player_id AND game_year = @season"
+        query_parameters = [
+            bigquery.ScalarQueryParameter("player_id", "INT64", player_id),
+            bigquery.ScalarQueryParameter("season", "INT64", season)
+        ]
+    else:
+        where_clause = "batter_id = @player_id"
+        query_parameters = [
+            bigquery.ScalarQueryParameter("player_id", "INT64", player_id)
+        ]
+
+    query = f"""
+        SELECT
+            game_year,
+            batter_name,
+            batter_id,
+            {selected_metrics}
+        FROM
+            `{PROJECT_ID}.{DATASET_ID}.{table_id}`
+        WHERE
+            {where_clause}
+        ORDER BY
+            game_year ASC
+    """
+    job_config = bigquery.QueryJobConfig(query_parameters=query_parameters)
+
+    try:
+        df = client.query(query, job_config=job_config).to_dataframe()
+        if df.empty:
+            print(f"DEBUG: No batting splits stats found for player {player_id} in season {season}")
+            return []
+
+        results: List[PlayerBattingSplitStats] = []  # PlayerMonthlyOffensiveStatsのリストとして初期化
+        for _, row in df.iterrows():
+            stat_data = {
+                "game_year": row['game_year'],
+                "batter_name": row['batter_name'],
+                "batter_id": row['batter_id']
+            }
+            # Add metric values
+            for metric in metrics:
+                stat_data[metric] = row[metric]
+
+            # Generate Pydantic model
+            results.append(PlayerBattingSplitStats(**stat_data))
+
+        return results
+    except GoogleCloudError as e:
+        print(f"ERROR: BigQuery query for batter season splits stats failed for player {player_id} in season {season}: {e}")
         return None
 
 

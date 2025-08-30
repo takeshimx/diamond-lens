@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Calendar, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const SeasonSelector = ({ seasonMode, specificYear, onSeasonChange, isActive }) => {

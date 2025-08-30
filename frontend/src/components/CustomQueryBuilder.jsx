@@ -9,6 +9,8 @@ import SimpleChatChart from './ChatChart.jsx';
 import LeagueSelector from './LeagueSelector.jsx';
 import MetricOrderSelector from './MetricOrderSelector.jsx';
 import LeaderboardTable from './LeaderboardTable.jsx';
+import SplitTypeSelector from './SplitTypeSelector.jsx';
+import CustomSituationBuilder from './CustomSituationBuilder.jsx';
 
 const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearResult, onSearchPlayers }) => {
   // Query builder state
@@ -20,7 +22,16 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
     metrics: [],
     league: 'MLB', // For leaderboard categories
     metricOrder: '', // For leaderboard categories
-    step: 1 // Current step in the builder (1-5)
+    splitType: null, // For batting_splits category
+    customSituation: {
+      innings: [],
+      strikes: null,
+      balls: null,
+      pitcherType: null,
+      runnersOnBase: [],
+      pitchTypes: []
+    }, // For custom batting splits
+    step: 1 // Current step in the builder (1-6 for batting_splits, 1-7 for custom splits)
   });
 
   // Update query state
@@ -38,6 +49,7 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
       metrics: [],
       league: 'MLB',
       metricOrder: '',
+      splitType: null,
       step: 1
     });
     if (onClearResult) {
@@ -54,21 +66,43 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
 
   // Check if current step is complete
   const isStepComplete = (step) => {
-    const isLeaderboard = queryState.category && 
+    const _isLeaderboard = queryState.category && 
       (queryState.category.id === 'batting_leaderboard' || queryState.category.id === 'pitching_leaderboard');
+    const isBattingSplits = queryState.category && queryState.category.id === 'batting_splits';
+    const isCustomSplit = isBattingSplits && queryState.splitType && queryState.splitType.id === 'custom';
     
     switch (step) {
       case 1: return queryState.category !== null;
       case 2: 
-        if (isLeaderboard) return true; // Skip player selection for leaderboards
+        if (_isLeaderboard) return true; // Skip player selection for leaderboards
         return queryState.player !== null;
-      case 3: return true; // Season selection always valid (has default)
+      case 3: 
+        if (isBattingSplits) return queryState.splitType !== null; // Split type selection for batting splits
+        return true; // Season selection always valid (has default)
       case 4: 
-        if (isLeaderboard) return queryState.metricOrder !== '';
+        if (isCustomSplit) {
+          // Custom situation validation - at least one parameter should be selected
+          const cs = queryState.customSituation;
+          return cs && (
+            cs.innings?.length > 0 || cs.strikes !== null || cs.balls !== null ||
+            cs.pitcherType !== null || cs.runnersOnBase?.length > 0 || cs.pitchTypes?.length > 0
+          );
+        }
+        if (isBattingSplits) return true; // Season selection always valid
+        if (_isLeaderboard) return queryState.metricOrder !== '';
         return queryState.metrics.length > 0;
       case 5: 
-        if (isLeaderboard) return isStepComplete(1) && isStepComplete(3) && isStepComplete(4);
+        if (isCustomSplit) return true; // Season selection always valid
+        if (isBattingSplits) return queryState.metrics.length > 0; // Metrics selection for batting splits
+        if (_isLeaderboard) return isStepComplete(1) && isStepComplete(3) && isStepComplete(4);
         return isStepComplete(1) && isStepComplete(2) && isStepComplete(4);
+      case 6:
+        if (isCustomSplit) return queryState.metrics.length > 0; // Metrics selection for custom splits
+        if (isBattingSplits) return isStepComplete(1) && isStepComplete(2) && isStepComplete(3) && isStepComplete(4) && isStepComplete(5);
+        return false;
+      case 7:
+        if (isCustomSplit) return isStepComplete(1) && isStepComplete(2) && isStepComplete(3) && isStepComplete(4) && isStepComplete(5) && isStepComplete(6);
+        return false;
       default: return false;
     }
   };
@@ -87,7 +121,12 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
 
       {/* Progress Indicator */}
       <div className="flex items-center justify-center space-x-4">
-        {[1, 2, 3, 4, 5].map((step) => (
+        {(() => {
+          const isBattingSplits = queryState.category && queryState.category.id === 'batting_splits';
+          const isCustomSplit = isBattingSplits && queryState.splitType && queryState.splitType.id === 'custom';
+          const maxSteps = isCustomSplit ? 7 : (isBattingSplits ? 6 : 5);
+          return Array.from({length: maxSteps}, (_, i) => i + 1);
+        })().map((step) => (
           <div key={step} className="flex items-center">
             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors duration-200 ${
               queryState.step > step || isStepComplete(step)
@@ -98,7 +137,11 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
             }`}>
               {step}
             </div>
-            {step < 5 && (
+            {step < ((() => {
+              const isBattingSplits = queryState.category && queryState.category.id === 'batting_splits';
+              const isCustomSplit = isBattingSplits && queryState.splitType && queryState.splitType.id === 'custom';
+              return isCustomSplit ? 7 : (isBattingSplits ? 6 : 5);
+            })()) && (
               <div className={`w-12 h-0.5 mx-2 transition-colors duration-200 ${
                 queryState.step > step ? 'bg-blue-600 dark:bg-blue-500' : 'bg-gray-200 dark:bg-gray-700'
               }`} />
@@ -108,18 +151,51 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
       </div>
 
       {/* Step Labels */}
-      <div className="grid grid-cols-5 gap-4 text-center text-xs text-gray-500 dark:text-gray-400">
-        {(() => {
-          const isLeaderboard = queryState.category && 
+      <div className={`grid gap-4 text-center text-xs text-gray-500 dark:text-gray-400 ${
+        (() => {
+          const isBattingSplits = queryState.category && queryState.category.id === 'batting_splits';
+          const isCustomSplit = isBattingSplits && queryState.splitType && queryState.splitType.id === 'custom';
+          const _isLeaderboard = queryState.category && 
             (queryState.category.id === 'batting_leaderboard' || queryState.category.id === 'pitching_leaderboard');
+          if (isCustomSplit) return 'grid-cols-7';
+          if (isBattingSplits) return 'grid-cols-6';
+          return 'grid-cols-5';
+        })()
+      }`}>
+        {(() => {
+          const _isLeaderboard = queryState.category && 
+            (queryState.category.id === 'batting_leaderboard' || queryState.category.id === 'pitching_leaderboard');
+          const isBattingSplits = queryState.category && queryState.category.id === 'batting_splits';
           
-          if (isLeaderboard) {
+          if (_isLeaderboard) {
             return (
               <>
                 <div>カテゴリ</div>
                 <div>リーグ</div>
                 <div>シーズン</div>
                 <div>ソート指標</div>
+                <div>実行</div>
+              </>
+            );
+          } else if (isBattingSplits) {
+            const isCustomSplit = queryState.splitType && queryState.splitType.id === 'custom';
+            return isCustomSplit ? (
+              <>
+                <div>カテゴリ</div>
+                <div>選手選択</div>
+                <div>場面選択</div>
+                <div>カスタム設定</div>
+                <div>シーズン</div>
+                <div>指標選択</div>
+                <div>実行</div>
+              </>
+            ) : (
+              <>
+                <div>カテゴリ</div>
+                <div>選手選択</div>
+                <div>場面選択</div>
+                <div>シーズン</div>
+                <div>指標選択</div>
                 <div>実行</div>
               </>
             );
@@ -164,10 +240,10 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
 
         {/* Step 2: Player Selection or League Selection */}
         {queryState.step >= 2 && (() => {
-          const isLeaderboard = queryState.category && 
+          const _isLeaderboard = queryState.category && 
             (queryState.category.id === 'batting_leaderboard' || queryState.category.id === 'pitching_leaderboard');
           
-          if (isLeaderboard) {
+          if (_isLeaderboard) {
             return (
               <div className={`transition-opacity duration-300 ${
                 queryState.step === 2 ? 'opacity-100' : 'opacity-75'
@@ -199,86 +275,138 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
           }
         })()}
 
-        {/* Step 3: Season Selection */}
-        {queryState.step >= 3 && (
+        {/* Step 3: Split Type Selection (for batting_splits only) */}
+        {queryState.step >= 3 && queryState.category && queryState.category.id === 'batting_splits' && (
           <div className={`transition-opacity duration-300 ${
             queryState.step === 3 ? 'opacity-100' : 'opacity-75'
           }`}>
-            <SeasonSelector
-              seasonMode={queryState.seasonMode}
-              specificYear={queryState.specificYear}
-              onSeasonChange={(seasonMode, specificYear) => {
-                updateQueryState({ seasonMode, specificYear, step: 4 });
+            <SplitTypeSelector
+              selectedSplitType={queryState.splitType}
+              onSplitTypeSelect={(splitType) => {
+                if (splitType.id === 'custom') {
+                  updateQueryState({ splitType, step: 4 });
+                } else {
+                  updateQueryState({ splitType, step: 4 }); // Go to season selection step
+                }
               }}
               isActive={queryState.step === 3}
             />
           </div>
         )}
 
-        {/* Step 4: Metrics Selection or Metric Order Selection */}
-        {queryState.step >= 4 && queryState.category && (() => {
-          const isLeaderboard = queryState.category && 
-            (queryState.category.id === 'batting_leaderboard' || queryState.category.id === 'pitching_leaderboard');
-          
-          if (isLeaderboard) {
-            return (
-              <div className={`transition-opacity duration-300 ${
-                queryState.step === 4 ? 'opacity-100' : 'opacity-75'
-              }`}>
-                <MetricOrderSelector
-                  selectedMetricOrder={queryState.metricOrder}
-                  onMetricOrderChange={(metricOrder) => {
-                    updateQueryState({ 
-                      metricOrder, 
-                      step: metricOrder ? 5 : 4 
-                    });
-                  }}
-                  category={queryState.category}
-                  isActive={queryState.step === 4}
-                />
-              </div>
-            );
-          } else {
-            return (
-              <div className={`transition-opacity duration-300 ${
-                queryState.step === 4 ? 'opacity-100' : 'opacity-75'
-              }`}>
-                <MetricSelector
-                  category={queryState.category}
-                  selectedMetrics={queryState.metrics}
-                  onMetricsChange={(metrics) => {
-                    console.log('CustomQueryBuilder: Received metrics update:', metrics);
-                    console.log('CustomQueryBuilder: Current queryState.metrics:', queryState.metrics);
-                    console.log('CustomQueryBuilder: Current step:', queryState.step);
-                    console.log('CustomQueryBuilder: isActive will be:', queryState.step === 4);
-                    updateQueryState({ 
-                      metrics 
-                      // Don't auto-advance step - let user manually go to step 5
-                    });
-                  }}
-                  isActive={queryState.step === 4}
-                />
-              </div>
-            );
-          }
-        })()}
-
-        {/* Step 5: Query Preview & Execute */}
-        {queryState.step >= 5 && (
+        {/* Step 4: Custom Situation Builder (only for custom split type) */}
+        {queryState.category && queryState.category.id === 'batting_splits' && 
+         queryState.splitType && queryState.splitType.id === 'custom' && queryState.step === 4 && (
           <div className="transition-opacity duration-300 opacity-100">
-            <QueryPreview
-              queryState={queryState}
-              onExecute={executeQuery}
-              onReset={resetBuilder}
-              isLoading={isLoading}
-              canExecute={isStepComplete(5)}
+            <CustomSituationBuilder
+              customSituation={queryState.customSituation}
+              onCustomSituationChange={(customSituation) => {
+                updateQueryState({ customSituation });
+              }}
+              isActive={true}
             />
           </div>
         )}
+
+        {/* Step 4/5: Season Selection */}
+        {(() => {
+          const isBattingSplits = queryState.category && queryState.category.id === 'batting_splits';
+          const isCustomSplit = isBattingSplits && queryState.splitType && queryState.splitType.id === 'custom';
+          const seasonStep = isCustomSplit ? 5 : (isBattingSplits ? 4 : 3);
+          const nextStep = isCustomSplit ? 6 : (isBattingSplits ? 5 : 4);
+          
+          return queryState.step >= seasonStep && (
+            <div className={`transition-opacity duration-300 ${
+              queryState.step === seasonStep ? 'opacity-100' : 'opacity-75'
+            }`}>
+              <SeasonSelector
+                seasonMode={queryState.seasonMode}
+                specificYear={queryState.specificYear}
+                onSeasonChange={(seasonMode, specificYear) => {
+                  updateQueryState({ seasonMode, specificYear, step: nextStep });
+                }}
+                isActive={queryState.step === seasonStep}
+              />
+            </div>
+          );
+        })()}
+
+        {/* Step 4/5: Metrics Selection or Metric Order Selection */}
+        {(() => {
+          const _isLeaderboard = queryState.category && 
+            (queryState.category.id === 'batting_leaderboard' || queryState.category.id === 'pitching_leaderboard');
+          const isBattingSplits = queryState.category && queryState.category.id === 'batting_splits';
+          const isCustomSplit = isBattingSplits && queryState.splitType && queryState.splitType.id === 'custom';
+          const metricsStep = isCustomSplit ? 6 : (isBattingSplits ? 5 : 4);
+          
+          return queryState.step >= metricsStep && queryState.category && (() => {
+            if (_isLeaderboard) {
+              return (
+                <div className={`transition-opacity duration-300 ${
+                  queryState.step === 4 ? 'opacity-100' : 'opacity-75'
+                }`}>
+                  <MetricOrderSelector
+                    selectedMetricOrder={queryState.metricOrder}
+                    onMetricOrderChange={(metricOrder) => {
+                      updateQueryState({ 
+                        metricOrder, 
+                        step: metricOrder ? 5 : 4 
+                      });
+                    }}
+                    category={queryState.category}
+                    isActive={queryState.step === 4}
+                  />
+                </div>
+              );
+            } else {
+              return (
+                <div className={`transition-opacity duration-300 ${
+                  queryState.step === metricsStep ? 'opacity-100' : 'opacity-75'
+                }`}>
+                  <MetricSelector
+                    category={queryState.category}
+                    selectedMetrics={queryState.metrics}
+                    selectedSplitType={queryState.splitType}
+                    onMetricsChange={(metrics) => {
+                      updateQueryState({ 
+                        metrics 
+                      });
+                    }}
+                    isActive={queryState.step === metricsStep}
+                  />
+                </div>
+              );
+            }
+          })();
+        })()}
+
+        {/* Step 5/6: Query Preview & Execute */}
+        {(() => {
+          const isBattingSplits = queryState.category && queryState.category.id === 'batting_splits';
+          const isCustomSplit = isBattingSplits && queryState.splitType && queryState.splitType.id === 'custom';
+          const executeStep = isCustomSplit ? 7 : (isBattingSplits ? 6 : 5);
+          
+          return queryState.step >= executeStep && (
+            <div className="transition-opacity duration-300 opacity-100">
+              <QueryPreview
+                queryState={queryState}
+                onExecute={executeQuery}
+                onReset={resetBuilder}
+                isLoading={isLoading}
+                canExecute={isStepComplete(executeStep)}
+              />
+            </div>
+          );
+        })()}
       </div>
 
-      {/* Navigation Buttons (for steps 2-4) */}
-      {queryState.step > 1 && queryState.step < 5 && (
+      {/* Navigation Buttons (for steps 2-4/5) */}
+      {(() => {
+        const isBattingSplits = queryState.category && queryState.category.id === 'batting_splits';
+        const isCustomSplit = isBattingSplits && queryState.splitType && queryState.splitType.id === 'custom';
+        const maxStep = isCustomSplit ? 7 : (isBattingSplits ? 6 : 5);
+        return queryState.step > 1 && queryState.step < maxStep;
+      })() && (
         <div className="flex justify-between">
           <button
             onClick={() => updateQueryState({ step: queryState.step - 1 })}
@@ -372,7 +500,7 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
                 {customResult.charts.map((chart, index) => (
                   <div key={index} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
                     <h5 className="text-lg font-medium text-gray-900 dark:text-white mb-3">
-                      {chart.metricDisplayName} の月別推移
+                      {chart.metricDisplayName} の{queryState?.category?.id === 'batting_splits' ? '年次推移' : '月別推移'}
                     </h5>
                     <SimpleChatChart 
                       chartData={chart.chartData}
@@ -471,7 +599,32 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
                         'barrelpct': 'バレル率',
                         'batting_average_at_risp': 'RISP時打率',
                         'slugging_percentage_at_risp': 'RISP時長打率',
-                        'home_runs_at_risp': 'RISP時HR'
+                        'home_runs_at_risp': 'RISP時HR',
+                        // Batting Splits category
+                        // RISP
+                        'ab_at_risp': 'RISP時打数',
+                        'hits_at_risp': 'RISP時安打',
+                        'homeruns_at_risp': 'RISP時HR',
+                        'triples_at_risp': 'RISP時三塁打',
+                        'doubles_at_risp': 'RISP時二塁打',
+                        'singles_at_risp': 'RISP時単打',
+                        'avg_at_risp': 'RISP時打率',
+                        'obp_at_risp': 'RISP時出塁率',
+                        'slg_at_risp': 'RISP時長打率',
+                        'ops_at_risp': 'RISP時OPS',
+                        'strikeout_rate_at_risp': 'RISP時三振率',
+                        // Bases loaded
+                        'ab_at_bases_loaded': '満塁時打数',
+                        'hits_at_bases_loaded': '満塁時安打',
+                        'grandslam': 'グランドスラム',
+                        'triples_at_bases_loaded': '満塁時三塁打',
+                        'doubles_at_bases_loaded': '満塁時二塁打',
+                        'singles_at_bases_loaded': '満塁時単打',
+                        'avg_at_bases_loaded': '満塁時打率',
+                        'obp_at_bases_loaded': '満塁時出塁率',
+                        'slg_at_bases_loaded': '満塁時長打率',
+                        'ops_at_bases_loaded': '満塁時OPS',
+                        'strikeout_rate_at_bases_loaded': '満塁時三振率'
                       };
                       
                       const pitchingMetrics = {
@@ -520,7 +673,10 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
                     const isPitchingCard = isPitchingContext;
 
                     // Define rate stats that should show 3 decimal places
-                    const rateStats = ['avg', 'obp', 'slg', 'ops', 'woba', 'hardhitpct', 'barrelpct', 'babip', 'iso', 'lobpct', 'gbpct', 'swstrpct', 'batting_average_at_risp', 'slugging_percentage_at_risp'];
+                    const rateStats = ['avg', 'obp', 'slg', 'ops', 'woba', 'hardhitpct', 'barrelpct', 'babip', 'iso', 'lobpct', 'gbpct', 'swstrpct', 'batting_average_at_risp', 'slugging_percentage_at_risp', 
+                      'avg_at_risp', 'obp_at_risp', 'slg_at_risp', 'ops_at_risp', 'strikeout_rate_at_risp', 
+                      'avg_at_bases_loaded', 'obp_at_bases_loaded', 'slg_at_bases_loaded', 'ops_at_bases_loaded', 'strikeout_rate_at_bases_loaded'
+                    ];
                     // Define rate stats that should show 1 decimal place
                     const oneDecimalRateStats = ['ip', 'war', 'k_9', 'bb_9', 'k_bb', 'hr_9'];
                     // Define rate stats that should show 2 decimal places
