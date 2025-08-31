@@ -70,7 +70,6 @@ const QueryPreview = ({ queryState, onExecute, onReset, isLoading, canExecute })
       // Advanced pitching
       whip: 'WHIP',
       fip: 'FIP',
-      xfip: 'xFIP',
       k_9: 'K/9',
       bb_9: 'BB/9',
       // Situational
@@ -110,7 +109,13 @@ const QueryPreview = ({ queryState, onExecute, onReset, isLoading, canExecute })
       obp_at_bases_loaded: '満塁時出塁率',
       slg_at_bases_loaded: '満塁時長打率',
       ops_at_bases_loaded: '満塁時OPS',
-      strikeout_rate_at_bases_loaded: '満塁時三振率'
+      strikeout_rate_at_bases_loaded: '満塁時三振率',
+      // Advanced Batting situational metrics
+      homeruns: '本塁打',
+      avg: '打率',
+      bb_hbp: '四死球',
+      hard_hit_rate: 'ハードヒット率',
+      barrels_rate: 'バレル率'
     };
 
     return queryState.metrics.map(metricId => 

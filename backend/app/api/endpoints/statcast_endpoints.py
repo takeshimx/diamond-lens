@@ -66,17 +66,13 @@ async def get_batter_statcast_data_endpoint(
     データが見つからない場合は404エラーを返します。
     """
 
-    # # ★★★ 強制デバッグエラーの追加（関数の冒頭） ★★★
-    # # This line is for temporary debugging. Remove it after the issue is resolved.
-    # raise Exception(f"DEBUG: Reached get_batter_statcast_data_endpoint. Params: batter_id={batter_id}, season={season}")
-    # # ★★★ ここまで ★★★
-
-    # # ★★★ デバッグログの追加 ★★★
-    # logger.debug(f"Reached get_batter_statcast_data_endpoint. Params: batter_id={batter_id}, season={season}")
-    # # ★★★ ここまで ★★★
+    # Convert list types to tuples
+    innings_tuple = tuple(innings) if innings else ()
+    runners_tuple = tuple(runners) if runners else ()
+    pitch_types_tuple = tuple(pitch_types) if pitch_types else ()
 
     # Get data from the service layer
-    statcast_data = get_batter_splits_stats_advanced(batter_id, season, innings, strikes, balls, p_throws, runners, pitch_types)
+    statcast_data = get_batter_splits_stats_advanced(batter_id, season, innings_tuple, strikes, balls, p_throws, runners_tuple, pitch_types_tuple)
 
     # If no data is found, raise a 404 error
     if statcast_data is None:

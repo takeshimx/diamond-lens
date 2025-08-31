@@ -157,18 +157,19 @@ const MetricSelector = ({ category, selectedMetrics, onMetricsChange, isActive, 
           { id: 'doubles', name: '二塁打', description: '二塁打数', unit: '本' },
           { id: 'triples', name: '三塁打', description: '三塁打数', unit: '本' },
           { id: 'singles', name: '単打', description: '単打数', unit: '本' },
-          { id: 'at_bats', name: '打数', description: '打数', unit: '回' },
+          { id: 'ab', name: '打数', description: '打数', unit: '回' },
           { id: 'avg', name: '打率', description: '打率', unit: '' },
           { id: 'obp', name: '出塁率', description: '出塁率', unit: '' },
           { id: 'slg', name: '長打率', description: '長打率', unit: '' },
           { id: 'ops', name: 'OPS', description: 'OPS', unit: '' },
-          { id: 'strikeouts', name: '三振', description: '三振数', unit: '回' },
+          { id: 'rbi', name: '打点', description: '打点数', unit: '点' },
+          { id: 'so', name: '三振', description: '三振数', unit: '回' },
           { id: 'bb_hbp', name: '四死球', description: '四球・死球数', unit: '回' },
           { id: 'strikeout_rate', name: '三振率', description: '三振率', unit: '%' },
           { id: 'hard_hit_rate', name: 'ハードヒット率', description: 'ハードヒット率', unit: '%' },
           { id: 'barrels_rate', name: 'バレル率', description: 'バレル率', unit: '%' },
-          { id: 'avg_exit_velocity', name: '平均打球速度', description: '平均打球速度', unit: 'mph' },
-          { id: 'avg_launch_angle', name: '平均打球角度', description: '平均打球角度', unit: '度' }
+          // { id: 'exit_velocity', name: '平均打球速度', description: '平均打球速度', unit: 'mph' },
+          // { id: 'launch_angle', name: '平均打球角度', description: '平均打球角度', unit: '度' }
         ]
       }
     },

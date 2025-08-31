@@ -273,8 +273,8 @@ class PlayerStatcastData(BaseModel):
     launch_angle: Optional[int] = Field(None, description="打球の発射角度 (度)")
     woba_value: Optional[float] = Field(None, description="wOBA値")  # wOBA値は0.0から1.0の範囲
     launch_speed_angle: Optional[int] = Field(None, description="発射速度と角度の組み合わせ")  # 発射速度と角度の組み合わせはオプション
-    pitch_number: int = Field(..., description="投球番号")
-    at_bat_number: int = Field(..., description="打席番号")
+    pitch_number: Optional[int] = Field(None, description="投球番号")
+    at_bat_number: Optional[int] = Field(None, description="打席番号")
     game_pk: Optional[str] = Field(None, description="試合PK")  # 試合PKはオプション
     swing_length: Optional[float] = Field(None, description="スイングの長さ (フィート)")  # スイングの長さはオプション
     pitch_name: Optional[str] = Field(None, description="投球名")  # 投球名はオプション
@@ -295,8 +295,8 @@ class PlayerStatcastData(BaseModel):
     obp: Optional[float] = Field(None, description="出塁率")  # 出塁率はオプション
     slg: Optional[float] = Field(None, description="長打率")  # 長打率はオプション
     ops: Optional[float] = Field(None, description="OPS")  # OPSはオプション
-    hitting_events: Optional[str] = Field(None, description="打撃イベントタイプ")  # 打撃イベントタイプはオプション
-    launch_angle: Optional[int] = Field(None, description="打球の発射角度 (度)")  # 打球の発射角度はオプション
+    hitting_events: Optional[int] = Field(None, description="打撃イベントタイプ")  # 打撃イベントタイプはオプション
+    launch_angle: Optional[float] = Field(None, description="打球の発射角度 (度)")  # 打球の発射角度はオプション
     exit_velocity: Optional[float] = Field(None, description="打球の初速 (mph)")  # 打球の初速はオプション
     bat_speed: Optional[float] = Field(None, description="バットスピード (mph)")  # バットスピードはオプション
     swing_length: Optional[float] = Field(None, description="スイングの長さ (フィート)")  # スイングの長さはオプション

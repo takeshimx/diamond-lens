@@ -146,7 +146,7 @@ def get_batter_splits_stats_advanced(
     innings_where_clause = ""
     if innings is not None and len(innings) > 0:
         innings_str = f"({', '.join(map(str, innings))})" # Convert list of ints to string for SQL IN clause e.g. "(1, 2, 3)"
-        innings_where_clause = f"AND innings IN {innings_str}"
+        innings_where_clause = f"AND inning IN {innings_str}"
     
     strikes_where_clause = ""
     if strikes is not None:
@@ -183,8 +183,9 @@ def get_batter_splits_stats_advanced(
     
     pitch_types_where_clause = ""
     if pitch_types is not None and len(pitch_types) > 0:
-        pitch_types_str = f"({', '.join(map(str, pitch_types))})"
-        pitch_types_where_clause = f"AND pitch_name IN {pitch_types_str}"
+        quated_pitch_type = [f"'{pt}'" for pt in pitch_types]
+        pitch_types_str = f"({'. '.join(quated_pitch_type)})"
+        pitch_types_where_clause = f"AND pitch_type IN {pitch_types_str}"
 
     query = f"""
         SELECT
@@ -206,8 +207,11 @@ def get_batter_splits_stats_advanced(
             AND events IS NOT NULL
             AND game_type = 'R'
             AND batter_id IS NOT NULL AND batter_name IS NOT NULL
+            AND pitch_type IS NOT NULL
         GROUP BY
             batter_id, batter_name, game_year
+        ORDER BY
+            game_year ASC
     """
     job_config = bigquery.QueryJobConfig(
         query_parameters=[

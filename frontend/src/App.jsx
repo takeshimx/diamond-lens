@@ -362,7 +362,7 @@ const MLBChatApp = () => {
               
               const metricDisplayNames = {
                 'avg': '打率', 'obp': '出塁率', 'slg': '長打率', 'ops': 'OPS',
-                'h': '安打数', 'hr': '本塁打', 'doubles': '二塁打', 'triples': '三塁打',
+                'h': '安打数', 'hr': '本塁打', 'homeruns': 'ホームラン', 'doubles': '二塁打', 'triples': '三塁打',
                 'singles': '単打', 'rbi': '打点', 'r': '得点', 'bb': '四球',
                 'so': '三振', 'war': 'fWAR', 'woba': 'wOBA', 'wrcplus': 'wRC+'
               };
@@ -1322,7 +1322,13 @@ const MLBChatApp = () => {
             'monthly_hits': '月別安打',
             'monthly_singles': '月別単打',
             'monthly_doubles': '月別二塁打',
-            'monthly_triples': '月別三塁打'
+            'monthly_triples': '月別三塁打',
+            'homeruns': 'ホームラン',
+            'hits': '安打',
+            'avg': '打率',
+            'obp': '出塁率',
+            'slg': '長打率',
+            'ops': 'OPS'
           };
           return nameMap[metric] || metric;
         }
@@ -1345,8 +1351,8 @@ const MLBChatApp = () => {
               if (cs?.innings?.length > 0) {
                 cs.innings.forEach(inning => urlParams.append('innings', inning.toString()));
               }
-              if (cs?.strikes !== null) urlParams.append('strikes', cs.strikes.toString());
-              if (cs?.balls !== null) urlParams.append('balls', cs.balls.toString());
+              if (cs?.strikes !== null && cs?.strikes !== undefined) urlParams.append('strikes', cs.strikes.toString());
+              if (cs?.balls !== null && cs?.balls !== undefined) urlParams.append('balls', cs.balls.toString());
               if (cs?.pitcherType) urlParams.append('p_throws', cs.pitcherType);
               if (cs?.runnersOnBase?.length > 0) {
                 cs.runnersOnBase.forEach(runner => urlParams.append('runners', runner));
@@ -1365,13 +1371,48 @@ const MLBChatApp = () => {
               );
             }
             
-            const chartResults = await Promise.all(chartPromises);
+            // 2. Get career aggregate data for KPIs
+            let careerEndpoint = `${baseURL}/api/v1/players/${params.playerId}/statcast/batter/advanced-stats?aggregate_career=true&`;
+            const careerUrlParams = new URLSearchParams();
+            
+            if (cs?.innings?.length > 0) {
+              cs.innings.forEach(inning => careerUrlParams.append('innings', inning.toString()));
+            }
+            if (cs?.strikes !== null && cs?.strikes !== undefined) careerUrlParams.append('strikes', cs.strikes.toString());
+            if (cs?.balls !== null && cs?.balls !== undefined) careerUrlParams.append('balls', cs.balls.toString());
+            if (cs?.pitcherType) careerUrlParams.append('p_throws', cs.pitcherType);
+            if (cs?.runnersOnBase?.length > 0) {
+              cs.runnersOnBase.forEach(runner => careerUrlParams.append('runners', runner));
+            }
+            if (cs?.pitchTypes?.length > 0) {
+              cs.pitchTypes.forEach(pitch => careerUrlParams.append('pitch_types', pitch));
+            }
+            
+            careerEndpoint += careerUrlParams.toString();
+            
+            const [chartResults, careerResponse] = await Promise.all([
+              Promise.all(chartPromises),
+              fetch(careerEndpoint).then(res => res.json())
+            ]);
+            
+            // Create KPI cards from career data
+            let careerKpis = [];
+            if (careerResponse && Array.isArray(careerResponse) && careerResponse.length > 0) {
+              const careerData = careerResponse[0]; // Should be single aggregated record
+              careerKpis = queryState.metrics.map(metric => ({
+                metric: metric,
+                value: careerData[metric],
+                playerName: careerData.batter_name,
+                season: 'キャリア通算'
+              }));
+            }
             
             // Format response with multiple charts
             response = {
               isMultiChart: true,
               isChart: false,
-              isCards: false,
+              isCards: careerKpis.length > 0,
+              cardsData: careerKpis,
               charts: chartResults.map(result => {
                 let chartData = [];
                 let chartConfig = {};
@@ -1411,11 +1452,12 @@ const MLBChatApp = () => {
                   
                   return {
                     metric: result.metric,
+                    metricDisplayName: displayName,
                     isChart: chartData.length > 0,
                     chartType: chartType,
                     chartData: chartData,
                     chartConfig: chartConfig,
-                    answer: `${result.metric}の年次推移`
+                    answer: `${displayName}の年次推移`
                   };
                 } else {
                   return {
@@ -1428,7 +1470,7 @@ const MLBChatApp = () => {
                   };
                 }
               }),
-              answer: `${queryState.metrics.length}個の指標の年次推移を表示します。`
+              answer: `キャリア通算成績と${queryState.metrics.length}個の指標の年次推移を表示します。`
             };
             
           } else {
@@ -1441,8 +1483,8 @@ const MLBChatApp = () => {
             if (cs?.innings?.length > 0) {
               cs.innings.forEach(inning => urlParams.append('innings', inning.toString()));
             }
-            if (cs?.strikes !== null) urlParams.append('strikes', cs.strikes.toString());
-            if (cs?.balls !== null) urlParams.append('balls', cs.balls.toString());
+            if (cs?.strikes !== null && cs?.strikes !== undefined) urlParams.append('strikes', cs.strikes.toString());
+            if (cs?.balls !== null && cs?.balls !== undefined) urlParams.append('balls', cs.balls.toString());
             if (cs?.pitcherType) urlParams.append('p_throws', cs.pitcherType);
             if (cs?.runnersOnBase?.length > 0) {
               cs.runnersOnBase.forEach(runner => urlParams.append('runners', runner));
@@ -1597,11 +1639,12 @@ const MLBChatApp = () => {
                 
                 return {
                   metric: result.metric,
+                  metricDisplayName: displayName,
                   isChart: chartData.length > 0,
                   chartType: chartType,
                   chartData: chartData,
                   chartConfig: chartConfig,
-                  answer: `${result.metric}の年次推移`
+                  answer: `${displayName}の年次推移`
                 };
               } else {
                 // No data case
@@ -2172,7 +2215,7 @@ const MLBChatApp = () => {
               <div className="mx-auto w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mb-4">
                 <Activity className="w-8 h-8 text-white" />
               </div>
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2 transition-colors duration-200">MLB Stats Assistant</h1>
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2 transition-colors duration-200">Diamond Lens MLB Stats Assistant</h1>
               <p className="text-gray-600 dark:text-gray-300 transition-colors duration-200">アクセスにはパスワードが必要です</p>
             </div>
             
@@ -2224,7 +2267,7 @@ const MLBChatApp = () => {
         <>
           {/* ===== ヘッダーセクション ===== */}
           <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 transition-colors duration-200">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-8">
               <div className="flex items-center gap-3">
                 {/* アプリアイコン */}
                 <div className="p-2 bg-blue-600 rounded-lg">
@@ -2232,7 +2275,8 @@ const MLBChatApp = () => {
                 </div>
                 {/* アプリタイトルと説明 */}
                 <div>
-                  <h1 className="text-xl font-bold text-gray-900 dark:text-white transition-colors duration-200">MLB Stats Assistant</h1>
+                  <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent dark:from-blue-400 dark:to-purple-400 transition-all duration-200">Diamond Lens</h1>
+                  <div className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">MLB Stats Assistant</div>
                   <p className="text-sm text-gray-600 dark:text-gray-300 transition-colors duration-200">
                     {uiMode === 'chat' && 'MLBの統計データについて質問してください'}
                     {uiMode === 'quick' && 'よく使われる質問をワンクリックで実行'}
@@ -2242,21 +2286,21 @@ const MLBChatApp = () => {
               </div>
               
               {/* モード切り替えボタン */}
-              <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1 transition-colors duration-200">
+              <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1.5 gap-1 transition-colors duration-200">
                 <button
                   onClick={() => {
                     setUiMode('chat');
                     setQuickResult(null); // Clear quick result when switching to chat
                     setCustomResult(null); // Clear custom result when switching to chat
                   }}
-                  className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 flex items-center gap-2 ${
+                  className={`px-4 py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center gap-2 min-w-0 ${
                     uiMode === 'chat' 
                       ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' 
                       : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
                   }`}
                 >
-                  <MessageCircle className="w-4 h-4" />
-                  チャット
+                  <MessageCircle className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate">チャット</span>
                 </button>
                 <button
                   onClick={() => {
@@ -2264,14 +2308,14 @@ const MLBChatApp = () => {
                     setCustomResult(null); // Clear custom result when switching to quick
                     // Keep quick result when switching to quick mode
                   }}
-                  className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 flex items-center gap-2 ${
+                  className={`px-4 py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center gap-2 min-w-0 ${
                     uiMode === 'quick' 
                       ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' 
                       : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
                   }`}
                 >
-                  <Zap className="w-4 h-4" />
-                  クイック質問
+                  <Zap className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate">クイック質問</span>
                 </button>
                 <button
                   onClick={() => {
@@ -2279,14 +2323,14 @@ const MLBChatApp = () => {
                     setQuickResult(null); // Clear quick result when switching to custom
                     // Keep custom result when switching to custom mode
                   }}
-                  className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 flex items-center gap-2 ${
+                  className={`px-4 py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center gap-2 min-w-0 ${
                     uiMode === 'custom' 
                       ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' 
                       : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
                   }`}
                 >
-                  <Settings className="w-4 h-4" />
-                  カスタムクエリ
+                  <Settings className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate">カスタムクエリ</span>
                 </button>
               </div>
             </div>
