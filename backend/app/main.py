@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request
-from backend.app.api.endpoints.router import api_router  # For Development, add backend. path
+from app.api.endpoints.router import api_router  # For Development, add backend. path
 # from backend.app.api.endpoints import ai_analytics_endpoints  # For Development, add backend. path
 from fastapi.middleware.cors import CORSMiddleware
 import logging
