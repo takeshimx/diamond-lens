@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 from .bigquery_service import client
 import logging
-from app.config.query_maps import ( # For Development, add backend. path
+from backend.app.config.query_maps import ( # For Development, add backend. path
     QUERY_TYPE_CONFIG,
     METRIC_MAP,
     DECIMAL_FORMAT_COLUMNS,
@@ -22,7 +22,7 @@ from app.config.query_maps import ( # For Development, add backend. path
     MAIN_INNING_BATTING_STATS, MAIN_BATTING_BY_PITCHING_THROWS_STATS, MAIN_BATTING_BY_PITCH_TYPE_STATS,
     MAIN_BATTING_BY_GAME_SCORE_SITUATIONS_STATS
 )
-from app.config.statcast_query import KEY_METRICS_QUERY_SELECT # For Development, add backend. path
+from backend.app.config.statcast_query import KEY_METRICS_QUERY_SELECT # For Development, add backend. path
 # from .simple_chart_service import enhance_response_with_simple_chart, should_show_simple_chart # For Development, add backend. path
 
 # ロガーの設定

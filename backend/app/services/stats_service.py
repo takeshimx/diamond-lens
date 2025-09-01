@@ -8,7 +8,7 @@ from google.cloud.exceptions import GoogleCloudError
 import pandas as pd
 import numpy as np
 from functools import lru_cache
-from app.api.schemas import ( # For Development, add backend. path
+from backend.app.api.schemas import ( # For Development, add backend. path
     PlayerMonthlyOffensiveStats,
     PlayerBatterPerformanceAtRISPMonthly,
     PlayerMonthlyBattingStats,

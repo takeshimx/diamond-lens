@@ -315,14 +315,14 @@ const PlayerAutocomplete = ({ selectedPlayer, onPlayerSelect, isActive, onSearch
           }`}>
             人気選手
           </h4>
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
             {mockPlayers.slice(0, 6).map((player) => (
               <button
                 key={player.id}
                 onClick={() => handlePlayerSelect(player)}
                 disabled={!isActive}
                 className={`
-                  px-3 py-1.5 text-sm rounded-full border transition-all duration-200
+                  px-3 py-2 sm:py-1.5 text-sm rounded-full border transition-all duration-200 text-center
                   ${isActive 
                     ? 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20' 
                     : 'border-gray-200 dark:border-gray-700 text-gray-400 dark:text-gray-600 cursor-not-allowed'

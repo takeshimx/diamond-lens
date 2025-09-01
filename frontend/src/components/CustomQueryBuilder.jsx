@@ -113,7 +113,7 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className="max-w-4xl mx-auto space-y-6 sm:space-y-8 px-4 sm:px-0">
       {/* Header */}
       <div className="text-center">
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2 transition-colors duration-200">
@@ -125,7 +125,7 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
       </div>
 
       {/* Progress Indicator */}
-      <div className="flex items-center justify-center space-x-4">
+      <div className="flex items-center justify-center space-x-2 sm:space-x-4 flex-wrap">
         {(() => {
           const isBattingSplits = queryState.category && queryState.category.id === 'batting_splits';
           const isCustomSplit = isBattingSplits && queryState.splitType && queryState.splitType.id === 'custom';
@@ -133,7 +133,7 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
           return Array.from({length: maxSteps}, (_, i) => i + 1);
         })().map((step) => (
           <div key={step} className="flex items-center">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors duration-200 ${
+            <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs sm:text-sm font-medium transition-colors duration-200 ${
               queryState.step > step || isStepComplete(step)
                 ? 'bg-blue-600 dark:bg-blue-500 text-white'
                 : queryState.step === step
@@ -147,7 +147,7 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
               const isCustomSplit = isBattingSplits && queryState.splitType && queryState.splitType.id === 'custom';
               return isCustomSplit ? 7 : (isBattingSplits ? 6 : 5);
             })()) && (
-              <div className={`w-12 h-0.5 mx-2 transition-colors duration-200 ${
+              <div className={`w-8 sm:w-12 h-0.5 mx-1 sm:mx-2 transition-colors duration-200 ${
                 queryState.step > step ? 'bg-blue-600 dark:bg-blue-500' : 'bg-gray-200 dark:bg-gray-700'
               }`} />
             )}
@@ -156,15 +156,15 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
       </div>
 
       {/* Step Labels */}
-      <div className={`grid gap-4 text-center text-xs text-gray-500 dark:text-gray-400 ${
+      <div className={`grid gap-2 sm:gap-4 text-center text-xs text-gray-500 dark:text-gray-400 ${
         (() => {
           const isBattingSplits = queryState.category && queryState.category.id === 'batting_splits';
           const isCustomSplit = isBattingSplits && queryState.splitType && queryState.splitType.id === 'custom';
           const _isLeaderboard = queryState.category && 
             (queryState.category.id === 'batting_leaderboard' || queryState.category.id === 'pitching_leaderboard');
-          if (isCustomSplit) return 'grid-cols-7';
-          if (isBattingSplits) return 'grid-cols-6';
-          return 'grid-cols-5';
+          if (isCustomSplit) return 'grid-cols-3 sm:grid-cols-7';
+          if (isBattingSplits) return 'grid-cols-3 sm:grid-cols-6';
+          return 'grid-cols-3 sm:grid-cols-5';
         })()
       }`}>
         {(() => {
@@ -559,7 +559,7 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
             {customResult.isCards && customResult.cardsData && (
               <div className="mb-6">
                 <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">キャリア通算成績</h4>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
                   {customResult.cardsData.map((card, index) => {
                     // Define metric display names for batting metrics
                     const getMetricDisplayName = (metric) => {
@@ -713,7 +713,7 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
                   <TrendingUp className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                   <span className="text-sm font-semibold text-blue-800 dark:text-blue-300">統計データ</span>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
                   {Object.entries(customResult.stats).map(([key, value]) => (
                     <div key={key} className="flex justify-between">
                       <span className="text-gray-600 dark:text-gray-400">{key}:</span>

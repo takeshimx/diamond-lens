@@ -2266,8 +2266,8 @@ const MLBChatApp = () => {
         // ===== メインチャットインターフェース =====
         <>
           {/* ===== ヘッダーセクション ===== */}
-          <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 transition-colors duration-200">
-            <div className="flex items-center justify-between gap-8">
+          <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 sm:px-6 py-4 transition-colors duration-200">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-8">
               <div className="flex items-center gap-3">
                 {/* アプリアイコン */}
                 <div className="p-2 bg-blue-600 rounded-lg">
@@ -2275,7 +2275,7 @@ const MLBChatApp = () => {
                 </div>
                 {/* アプリタイトルと説明 */}
                 <div>
-                  <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent dark:from-blue-400 dark:to-purple-400 transition-all duration-200">Diamond Lens</h1>
+                  <h1 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent dark:from-blue-400 dark:to-purple-400 transition-all duration-200">Diamond Lens</h1>
                   <div className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">MLB Stats Assistant</div>
                   <p className="text-sm text-gray-600 dark:text-gray-300 transition-colors duration-200">
                     {uiMode === 'chat' && 'MLBの統計データについて質問してください'}
@@ -2286,14 +2286,14 @@ const MLBChatApp = () => {
               </div>
               
               {/* モード切り替えボタン */}
-              <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1.5 gap-1 transition-colors duration-200">
+              <div className="flex flex-col sm:flex-row bg-gray-100 dark:bg-gray-700 rounded-lg p-1.5 gap-1 transition-colors duration-200">
                 <button
                   onClick={() => {
                     setUiMode('chat');
                     setQuickResult(null); // Clear quick result when switching to chat
                     setCustomResult(null); // Clear custom result when switching to chat
                   }}
-                  className={`px-4 py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center gap-2 min-w-0 ${
+                  className={`px-4 py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center sm:justify-start gap-2 min-w-0 w-full sm:w-auto ${
                     uiMode === 'chat' 
                       ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' 
                       : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
@@ -2308,7 +2308,7 @@ const MLBChatApp = () => {
                     setCustomResult(null); // Clear custom result when switching to quick
                     // Keep quick result when switching to quick mode
                   }}
-                  className={`px-4 py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center gap-2 min-w-0 ${
+                  className={`px-4 py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center sm:justify-start gap-2 min-w-0 w-full sm:w-auto ${
                     uiMode === 'quick' 
                       ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' 
                       : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
@@ -2323,7 +2323,7 @@ const MLBChatApp = () => {
                     setQuickResult(null); // Clear quick result when switching to custom
                     // Keep custom result when switching to custom mode
                   }}
-                  className={`px-4 py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center gap-2 min-w-0 ${
+                  className={`px-4 py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center sm:justify-start gap-2 min-w-0 w-full sm:w-auto ${
                     uiMode === 'custom' 
                       ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' 
                       : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
@@ -2340,7 +2340,7 @@ const MLBChatApp = () => {
       <div className="flex-1 overflow-y-auto">
         {uiMode === 'chat' ? (
           /* ===== メッセージ表示エリア ===== */
-          <div className="px-6 py-4 space-y-4 h-full">
+          <div className="px-4 sm:px-6 py-4 space-y-4 h-full">
         {/* 各メッセージをレンダリング */}
         {messages.map((message) => (
           <div
@@ -2355,7 +2355,7 @@ const MLBChatApp = () => {
             )}
             
             {/* メッセージ本体 */}
-            <div className={`${message.isChart ? 'max-w-5xl' : 'max-w-2xl'} ${message.type === 'user' ? 'order-2' : ''}`}>
+            <div className={`${message.isChart ? 'max-w-full lg:max-w-5xl' : 'max-w-full sm:max-w-2xl'} ${message.type === 'user' ? 'order-2' : ''}`}>
               {/* メッセージバブル */}
               <div
                 className={`px-4 py-3 rounded-lg transition-colors duration-200 ${
@@ -2442,7 +2442,7 @@ const MLBChatApp = () => {
           </div>
         ) : uiMode === 'quick' ? (
           /* ===== クイック質問エリア ===== */
-          <div className="px-6 py-8 h-full flex items-center justify-center">
+          <div className="px-4 sm:px-6 py-6 sm:py-8 h-full flex items-center justify-center">
             <QuickQuestions 
               onQuestionClick={handleQuickQuestion} 
               isLoading={isLoading}
@@ -2452,7 +2452,7 @@ const MLBChatApp = () => {
           </div>
         ) : (
           /* ===== カスタムクエリビルダーエリア ===== */
-          <div className="px-6 py-8 h-full">
+          <div className="px-4 sm:px-6 py-6 sm:py-8 h-full">
             <CustomQueryBuilder 
               isLoading={isLoading}
               onExecuteQuery={handleCustomQuery}
@@ -2466,8 +2466,8 @@ const MLBChatApp = () => {
 
       {/* ===== メッセージ入力エリア ===== */}
       {uiMode === 'chat' && (
-        <div className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 px-6 py-4 transition-colors duration-200">
-        <div className="flex gap-3 items-end">
+        <div className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 px-4 sm:px-6 py-4 transition-colors duration-200">
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
           {/* テキストエリア */}
           <div className="flex-1">
             <textarea
@@ -2484,7 +2484,7 @@ const MLBChatApp = () => {
           <button
             onClick={handleSendMessage}
             disabled={!inputMessage.trim() || isLoading} // 入力が空またはローディング中は無効化
-            className="px-6 py-3 bg-blue-600 dark:bg-blue-500 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-medium transition-colors duration-200"
+            className="px-4 sm:px-6 py-3 bg-blue-600 dark:bg-blue-500 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-medium transition-colors duration-200 w-full sm:w-auto"
           >
             <Send className="w-4 h-4" />
             送信
