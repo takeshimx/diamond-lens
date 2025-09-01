@@ -483,12 +483,12 @@ def get_players_by_name(player_name: str) -> Optional[List[PlayerSearchItem]]: #
 
     if player_name: # player_name が空文字列でない場合のみフィルタリング
         where_clause_parts.append("""
-                (CONCAT(first_name, ' ', last_name) LIKE @player_name_pattern
-                OR first_name LIKE @player_name_pattern
-                OR last_name LIKE @player_name_pattern)
+                (UPPER(CONCAT(first_name, ' ', last_name)) LIKE @player_name_pattern
+                OR UPPER(first_name) LIKE @player_name_pattern
+                OR UPPER(last_name) LIKE @player_name_pattern)
         """)
         query_parameters.append(
-            bigquery.ScalarQueryParameter("player_name_pattern", "STRING", f"%{player_name}%")
+            bigquery.ScalarQueryParameter("player_name_pattern", "STRING", f"%{player_name.upper()}%")
         )
 
     # Filter for active players from 2021 to 2025

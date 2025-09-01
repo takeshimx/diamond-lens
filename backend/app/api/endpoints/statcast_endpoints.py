@@ -58,7 +58,8 @@ async def get_batter_statcast_data_endpoint(
     balls: Optional[int] = Query(None, description="取得するボール数を指定。省略時は全ボール数を対象"),
     p_throws: Optional[str] = Query(None, description="取得する投手の投球スタイルを指定。省略時は全投球スタイルを対象"),
     runners: Optional[List[str]] = Query(None, description="取得するランナーの情報を指定。省略時は全ランナーを対象"),
-    pitch_types: Optional[List[str]] = Query(None, description="取得する投球の種類を指定。省略時は全投球の種類を対象")
+    pitch_types: Optional[List[str]] = Query(None, description="取得する投球の種類を指定。省略時は全投球の種類を対象"),
+    is_career: Optional[bool] = Query(False, description="キャリアスタッツを取得するかどうか")
 ):
     """
     指定された選手のStatcastデータを取得します。
@@ -72,7 +73,7 @@ async def get_batter_statcast_data_endpoint(
     pitch_types_tuple = tuple(pitch_types) if pitch_types else ()
 
     # Get data from the service layer
-    statcast_data = get_batter_splits_stats_advanced(batter_id, season, innings_tuple, strikes, balls, p_throws, runners_tuple, pitch_types_tuple)
+    statcast_data = get_batter_splits_stats_advanced(batter_id, season, innings_tuple, strikes, balls, p_throws, runners_tuple, pitch_types_tuple, is_career)
 
     # If no data is found, raise a 404 error
     if statcast_data is None:

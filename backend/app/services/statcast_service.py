@@ -130,12 +130,23 @@ def get_batter_splits_stats_advanced(
     balls: Optional[int],
     p_throws: Optional[str],
     runners: Optional[List[str]],
-    pitch_types: Optional[List[str]]
+    pitch_types: Optional[List[str]],
+    is_career: Optional[bool] = False # career stats flag
 ) -> Optional[List[PlayerStatcastData]]:
     """
     指定されたbatter_idに基づいて、選手のStatcastデータを取得します。
     Note: pitcher_id and batter_id are MLB ID, not idfg.
     """
+
+    # dynamic base select and group by clause
+    if is_career and season is None:
+        base_select_clause = "batter_id, batter_name"
+        group_by_clause = "GROUP BY batter_id, batter_name"
+        order_by_clause = "ORDER BY batter_name"
+    else:
+        base_select_clause = "batter_id, batter_name, game_year"
+        group_by_clause = "GROUP BY batter_id, batter_name, game_year"
+        order_by_clause = "ORDER BY game_year ASC"
 
     metrics_for_select_clause = CORE_SPLITS_METRICS_QUERY
 
@@ -162,9 +173,9 @@ def get_batter_splits_stats_advanced(
 
     runners_where_clause = ""
     if runners is not None and len(runners) > 0:
-        if runners == "risp":
+        if "risp" in runners:
             runners_where_clause = "AND (on_2b != 0 OR on_3b != 0)"
-        elif runners == 'bases_loaded':
+        elif 'bases_loaded' in runners:
             runners_where_clause = "AND (on_1b != 0 AND on_2b != 0 AND on_3b != 0)"
         elif None in runners:
             runners_where_clause = "AND (on_1b = 0 AND on_2b = 0 AND on_3b = 0)"
@@ -186,12 +197,11 @@ def get_batter_splits_stats_advanced(
         quated_pitch_type = [f"'{pt}'" for pt in pitch_types]
         pitch_types_str = f"({'. '.join(quated_pitch_type)})"
         pitch_types_where_clause = f"AND pitch_type IN {pitch_types_str}"
+    
 
     query = f"""
         SELECT
-            batter_id,
-            batter_name,
-            game_year,
+            {base_select_clause},
             {metrics_for_select_clause}
         FROM
             `{PROJECT_ID}.{DATASET_ID}.tbl_statcast_2021_2025_master`
@@ -208,10 +218,8 @@ def get_batter_splits_stats_advanced(
             AND game_type = 'R'
             AND batter_id IS NOT NULL AND batter_name IS NOT NULL
             AND pitch_type IS NOT NULL
-        GROUP BY
-            batter_id, batter_name, game_year
-        ORDER BY
-            game_year ASC
+        {group_by_clause}
+        {order_by_clause}
     """
     job_config = bigquery.QueryJobConfig(
         query_parameters=[
@@ -257,7 +265,7 @@ def get_batter_splits_stats_advanced(
             results.append(PlayerStatcastData(
                 batter_id=row['batter_id'],
                 batter_name=row['batter_name'],
-                game_year=row['game_year'],
+                game_year=row['game_year'] if not is_career else None,
                 hits=row['hits'],
                 homeruns=row['homeruns'],
                 doubles=row['doubles'],

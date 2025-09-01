@@ -1372,7 +1372,7 @@ const MLBChatApp = () => {
             }
             
             // 2. Get career aggregate data for KPIs
-            let careerEndpoint = `${baseURL}/api/v1/players/${params.playerId}/statcast/batter/advanced-stats?aggregate_career=true&`;
+            let careerEndpoint = `${baseURL}/api/v1/players/${params.playerId}/statcast/batter/advanced-stats?is_career=true&`;
             const careerUrlParams = new URLSearchParams();
             
             if (cs?.innings?.length > 0) {
@@ -1470,7 +1470,7 @@ const MLBChatApp = () => {
                   };
                 }
               }),
-              answer: `キャリア通算成績と${queryState.metrics.length}個の指標の年次推移を表示します。`
+              answer: `選択条件でのキャリア通算成績と${queryState.metrics.length}個の指標の年次推移を表示します。`
             };
             
           } else {

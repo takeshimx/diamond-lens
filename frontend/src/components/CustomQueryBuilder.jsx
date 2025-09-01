@@ -626,9 +626,9 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
                         <div className="text-white text-2xl font-bold mb-1">
                           {formattedValue}
                         </div>
-                        <div className="text-blue-400 text-xs">
+                        {/* <div className="text-blue-400 text-xs">
                           MLB rank: #{Math.floor(Math.random() * 200) + 1}
-                        </div>
+                        </div> */}
                       </div>
                     );
                   })}

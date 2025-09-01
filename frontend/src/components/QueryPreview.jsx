@@ -75,12 +75,6 @@ const QueryPreview = ({ queryState, onExecute, onReset, isLoading, canExecute })
       // Situational
       risp_avg: 'RISP打率',
       bases_loaded_avg: '満塁時打率',
-      clutch_avg: 'クラッチ打率',
-      two_outs_risp: '2死得点圏打率',
-      vs_lhp_avg: '対左投手打率',
-      vs_rhp_avg: '対右投手打率',
-      vs_lhp_ops: '対左投手OPS',
-      vs_rhp_ops: '対右投手OPS',
       // Monthly
       monthly_avg: '月別打率',
       monthly_hr: '月別ホームラン',
