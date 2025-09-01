@@ -3,8 +3,8 @@ from typing import Optional, List, Any, Dict
 import logging
 
 # サービス層とスキーマをインポート
-from backend.app.services.player_service import get_players_by_name
-from backend.app.api.schemas import (
+from app.services.player_service import get_players_by_name
+from app.api.schemas import (
     PlayerSearchResults, 
     PlayerDetailsResponse
 )

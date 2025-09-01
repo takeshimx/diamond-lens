@@ -3,12 +3,12 @@ from typing import Optional, List, Any, Dict
 import logging
 
 # サービス層とスキーマをインポート
-from backend.app.services.stats_service import ( # For Development, add backend. path
+from app.services.stats_service import ( # For Development, add backend. path
     get_batter_monthly_offensive_stats, get_batter_performance_at_risp,
     get_season_batting_stats, get_batter_season_splits_stats, get_monthly_batting_stats,
     get_season_pitching_stats
 )
-from backend.app.api.schemas import (
+from app.api.schemas import (
     PlayerMonthlyOffensiveStats,
     PlayerBatterPerformanceAtRISPMonthly,
     PlayerBattingSeasonStats,

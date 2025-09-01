@@ -3,9 +3,9 @@ from typing import Optional, List, Any, Dict
 import logging
 
 # サービス層とスキーマをインポート
-from backend.app.services.leaderboard_service import *
+from app.services.leaderboard_service import *
 # from backend.app.services.stats_service import get_batter_performance_flags
-from backend.app.api.schemas import (
+from app.api.schemas import (
     PlayerBattingSeasonStats,
     PlayerBattingSplitStats,
     PlayerPitchingSeasonStats,

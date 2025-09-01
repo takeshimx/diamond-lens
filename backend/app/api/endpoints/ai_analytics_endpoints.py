@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException, Path, Query
 from typing import Optional, List, Any, Dict
 # サービス層とスキーマをインポート
-from backend.app.services.ai_service import get_ai_response_with_simple_chart # For Development, add backend. path
-from backend.app.api.schemas import QnARequest # For Development, add backend. path
+from app.services.ai_service import get_ai_response_with_simple_chart # For Development, add backend. path
+from app.api.schemas import QnARequest # For Development, add backend. path
 import logging
 import time
 
