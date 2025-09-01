@@ -1,17 +1,28 @@
 # Diamond Lens - MLB Stats Assistant 🔮⚾
 
-An AI-powered chat interface for exploring Major League Baseball statistics through natural language queries. Built with React, FastAPI, and Google Cloud BigQuery.
+An AI-powered analytics interface for exploring Major League Baseball statistics through natural language queries and advanced custom analytics. Built with React, FastAPI, and Google Cloud BigQuery.
 
 ## 🌟 Features
 
-- **Natural Language Queries**: Ask questions in Japanese and get comprehensive MLB statistics
-- **Real-time Chat Interface**: Interactive chat experience with loading states and message history
-- **AI-Powered Analytics**: Uses Gemini 2.5 Flash for intelligent query parsing and response generation
-- **Comprehensive MLB Data**: Access batting stats, pitching stats, and situational splits (RISP, clutch situations)
+### Core Modes
+- **💬 Chat Mode**: Natural language queries in Japanese with AI-powered responses
+- **⚡ Quick Questions**: Pre-defined common baseball queries for instant results
+- **⚙️ Custom Query Builder**: Advanced analytics with custom situational filters
+
+### Analytics Capabilities
+- **Batting Statistics**: Season stats, splits, and advanced Statcast metrics
+- **Pitching Statistics**: ERA, WHIP, strikeout rates, and advanced analytics
+- **Situational Splits**: RISP performance, bases loaded, custom game situations
+- **Career Analytics**: Multi-season trend analysis and career aggregation
+- **Visual Charts**: YoY trend charts and KPI summary cards
+- **Advanced Filters**: Inning-specific, count-specific, pitcher matchup analysis
+
+### Technical Features
+- **AI-Powered Processing**: Uses Gemini 2.5 Flash for query parsing and response generation
+- **Real-time Interface**: Interactive experience with loading states and live updates
+- **Case-insensitive Search**: Flexible player name matching
 - **Dark Theme UI**: Modern, responsive interface optimized for extended use
 - **Secure Access**: Password-protected interface for authorized users
-- **Dynamic SQL Generation**: Intelligent mapping from natural language to BigQuery SQL
-- **Flexible Output Formats**: Both narrative responses and structured tables
 
 ## 🏗 Architecture
 
@@ -163,9 +174,12 @@ The project includes `cloudbuild.yaml` for automated deployment to Google Cloud 
 ## 🔧 Configuration
 
 ### Query Types Supported
-- `season_batting` - League-wide season batting statistics
-- `season_pitching` - League-wide season pitching statistics  
-- `batting_splits` - Situational performance metrics (RISP, vs LHP/RHP, by inning, etc.)
+- **Chat Mode**: Natural language processing for batting/pitching questions
+- **Quick Questions**: Pre-configured queries for common statistics
+- **Custom Analytics**: Advanced situational analysis with:
+  - `batting_splits` - RISP, bases loaded, custom situations
+  - `statcast_advanced` - Exit velocity, launch angle, hard hit rates
+  - Career aggregation and YoY trend analysis
 
 ### BigQuery Integration
 - **Singleton Pattern**: Efficient BigQuery client management in `bigquery_service.py`
