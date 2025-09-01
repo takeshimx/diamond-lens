@@ -5,7 +5,7 @@ from typing import Optional, List, Dict, Any
 from google.cloud import bigquery
 from google.cloud.exceptions import GoogleCloudError
 from functools import lru_cache
-from backend.app.api.schemas import *
+from app.api.schemas import * # For Development, add backend. path
 from .base import (
     get_bq_client, client, logger,
     PROJECT_ID, DATASET_ID,

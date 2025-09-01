@@ -7,7 +7,7 @@ from google.cloud.exceptions import GoogleCloudError
 import pandas as pd
 import numpy as np
 from functools import lru_cache
-from backend.app.api.schemas import *
+from app.api.schemas import * # For Development, add backend. path
 from .base import (
     get_bq_client, client, logger,
     PROJECT_ID, DATASET_ID,

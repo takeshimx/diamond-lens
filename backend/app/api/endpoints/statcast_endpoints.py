@@ -3,8 +3,8 @@ from typing import Optional, List, Any, Dict
 import logging
 
 # サービス層とスキーマをインポート
-from backend.app.services.statcast_service import get_batter_splits_stats_advanced
-from backend.app.api.schemas import (
+from app.services.statcast_service import get_batter_splits_stats_advanced # For Development, add backend. path
+from app.api.schemas import (
     PlayerStatcastData
 )
 
