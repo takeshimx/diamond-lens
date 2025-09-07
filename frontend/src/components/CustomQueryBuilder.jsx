@@ -592,14 +592,31 @@ const CustomQueryBuilder = ({ isLoading, onExecuteQuery, customResult, onClearRe
                         'bb_hbp': '四死球',
                         'hard_hit_rate': 'ハードヒット率',
                         'barrels_rate': 'バレル率',
-                        'strikeout_rate': '三振率'
+                        'strikeout_rate': '三振率',
+                        'batting_average_at_risp': '得点圏打率',
+                        'slugging_percentage_at_risp': '得点圏長打率',
+                        'home_runs_at_risp': '得点圏本塁打',
+                        // RISP stats
+                        'hits_at_risp': '得点圏安打',
+                        'homeruns_at_risp': '得点圏本塁打',
+                        'doubles_at_risp': '得点圏二塁打',
+                        'triples_at_risp': '得点圏三塁打',
+                        'singles_at_risp': '得点圏単打',
+                        'ab_at_risp': '得点圏打数',
+                        'avg_at_risp': '得点圏打率',
+                        'obp_at_risp': '得点圏出塁率',
+                        'slg_at_risp': '得点圏長打率',
+                        'ops_at_risp': '得点圏OPS',
+                        'strikeout_rate_at_risp': '得点圏三振率'
                       };
                       
                       return battingMetrics[metric] || metric;
                     };
 
                     // Define rate stats that should show 3 decimal places
-                    const rateStats = ['avg', 'obp', 'slg', 'ops', 'woba', 'hardhitpct', 'barrelpct', 'babip', 'iso', 'hard_hit_rate', 'barrels_rate', 'strikeout_rate'];
+                    const rateStats = ['avg', 'obp', 'slg', 'ops', 'woba', 'hardhitpct', 'barrelpct', 'babip', 'iso', 
+                                      'batting_average_at_risp', 'slugging_percentage_at_risp', 'hard_hit_rate', 'barrels_rate', 'strikeout_rate',
+                                      'avg_at_risp', 'obp_at_risp', 'slg_at_risp', 'ops_at_risp', 'strikeout_rate_at_risp'];
 
                     // Format value based on metric type
                     const formatValue = (value, metric) => {
