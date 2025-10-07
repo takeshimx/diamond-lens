@@ -40,25 +40,6 @@ variable "environment" {
   default     = "production"
 }
 
-# Secrets (既存のシークレットをimportする想定)
-module "gemini_api_key" {
-  source = "../../modules/secrets"
-
-  project_id            = var.project_id
-  secret_id             = "GEMINI_API_KEY"
-  replication_locations = []
-  # secret_data は指定しない（既存の値を使う）
-}
-
-module "vite_app_password" {
-  source = "../../modules/secrets"
-
-  project_id            = var.project_id
-  secret_id             = "VITE_APP_PASSWORD"
-  replication_locations = []
-  # secret_data は指定しない（既存の値を使う）
-}
-
 # BigQuery Dataset (既存をimport)
 module "bigquery_dataset" {
   source = "../../modules/bigquery"
@@ -95,7 +76,7 @@ module "backend_cloud_run" {
 
   secrets = {
     GEMINI_API_KEY = {
-      secret_name = module.gemini_api_key.secret_id
+      secret_name = "GEMINI_API_KEY"
       version     = "latest"
     }
   }
