@@ -1,7 +1,22 @@
 # CI/CD Pipeline Configuration for MLB API Service Deployment (as of Aug 24, 2025, wip)
 steps:
   # ----------------------------------------------------------------------
-  # STEP 0: Terraform Apply (インフラストラクチャ更新)
+  # STEP 0: Unit Tests (テスト失敗時はデプロイしない)
+  # ----------------------------------------------------------------------
+  - id: 'backend-unit-tests'
+    name: 'python:3.9'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        cd backend
+        pip install -q -r requirements.txt
+        pip install -q pytest pytest-asyncio
+        export PYTHONPATH=/workspace/backend
+        python -m pytest tests/ -v --tb=short
+
+  # ----------------------------------------------------------------------
+  # STEP 1: Terraform Apply (インフラストラクチャ更新)
   # ----------------------------------------------------------------------
   - id: 'terraform-init'
     name: 'hashicorp/terraform:1.5.0'

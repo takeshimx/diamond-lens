@@ -73,6 +73,8 @@ The application follows a sophisticated 4-step pipeline:
 ### Infrastructure
 - **Docker** - Containerized deployment
 - **Google Cloud Run** - Serverless container platform
+- **Terraform** - Infrastructure as Code for GCP resources
+- **Cloud Build** - CI/CD pipeline automation
 - **GitHub Codespaces** - Cloud development environment support
 - **Nginx** - Production web server (frontend)
 
@@ -131,8 +133,10 @@ cd backend
 docker build -t diamond-lens-backend .
 ```
 
-#### Google Cloud Run
-The project includes `cloudbuild.yaml` for automated deployment to Google Cloud Run.
+#### Google Cloud Run with CI/CD
+The project uses Cloud Build for automated CI/CD pipeline with integrated Terraform infrastructure management.
+
+See [TERRAFORM_INTEGRATION_GUIDE.md](TERRAFORM_INTEGRATION_GUIDE.md) for detailed setup instructions.
 
 ## 📡 API Documentation
 
@@ -201,6 +205,103 @@ The project includes `cloudbuild.yaml` for automated deployment to Google Cloud 
 - **Loading States**: Visual feedback during API calls
 - **Error Handling**: Graceful error display and recovery
 
+## 🏗️ Infrastructure Management
+
+### Terraform Configuration
+
+This project uses Terraform to manage GCP infrastructure as code:
+
+- **Cloud Run Services**: Backend and frontend service configurations
+- **BigQuery Dataset**: MLB statistics data warehouse
+- **IAM Permissions**: Service account roles and access control
+- **State Management**: Remote state stored in GCS bucket
+
+Infrastructure is organized as reusable modules:
+
+```
+terraform/
+├── modules/
+│   ├── cloud-run/         # Reusable Cloud Run module
+│   ├── bigquery/          # BigQuery dataset module
+│   ├── iam/               # IAM configuration module
+│   └── secrets/           # Secret Manager module (not used)
+└── environments/
+    └── production/        # Production environment config
+        └── main.tf        # Main Terraform configuration
+```
+
+### CI/CD Pipeline
+
+The deployment pipeline is fully automated via Cloud Build with integrated testing:
+
+```
+git push → Cloud Build Trigger → cloudbuild.yaml execution
+  ↓
+┌─────────────────────────────────────┐
+│ STEP 0: Unit Tests                  │
+│  - Run pytest (49 tests)            │
+│  - Test query_maps configuration    │
+│  - Test SQL generation logic        │
+│  ⚠️  If tests fail → Build stops    │
+└─────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────┐
+│ STEP 1: Terraform (Infrastructure)  │
+│  - terraform init                   │
+│  - terraform plan                   │
+│  - terraform apply (if changes)     │
+└─────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────┐
+│ STEP 2-4: Backend                   │
+│  - Docker build                     │
+│  - Push to gcr.io                   │
+│  - Deploy to Cloud Run              │
+└─────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────┐
+│ STEP 5-7: Frontend                  │
+│  - Docker build                     │
+│  - Push to gcr.io                   │
+│  - Deploy to Cloud Run              │
+└─────────────────────────────────────┘
+```
+
+**Key Features:**
+- **Automated testing:** Unit tests run before every deployment
+- **Fail-fast approach:** Test failures prevent deployment to production
+- Infrastructure changes are applied before application deployment
+- Terraform only executes if infrastructure changes are detected
+- Docker images are built and deployed after infrastructure updates
+- Secrets are managed outside Terraform for security
+
+### Testing
+
+The project includes comprehensive unit tests for critical business logic:
+
+**Test Coverage (49 tests):**
+- `test_query_maps.py` (21 tests): Configuration validation and data structure integrity
+- `test_build_dynamic_sql.py` (28 tests): SQL generation logic for all query types
+
+**Run tests locally:**
+```bash
+cd backend
+pip install pytest pytest-asyncio
+export PYTHONPATH=$(pwd)  # Linux/Mac
+set PYTHONPATH=%cd%       # Windows
+python -m pytest tests/ -v
+```
+
+**Test categories:**
+- Query type configuration validation
+- Metric mapping integrity
+- SQL generation for season batting/pitching
+- Career statistics queries
+- Batting splits (RISP, bases loaded, inning-specific, etc.)
+- Edge case handling and error validation
+
+For detailed Terraform setup and integration instructions, see [TERRAFORM_INTEGRATION_GUIDE.md](TERRAFORM_INTEGRATION_GUIDE.md).
+
 ## 📁 Project Structure
 
 ```
@@ -221,8 +322,12 @@ diamond-lens/
 │   │   └── config/          # Configuration and mappings
 │   ├── requirements.txt     # Python dependencies
 │   └── Dockerfile           # Backend container
+├── terraform/                # Infrastructure as Code
+│   ├── modules/             # Reusable Terraform modules
+│   └── environments/        # Environment-specific configs
 ├── CLAUDE.md                # Development guidance
-├── cloudbuild.yaml          # GCP deployment config
+├── cloudbuild.yaml          # CI/CD pipeline config
+├── TERRAFORM_INTEGRATION_GUIDE.md  # Terraform setup guide
 └── README.md                # This file
 ```
 

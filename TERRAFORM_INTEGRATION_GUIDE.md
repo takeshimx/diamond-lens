@@ -394,6 +394,57 @@ git push
 
 ## ⚠️ 重要な注意点
 
+### ⚠️ 0. Secret ManagerはTerraformで管理しない（重要）
+
+**❌ Secret ManagerをTerraformで管理すると、以下の問題が発生します:**
+
+1. **IAM権限の上書き**: `terraform apply`実行時にSecret ManagerのIAMポリシーが意図せず上書きされ、既存のアクセス権限が失われる
+2. **Secretの削除**: Terraform管理下に置いた後、設定ミスにより`terraform apply`でSecretが削除される危険性がある
+3. **アクセスブロック**: Secret作成者本人でもアクセスできなくなる事例が発生
+
+**✅ 正しい方法: Secretは手動で管理**
+
+```powershell
+# Secretの作成
+gcloud secrets create GEMINI_API_KEY --replication-policy="automatic"
+
+# Secretに値を設定（コンソールから推奨）
+# または
+"YOUR_API_KEY" | Out-File -Encoding ASCII -NoNewline temp.txt
+gcloud secrets versions add GEMINI_API_KEY --data-file=temp.txt
+Remove-Item temp.txt
+
+# Cloud RunサービスアカウントにSecret Accessor権限を付与
+gcloud secrets add-iam-policy-binding GEMINI_API_KEY `
+  --member="serviceAccount:907924272679-compute@developer.gserviceaccount.com" `
+  --role="roles/secretmanager.secretAccessor"
+
+# Cloud BuildサービスアカウントにもSecret Accessor権限を付与
+gcloud secrets add-iam-policy-binding GEMINI_API_KEY `
+  --member="serviceAccount:907924272679@cloudbuild.gserviceaccount.com" `
+  --role="roles/secretmanager.secretAccessor"
+```
+
+**Terraformでの参照方法:**
+
+```hcl
+# Cloud Run moduleでSecretを参照（作成はしない）
+module "backend_cloud_run" {
+  source = "../../modules/cloud-run"
+
+  secrets = {
+    GEMINI_API_KEY = {
+      secret_name = "GEMINI_API_KEY"  # 既存のSecretを参照
+      version     = "latest"
+    }
+  }
+}
+```
+
+**重要:** `terraform/modules/secrets/` モジュールは使用しないこと。Secretの作成とIAM管理は`gcloud`コマンドまたはGCPコンソールで行ってください。
+
+---
+
 ### 1. Terraform管理下のリソースは直接変更しない
 
 **❌ ダメな例:**
@@ -412,37 +463,11 @@ vim terraform/environments/production/main.tf
 git push
 ```
 
-### 2. Secretはコードに含めない
+### 2. Secretの管理について
 
-```hcl
-# ❌ これは絶対ダメ！
-module "gemini_api_key" {
-  secret_data = "AIzaSyXXXXXX..."  # Gitにコミットされる！
-}
+**⚠️ Secret ManagerはTerraformで管理しない（上記の重要な注意点を参照）**
 
-# ✅ 正しい方法
-module "gemini_api_key" {
-  secret_id = "gemini-api-key"
-  # secret_dataは指定しない
-}
-```
-
-Secretの値はGCPコンソールまたはgcloudで設定：
-
-#### Linux/Mac
-```bash
-echo -n "YOUR_KEY" | gcloud secrets versions add gemini-api-key --data-file=-
-```
-
-#### Windows (PowerShell)
-```powershell
-# オプション1: ファイル経由
-"YOUR_KEY" | Out-File -Encoding ASCII -NoNewline temp_secret.txt
-gcloud secrets versions add gemini-api-key --data-file=temp_secret.txt
-Remove-Item temp_secret.txt
-
-# オプション2: GCPコンソールから手動設定（推奨）
-```
+Secretの値は必ずGCPコンソールまたは`gcloud`コマンドで設定し、Terraformでは既存のSecretを参照するのみにしてください。
 
 ### 3. State fileは絶対に手動編集しない
 

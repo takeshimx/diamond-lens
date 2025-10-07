@@ -403,7 +403,8 @@ def _build_dynamic_sql(params: Dict[str, Any]) -> str:
                 )
             )
         else:
-            where_condition.append(f"pitch_name = '{params['pitch_type']}'")
+            # リストの最初の要素を取得
+            where_condition.append(f"pitch_name = '{params['pitch_type'][0]}'")
     
     # At this point, data source is not accurate due to incorrect logic. To be fixed.
     # if params.get("game_score") and split_type == "game_score_situation":  # condition by game score situation

@@ -73,6 +73,8 @@
 ### インフラストラクチャ
 - **Docker** - コンテナ化されたデプロイメント
 - **Google Cloud Run** - サーバーレスコンテナプラットフォーム
+- **Terraform** - GCPリソースのInfrastructure as Code
+- **Cloud Build** - CI/CDパイプライン自動化
 - **GitHub Codespaces** - クラウド開発環境サポート
 - **Nginx** - 本番Webサーバー（フロントエンド）
 
@@ -131,8 +133,10 @@ cd backend
 docker build -t diamond-lens-backend .
 ```
 
-#### Google Cloud Run
-プロジェクトにはGoogle Cloud Runへの自動デプロイメント用の`cloudbuild.yaml`が含まれています。
+#### Google Cloud Run とCI/CD
+プロジェクトはTerraformインフラ管理を統合した自動CI/CDパイプライン用にCloud Buildを使用しています。
+
+詳細なセットアップ手順は [TERRAFORM_INTEGRATION_GUIDE.md](TERRAFORM_INTEGRATION_GUIDE.md) を参照してください。
 
 ## 📡 API ドキュメント
 
@@ -201,6 +205,103 @@ docker build -t diamond-lens-backend .
 - **ローディング状態**: API呼び出し中の視覚的フィードバック
 - **エラーハンドリング**: 優雅なエラー表示と回復
 
+## 🏗️ インフラ管理
+
+### Terraform構成
+
+このプロジェクトはTerraformを使用してGCPインフラをコードとして管理しています：
+
+- **Cloud Run サービス**: バックエンドとフロントエンドのサービス設定
+- **BigQuery データセット**: MLB統計データウェアハウス
+- **IAM 権限**: サービスアカウントのロールとアクセス制御
+- **State管理**: GCSバケットに保存されたリモートState
+
+インフラは再利用可能なモジュールとして構成されています：
+
+```
+terraform/
+├── modules/
+│   ├── cloud-run/         # 再利用可能なCloud Runモジュール
+│   ├── bigquery/          # BigQueryデータセットモジュール
+│   ├── iam/               # IAM設定モジュール
+│   └── secrets/           # Secret Managerモジュール（使用しない）
+└── environments/
+    └── production/        # 本番環境設定
+        └── main.tf        # メインTerraform設定
+```
+
+### CI/CDパイプライン
+
+デプロイメントパイプラインはテスト統合されたCloud Buildによって完全に自動化されています：
+
+```
+git push → Cloud Buildトリガー → cloudbuild.yaml 実行
+  ↓
+┌─────────────────────────────────────┐
+│ STEP 0: ユニットテスト                │
+│  - pytest実行 (49テスト)            │
+│  - query_maps設定の検証             │
+│  - SQL生成ロジックのテスト            │
+│  ⚠️  テスト失敗 → ビルド停止         │
+└─────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────┐
+│ STEP 1: Terraform (インフラ管理)      │
+│  - terraform init                   │
+│  - terraform plan                   │
+│  - terraform apply (変更がある場合)   │
+└─────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────┐
+│ STEP 2-4: Backend                   │
+│  - Docker build                     │
+│  - gcr.io へプッシュ                 │
+│  - Cloud Runへデプロイ               │
+└─────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────┐
+│ STEP 5-7: Frontend                  │
+│  - Docker build                     │
+│  - gcr.io へプッシュ                 │
+│  - Cloud Runへデプロイ               │
+└─────────────────────────────────────┘
+```
+
+**主な機能:**
+- **自動テスト:** 全デプロイ前にユニットテストを実行
+- **Fail-fastアプローチ:** テスト失敗時は本番デプロイを防止
+- インフラ変更はアプリケーションデプロイメントの前に適用されます
+- Terraformはインフラ変更が検出された場合のみ実行されます
+- Dockerイメージはインフラ更新後にビルドおよびデプロイされます
+- Secretsはセキュリティのため、Terraform外で管理されています
+
+### テスト
+
+プロジェクトには重要なビジネスロジックの包括的なユニットテストが含まれています：
+
+**テストカバレッジ (49テスト):**
+- `test_query_maps.py` (21テスト): 設定検証とデータ構造の整合性
+- `test_build_dynamic_sql.py` (28テスト): 全クエリタイプのSQL生成ロジック
+
+**ローカルでテスト実行:**
+```bash
+cd backend
+pip install pytest pytest-asyncio
+export PYTHONPATH=$(pwd)  # Linux/Mac
+set PYTHONPATH=%cd%       # Windows
+python -m pytest tests/ -v
+```
+
+**テストカテゴリ:**
+- クエリタイプ設定の検証
+- メトリクスマッピングの整合性
+- シーズン打撃/投手成績のSQL生成
+- キャリア通算統計クエリ
+- 打撃スプリット（得点圏、満塁、イニング別など）
+- エッジケース処理とエラー検証
+
+Terraformセットアップと統合手順の詳細は [TERRAFORM_INTEGRATION_GUIDE.md](TERRAFORM_INTEGRATION_GUIDE.md) を参照してください。
+
 ## 📁 プロジェクト構造
 
 ```
@@ -221,8 +322,12 @@ diamond-lens/
 │   │   └── config/          # 設定とマッピング
 │   ├── requirements.txt     # Python依存関係
 │   └── Dockerfile           # バックエンドコンテナ
+├── terraform/                # Infrastructure as Code
+│   ├── modules/             # 再利用可能なTerraformモジュール
+│   └── environments/        # 環境別設定
 ├── CLAUDE.md                # 開発ガイダンス
-├── cloudbuild.yaml          # GCPデプロイメント設定
+├── cloudbuild.yaml          # CI/CDパイプライン設定
+├── TERRAFORM_INTEGRATION_GUIDE.md  # Terraformセットアップガイド
 └── README.md                # 英語版README
 ```
 
