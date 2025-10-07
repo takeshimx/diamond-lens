@@ -1,5 +1,39 @@
 # CI/CD Pipeline Configuration for MLB API Service Deployment (as of Aug 24, 2025, wip)
 steps:
+  # ----------------------------------------------------------------------
+  # STEP 0: Terraform Apply (インフラストラクチャ更新)
+  # ----------------------------------------------------------------------
+  - id: 'terraform-init'
+    name: 'hashicorp/terraform:1.5.0'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        cd terraform/environments/production
+        terraform init -input=false
+
+  - id: 'terraform-plan'
+    name: 'hashicorp/terraform:1.5.0'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        cd terraform/environments/production
+        terraform plan -input=false -out=tfplan
+
+  - id: 'terraform-apply'
+    name: 'hashicorp/terraform:1.5.0'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        cd terraform/environments/production
+        # planに変更がある場合のみapply
+        if terraform show -json tfplan | grep -q '"resource_changes"'; then
+          terraform apply -input=false -auto-approve tfplan
+        else
+          echo "No infrastructure changes detected"
+        fi
   # # ----------------------------------------------------------------------
   # 1. バックエンド (FastAPI) のDockerイメージをビルド
   # ----------------------------------------------------------------------
