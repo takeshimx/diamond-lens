@@ -1,0 +1,146 @@
+name: Terraform Apply & Deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'terraform/**'
+      - 'backend/**'
+      - 'frontend/**'
+      - '.github/workflows/terraform-*.yml'
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  GCP_PROJECT_ID: tksm-dash-test-25
+  GCP_REGION: asia-northeast1
+  ARTIFACT_REGISTRY: asia-northeast1-docker.pkg.dev
+
+jobs:
+  terraform-apply:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment: [production]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.0
+
+      - name: Terraform Init
+        run: terraform init
+        working-directory: ./terraform/environments/${{ matrix.environment }}
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
+        working-directory: ./terraform/environments/${{ matrix.environment }}
+
+  build-and-deploy-backend:
+    needs: terraform-apply
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.ARTIFACT_REGISTRY }}
+
+      - name: Build Backend Docker Image
+        run: |
+          docker build -t ${{ env.ARTIFACT_REGISTRY }}/${{ env.GCP_PROJECT_ID }}/diamond-lens/backend:${{ github.sha }} \
+                       -t ${{ env.ARTIFACT_REGISTRY }}/${{ env.GCP_PROJECT_ID }}/diamond-lens/backend:latest \
+                       -f backend/Dockerfile ./backend
+
+      - name: Push Backend Docker Image
+        run: |
+          docker push ${{ env.ARTIFACT_REGISTRY }}/${{ env.GCP_PROJECT_ID }}/diamond-lens/backend:${{ github.sha }}
+          docker push ${{ env.ARTIFACT_REGISTRY }}/${{ env.GCP_PROJECT_ID }}/diamond-lens/backend:latest
+
+      - name: Deploy Backend to Cloud Run
+        run: |
+          gcloud run deploy diamond-lens-backend \
+            --image=${{ env.ARTIFACT_REGISTRY }}/${{ env.GCP_PROJECT_ID }}/diamond-lens/backend:${{ github.sha }} \
+            --region=${{ env.GCP_REGION }} \
+            --platform=managed
+
+  build-and-deploy-frontend:
+    needs: [terraform-apply, build-and-deploy-backend]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.ARTIFACT_REGISTRY }}
+
+      - name: Get Backend URL
+        id: backend-url
+        run: |
+          BACKEND_URL=$(gcloud run services describe diamond-lens-backend \
+            --region=${{ env.GCP_REGION }} \
+            --format='value(status.url)')
+          echo "url=$BACKEND_URL" >> $GITHUB_OUTPUT
+
+      - name: Build Frontend Docker Image
+        run: |
+          docker build -t ${{ env.ARTIFACT_REGISTRY }}/${{ env.GCP_PROJECT_ID }}/diamond-lens/frontend:${{ github.sha }} \
+                       -t ${{ env.ARTIFACT_REGISTRY }}/${{ env.GCP_PROJECT_ID }}/diamond-lens/frontend:latest \
+                       --build-arg VITE_API_URL=${{ steps.backend-url.outputs.url }} \
+                       -f frontend/Dockerfile ./frontend
+
+      - name: Push Frontend Docker Image
+        run: |
+          docker push ${{ env.ARTIFACT_REGISTRY }}/${{ env.GCP_PROJECT_ID }}/diamond-lens/frontend:${{ github.sha }}
+          docker push ${{ env.ARTIFACT_REGISTRY }}/${{ env.GCP_PROJECT_ID }}/diamond-lens/frontend:latest
+
+      - name: Deploy Frontend to Cloud Run
+        run: |
+          gcloud run deploy diamond-lens-frontend \
+            --image=${{ env.ARTIFACT_REGISTRY }}/${{ env.GCP_PROJECT_ID }}/diamond-lens/frontend:${{ github.sha }} \
+            --region=${{ env.GCP_REGION }} \
+            --platform=managed
+
+      - name: Output URLs
+        run: |
+          echo "Backend URL: ${{ steps.backend-url.outputs.url }}"
+          FRONTEND_URL=$(gcloud run services describe diamond-lens-frontend \
+            --region=${{ env.GCP_REGION }} \
+            --format='value(status.url)')
+          echo "Frontend URL: $FRONTEND_URL"

@@ -1,0 +1,132 @@
+# CI/CD Pipeline with Terraform Integration
+# このファイルは cloudbuild.yaml を置き換えるためのサンプルです
+
+steps:
+  # ----------------------------------------------------------------------
+  # STEP 0: Terraform Apply (インフラストラクチャ更新)
+  # ----------------------------------------------------------------------
+  - id: 'terraform-init'
+    name: 'hashicorp/terraform:1.5.0'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        cd terraform/environments/production
+        terraform init -input=false
+
+  - id: 'terraform-plan'
+    name: 'hashicorp/terraform:1.5.0'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        cd terraform/environments/production
+        terraform plan -input=false -out=tfplan
+
+  - id: 'terraform-apply'
+    name: 'hashicorp/terraform:1.5.0'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        cd terraform/environments/production
+        # planに変更がある場合のみapply
+        if terraform show -json tfplan | grep -q '"resource_changes"'; then
+          terraform apply -input=false -auto-approve tfplan
+        else
+          echo "No infrastructure changes detected"
+        fi
+
+  # ----------------------------------------------------------------------
+  # STEP 1: バックエンド (FastAPI) のDockerイメージをビルド
+  # ----------------------------------------------------------------------
+  - id: 'backend-build-image'
+    name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'asia-northeast1-docker.pkg.dev/${PROJECT_ID}/diamond-lens/backend:${SHORT_SHA}'
+      - '-t'
+      - 'asia-northeast1-docker.pkg.dev/${PROJECT_ID}/diamond-lens/backend:latest'
+      - './backend'
+
+  # ----------------------------------------------------------------------
+  # STEP 2: ビルドしたDockerイメージをArtifact Registryにプッシュ
+  # ----------------------------------------------------------------------
+  - id: 'backend-push-image'
+    name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '--all-tags'
+      - 'asia-northeast1-docker.pkg.dev/${PROJECT_ID}/diamond-lens/backend'
+
+  # ----------------------------------------------------------------------
+  # STEP 3: Cloud Runにデプロイ（Terraformで管理されているサービスを更新）
+  # ----------------------------------------------------------------------
+  - id: 'backend-deploy-cloudrun'
+    name: 'gcr.io/cloud-builders/gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'diamond-lens-backend'  # Terraformで作成されたサービス名
+      - '--image'
+      - 'asia-northeast1-docker.pkg.dev/${PROJECT_ID}/diamond-lens/backend:${SHORT_SHA}'
+      - '--region'
+      - 'asia-northeast1'
+      - '--platform'
+      - 'managed'
+
+  # ----------------------------------------------------------------------
+  # STEP 4: フロントエンド (React) のDockerイメージをビルド
+  # ----------------------------------------------------------------------
+  - id: 'frontend-build-image'
+    name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Building frontend with password from Secret Manager..."
+        docker build -t asia-northeast1-docker.pkg.dev/${PROJECT_ID}/diamond-lens/frontend:${SHORT_SHA} \
+          -t asia-northeast1-docker.pkg.dev/${PROJECT_ID}/diamond-lens/frontend:latest \
+          --build-arg VITE_APP_PASSWORD="$$VITE_APP_PASSWORD" \
+          ./frontend
+    secretEnv: ['VITE_APP_PASSWORD']
+
+  # ----------------------------------------------------------------------
+  # STEP 5: ビルドしたDockerイメージをArtifact Registryにプッシュ
+  # ----------------------------------------------------------------------
+  - id: 'frontend-push-image'
+    name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '--all-tags'
+      - 'asia-northeast1-docker.pkg.dev/${PROJECT_ID}/diamond-lens/frontend'
+
+  # ----------------------------------------------------------------------
+  # STEP 6: Cloud Runにデプロイ
+  # ----------------------------------------------------------------------
+  - id: 'frontend-deploy-cloudrun'
+    name: 'gcr.io/cloud-builders/gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'diamond-lens-frontend'  # Terraformで作成されたサービス名
+      - '--image'
+      - 'asia-northeast1-docker.pkg.dev/${PROJECT_ID}/diamond-lens/frontend:${SHORT_SHA}'
+      - '--region'
+      - 'asia-northeast1'
+      - '--platform'
+      - 'managed'
+
+# Secret Manager から環境変数を取得
+availableSecrets:
+  secretManager:
+    - versionName: projects/${PROJECT_ID}/secrets/VITE_APP_PASSWORD/versions/latest
+      env: 'VITE_APP_PASSWORD'
+
+# トリガー実行時のエラーを回避するため、ログの保存先を明示的に指定
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+# Terraform用のタイムアウト延長
+timeout: 1800s  # 30分
