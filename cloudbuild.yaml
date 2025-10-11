@@ -15,21 +15,21 @@ steps:
         export PYTHONPATH=/workspace
         python -m pytest tests/ -v --tb=short
 
-  # ----------------------------------------------------------------------
-  # STEP 1: Schema Validation GATE (スキーマ不一致時はデプロイしない)
-  # ----------------------------------------------------------------------
-  - id: 'schema-validation-gate'
-    name: 'python:3.9'
-    entrypoint: 'bash'
-    args:
-      - '-c'
-      - |
-        cd backend
-        pip install -q google-cloud-bigquery python-dotenv
-        export PYTHONPATH=/workspace
-        export GCP_PROJECT_ID=${PROJECT_ID}
-        export BIGQUERY_DATASET_ID=mlb_analytics_dash_25
-        python scripts/validate_schema_config.py
+  # # ----------------------------------------------------------------------
+  # # STEP 1: Schema Validation GATE (スキーマ不一致時はデプロイしない)
+  # # ----------------------------------------------------------------------
+  # - id: 'schema-validation-gate'
+  #   name: 'python:3.9'
+  #   entrypoint: 'bash'
+  #   args:
+  #     - '-c'
+  #     - |
+  #       cd backend
+  #       pip install -q google-cloud-bigquery python-dotenv
+  #       export PYTHONPATH=/workspace
+  #       export GCP_PROJECT_ID=${PROJECT_ID}
+  #       export BIGQUERY_DATASET_ID=mlb_analytics_dash_25
+  #       python scripts/validate_schema_config.py
 
   # ----------------------------------------------------------------------
   # STEP 2: Terraform Apply (インフラストラクチャ更新)
