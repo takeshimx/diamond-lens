@@ -246,30 +246,62 @@ git push → Cloud Build Trigger → cloudbuild.yaml execution
 └─────────────────────────────────────┘
   ↓
 ┌─────────────────────────────────────┐
-│ STEP 1: Terraform (Infrastructure)  │
+│ STEP 1: Schema Validation GATE      │
+│  - Validate query_maps.py config    │
+│  - Compare with live BigQuery schema│
+│  - Check column existence           │
+│  ⚠️  If mismatch → Build stops      │
+└─────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────┐
+│ STEP 2: Terraform (Infrastructure)  │
 │  - terraform init                   │
 │  - terraform plan                   │
 │  - terraform apply (if changes)     │
 └─────────────────────────────────────┘
   ↓
 ┌─────────────────────────────────────┐
-│ STEP 2-4: Backend                   │
+│ STEP 3: Backend Build & Push        │
 │  - Docker build                     │
 │  - Push to gcr.io                   │
+└─────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────┐
+│ STEP 4: Backend Security Scan       │
+│  - Trivy vulnerability scan         │
+│  - Check HIGH/CRITICAL CVEs         │
+│  ⚠️  If vulnerabilities → Build stops│
+└─────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────┐
+│ STEP 5: Backend Deploy              │
 │  - Deploy to Cloud Run              │
 └─────────────────────────────────────┘
   ↓
 ┌─────────────────────────────────────┐
-│ STEP 5-7: Frontend                  │
+│ STEP 6-7: Frontend Build & Push     │
 │  - Docker build                     │
 │  - Push to gcr.io                   │
+└─────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────┐
+│ STEP 8: Frontend Security Scan      │
+│  - Trivy vulnerability scan         │
+│  - Check HIGH/CRITICAL CVEs         │
+│  ⚠️  If vulnerabilities → Build stops│
+└─────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────┐
+│ STEP 9: Frontend Deploy             │
 │  - Deploy to Cloud Run              │
 └─────────────────────────────────────┘
 ```
 
 **Key Features:**
 - **Automated testing:** Unit tests run before every deployment
-- **Fail-fast approach:** Test failures prevent deployment to production
+- **Schema validation gate:** Ensures `query_maps.py` matches live BigQuery schema
+- **Security scanning:** Trivy scans Docker images for HIGH/CRITICAL vulnerabilities
+- **Fail-fast approach:** Test, schema, or security failures prevent deployment
 - Infrastructure changes are applied before application deployment
 - Terraform only executes if infrastructure changes are detected
 - Docker images are built and deployed after infrastructure updates
@@ -300,6 +332,116 @@ python -m pytest tests/ -v
 - Batting splits (RISP, bases loaded, inning-specific, etc.)
 - Edge case handling and error validation
 
+### Schema Validation
+
+The Schema Validation GATE ensures data integrity between application configuration and database:
+
+**What it validates:**
+- All tables referenced in `query_maps.py` exist in BigQuery
+- Required columns (`year_col`, `player_col`, `month_col`) exist in their respective tables
+- All `available_metrics` columns exist in the actual table schemas
+- All `METRIC_MAP` column mappings point to valid columns
+
+**Run validation locally:**
+```bash
+cd backend
+export GCP_PROJECT_ID=your-project-id
+export BIGQUERY_DATASET_ID=your-dataset-id
+python scripts/validate_schema_config.py
+```
+
+**When validation fails:**
+- CI/CD pipeline stops immediately (before costly build steps)
+- Error messages indicate which columns are missing
+- Action required: Update `query_maps.py` or BigQuery schema to match
+
+This gate prevents runtime errors from schema mismatches and catches configuration bugs early.
+
+### Security Scanning
+
+Container images are scanned for vulnerabilities before deployment using Trivy:
+
+**What it scans:**
+- Operating system packages (Debian, Alpine, etc.)
+- Application dependencies (Python packages, npm packages)
+- Known CVEs (Common Vulnerabilities and Exposures)
+- Severity levels: HIGH and CRITICAL only
+
+**Scan process:**
+```
+Docker Image Build → Push to GCR → Trivy Scan → Deploy (if no vulnerabilities)
+```
+
+**When vulnerabilities are found:**
+- CI/CD pipeline stops immediately (before deployment)
+- Trivy reports which packages have vulnerabilities
+- Action required: Update base image or dependencies
+
+**What's checked:**
+- Backend image: Python dependencies, OS packages
+- Frontend image: Node.js dependencies, nginx, OS packages
+
+This ensures no known high-severity vulnerabilities reach production.
+
+### Monitoring & Alerting
+
+The application implements comprehensive monitoring across infrastructure and application layers:
+
+#### Infrastructure Layer Monitoring
+
+**Uptime Checks:**
+- Backend `/health` endpoint: 60-second interval checks from 3 global regions (USA, EUROPE, ASIA_PACIFIC)
+- Frontend `/` endpoint: 60-second interval checks from 3 global regions
+- SSL validation and HTTPS enforcement
+
+**Alert Policies:**
+- **Service Down**: Triggered when uptime checks fail for 60 seconds continuously
+- **High Memory Usage**: Alert when Cloud Run memory exceeds 80% for 5 minutes
+- **High CPU Usage**: Alert when Cloud Run CPU exceeds 80% for 5 minutes
+- **Notification**: Email alerts with 30-minute auto-close after resolution
+
+**Terraform Configuration:**
+```bash
+cd terraform/environments/production
+terraform apply -var="notification_email=your-email@example.com"
+```
+
+#### Application Layer Monitoring
+
+**Custom Metrics tracked:**
+- `api/latency`: Request latency per endpoint (ms)
+- `api/errors`: Error count by endpoint and error type
+- `query/processing_time`: Query processing duration by query type (ms)
+- `bigquery/latency`: BigQuery execution time by query type (ms)
+
+**Structured Logging:**
+- JSON-formatted logs compatible with Google Cloud Logging
+- Automatic parsing and indexing by Cloud Logging
+- Searchable fields: `timestamp`, `severity`, `message`, `query_type`, `latency_ms`, `error_type`
+
+**Error Classification:**
+- `validation_error`: Input validation failures
+- `bigquery_error`: Database query failures
+- `llm_error`: AI model processing errors
+- `null_response`: Empty response from services
+
+**Log Severity Levels:**
+- `DEBUG`: Detailed debugging information
+- `INFO`: Normal operation events (requests, completions)
+- `WARNING`: Non-critical issues
+- `ERROR`: Error events that need attention
+- `CRITICAL`: Critical failures requiring immediate action
+
+**View logs and metrics:**
+```bash
+# Cloud Logging
+gcloud logging read "resource.type=cloud_run_revision" --limit 50
+
+# Cloud Monitoring Metrics Explorer
+# Navigate to: Cloud Console → Monitoring → Metrics Explorer
+# Custom metrics: custom.googleapis.com/diamond-lens/*
+```
+
 For detailed Terraform setup and integration instructions, see [TERRAFORM_INTEGRATION_GUIDE.md](TERRAFORM_INTEGRATION_GUIDE.md).
 
 ## 📁 Project Structure
@@ -319,12 +461,24 @@ diamond-lens/
 │   │   ├── main.py          # FastAPI application
 │   │   ├── api/endpoints/   # API route handlers
 │   │   ├── services/        # Business logic services
+│   │   │   ├── ai_service.py       # AI query processing
+│   │   │   ├── bigquery_service.py # BigQuery client
+│   │   │   └── monitoring_service.py # Custom metrics
+│   │   ├── utils/           # Utility functions
+│   │   │   └── structured_logger.py # JSON logging
 │   │   └── config/          # Configuration and mappings
+│   ├── tests/               # Unit tests (49 tests)
+│   ├── scripts/             # Validation and utility scripts
 │   ├── requirements.txt     # Python dependencies
 │   └── Dockerfile           # Backend container
 ├── terraform/                # Infrastructure as Code
 │   ├── modules/             # Reusable Terraform modules
+│   │   ├── cloud-run/       # Cloud Run service module
+│   │   ├── bigquery/        # BigQuery dataset module
+│   │   ├── monitoring/      # Monitoring & alerting module
+│   │   └── iam/             # IAM configuration module
 │   └── environments/        # Environment-specific configs
+│       └── production/      # Production environment
 ├── CLAUDE.md                # Development guidance
 ├── cloudbuild.yaml          # CI/CD pipeline config
 ├── TERRAFORM_INTEGRATION_GUIDE.md  # Terraform setup guide

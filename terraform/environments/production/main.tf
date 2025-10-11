@@ -40,6 +40,12 @@ variable "environment" {
   default     = "production"
 }
 
+variable "notification_email" {
+  description = "Email address for monitoring alerts"
+  type        = string
+  default     = ""
+}
+
 # BigQuery Dataset (既存をimport)
 module "bigquery_dataset" {
   source = "../../modules/bigquery"
@@ -107,6 +113,17 @@ module "frontend_cloud_run" {
   allow_unauthenticated = true
 }
 
+# Monitoring & Alerting
+module "monitoring" {
+  source = "../../modules/monitoring"
+
+  project_id            = var.project_id
+  region                = var.region
+  backend_service_name  = "mlb-diamond-lens-api"
+  frontend_service_name = "mlb-diamond-lens-frontend"
+  notification_email    = var.notification_email
+}
+
 # Outputs
 output "backend_url" {
   description = "Backend Cloud Run URL"
@@ -116,4 +133,19 @@ output "backend_url" {
 output "frontend_url" {
   description = "Frontend Cloud Run URL"
   value       = module.frontend_cloud_run.service_url
+}
+
+output "backend_uptime_check_id" {
+  description = "Backend uptime check ID"
+  value       = module.monitoring.backend_uptime_check_id
+}
+
+output "frontend_uptime_check_id" {
+  description = "Frontend uptime check ID"
+  value       = module.monitoring.frontend_uptime_check_id
+}
+
+output "alert_policy_ids" {
+  description = "Monitoring alert policy IDs"
+  value       = module.monitoring.alert_policy_ids
 }

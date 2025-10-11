@@ -38,3 +38,5 @@ dbt_models/target
 dbt_models/dbt_packages
 profiles.yml
 .user.yml
+
+backend/docs/

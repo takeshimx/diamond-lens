@@ -3,9 +3,14 @@ from backend.app.api.endpoints.router import api_router  # For Development, add 
 # from backend.app.api.endpoints import ai_analytics_endpoints  # For Development, add backend. path
 from fastapi.middleware.cors import CORSMiddleware
 import logging
+import time
+from backend.app.utils.structured_logger import get_logger
+from backend.app.services.monitoring_service import get_monitoring_service
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+structured_logger = get_logger("diamond-lens")
+monitoring = get_monitoring_service()
 
 # Create the FastAPI app instance
 app = FastAPI(
@@ -14,19 +19,42 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# # デバッグ用ミドルウェア（CORSミドルウェアの前に追加）
-# @app.middleware("http")
-# async def debug_middleware(request: Request, call_next):
-#     logger.info(f"🔍 Request URL: {request.url}")
-#     logger.info(f"🔍 Request method: {request.method}")
-#     logger.info(f"🔍 Request headers: {dict(request.headers)}")
+# Monitoring middleware for request tracking
+@app.middleware("http")
+async def monitoring_middleware(request: Request, call_next):
+    start_time = time.time() # ← 前処理: 開始時刻記録
 
-#     response = await call_next(request)
+    # Log request start
+    structured_logger.info(
+        "Request started",
+        method=request.method,
+        path=request.url.path,
+        client_ip=request.client.host if request.client else "unknown"
+    )
 
-#     logger.info(f"🔍 Response status: {response.status_code}")
-#     logger.info(f"🔍 Response headers: {dict(response.headers)}")
+    # Process request
+    response = await call_next(request) # ← 実際のエンドポイント処理
 
-#     return response
+    # Calculate latency
+    latency_ms = (time.time() - start_time) * 1000 # ← 後処理: レイテンシ計算
+
+    # Log request completion
+    structured_logger.info(
+        "Request completed",
+        method=request.method,
+        path=request.url.path,
+        status_code=response.status_code,
+        latency_ms=round(latency_ms, 2)
+    )
+
+    # Record metrics
+    monitoring.record_api_latency(
+        endpoint=request.url.path,
+        latency_ms=latency_ms,
+        status_code=response.status_code
+    )
+
+    return response
 
 # ReactアプリのURLを許可するオリジンとして追加
 origins = [

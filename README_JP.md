@@ -246,30 +246,62 @@ git push → Cloud Buildトリガー → cloudbuild.yaml 実行
 └─────────────────────────────────────┘
   ↓
 ┌─────────────────────────────────────┐
-│ STEP 1: Terraform (インフラ管理)      │
+│ STEP 1: スキーマ検証GATE             │
+│  - query_maps.py設定の検証          │
+│  - BigQueryスキーマとの比較          │
+│  - カラム存在チェック                │
+│  ⚠️  不一致 → ビルド停止             │
+└─────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────┐
+│ STEP 2: Terraform (インフラ管理)      │
 │  - terraform init                   │
 │  - terraform plan                   │
 │  - terraform apply (変更がある場合)   │
 └─────────────────────────────────────┘
   ↓
 ┌─────────────────────────────────────┐
-│ STEP 2-4: Backend                   │
+│ STEP 3: Backendビルド&プッシュ       │
 │  - Docker build                     │
 │  - gcr.io へプッシュ                 │
+└─────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────┐
+│ STEP 4: Backendセキュリティスキャン  │
+│  - Trivy脆弱性スキャン              │
+│  - HIGH/CRITICAL CVEチェック        │
+│  ⚠️  脆弱性検出 → ビルド停止         │
+└─────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────┐
+│ STEP 5: Backendデプロイ              │
 │  - Cloud Runへデプロイ               │
 └─────────────────────────────────────┘
   ↓
 ┌─────────────────────────────────────┐
-│ STEP 5-7: Frontend                  │
+│ STEP 6-7: Frontendビルド&プッシュ    │
 │  - Docker build                     │
 │  - gcr.io へプッシュ                 │
+└─────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────┐
+│ STEP 8: Frontendセキュリティスキャン │
+│  - Trivy脆弱性スキャン              │
+│  - HIGH/CRITICAL CVEチェック        │
+│  ⚠️  脆弱性検出 → ビルド停止         │
+└─────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────┐
+│ STEP 9: Frontendデプロイ             │
 │  - Cloud Runへデプロイ               │
 └─────────────────────────────────────┘
 ```
 
 **主な機能:**
 - **自動テスト:** 全デプロイ前にユニットテストを実行
-- **Fail-fastアプローチ:** テスト失敗時は本番デプロイを防止
+- **スキーマ検証ゲート:** `query_maps.py`が本番BigQueryスキーマと一致することを保証
+- **セキュリティスキャン:** TrivyでDockerイメージのHIGH/CRITICAL脆弱性をスキャン
+- **Fail-fastアプローチ:** テスト、スキーマ、またはセキュリティ失敗時は本番デプロイを防止
 - インフラ変更はアプリケーションデプロイメントの前に適用されます
 - Terraformはインフラ変更が検出された場合のみ実行されます
 - Dockerイメージはインフラ更新後にビルドおよびデプロイされます
@@ -300,6 +332,116 @@ python -m pytest tests/ -v
 - 打撃スプリット（得点圏、満塁、イニング別など）
 - エッジケース処理とエラー検証
 
+### スキーマ検証
+
+スキーマ検証GATEはアプリケーション設定とデータベース間のデータ整合性を保証します：
+
+**検証内容:**
+- `query_maps.py`で参照される全テーブルがBigQueryに存在するか
+- 必須カラム（`year_col`, `player_col`, `month_col`）が各テーブルに存在するか
+- 全`available_metrics`カラムが実際のテーブルスキーマに存在するか
+- 全`METRIC_MAP`カラムマッピングが有効なカラムを指しているか
+
+**ローカルで検証実行:**
+```bash
+cd backend
+export GCP_PROJECT_ID=your-project-id
+export BIGQUERY_DATASET_ID=your-dataset-id
+python scripts/validate_schema_config.py
+```
+
+**検証失敗時:**
+- CI/CDパイプラインが即座に停止（コストのかかるビルドステップの前に）
+- エラーメッセージで欠落カラムを表示
+- 対処方法: `query_maps.py`またはBigQueryスキーマを一致させる
+
+このゲートはスキーマ不一致による実行時エラーを防ぎ、設定バグを早期に検出します。
+
+### セキュリティスキャン
+
+コンテナイメージはデプロイ前にTrivyを使用して脆弱性スキャンされます：
+
+**スキャン対象:**
+- OSパッケージ（Debian, Alpineなど）
+- アプリケーション依存関係（Pythonパッケージ、npmパッケージ）
+- 既知のCVE（Common Vulnerabilities and Exposures）
+- 深刻度レベル：HIGHとCRITICALのみ
+
+**スキャンプロセス:**
+```
+Dockerイメージビルド → GCRへプッシュ → Trivyスキャン → デプロイ（脆弱性なしの場合）
+```
+
+**脆弱性検出時:**
+- CI/CDパイプラインが即座に停止（デプロイ前）
+- Trivyが脆弱性のあるパッケージを報告
+- 対処方法: ベースイメージまたは依存関係を更新
+
+**チェック内容:**
+- Backendイメージ: Python依存関係、OSパッケージ
+- Frontendイメージ: Node.js依存関係、nginx、OSパッケージ
+
+これにより既知の高深刻度脆弱性が本番環境に到達しないことを保証します。
+
+### モニタリング & アラート
+
+アプリケーションはインフラストラクチャ層とアプリケーション層全体で包括的なモニタリングを実装しています：
+
+#### インフラストラクチャ層モニタリング
+
+**アップタイムチェック:**
+- Backend `/health` エンドポイント: 3つのグローバルリージョン（USA、EUROPE、ASIA_PACIFIC）から60秒間隔でチェック
+- Frontend `/` エンドポイント: 3つのグローバルリージョンから60秒間隔でチェック
+- SSL検証とHTTPS強制
+
+**アラートポリシー:**
+- **サービスダウン**: アップタイムチェックが60秒間連続で失敗した場合にトリガー
+- **高メモリ使用率**: Cloud Runメモリが5分間80%を超えた場合にアラート
+- **高CPU使用率**: Cloud Run CPUが5分間80%を超えた場合にアラート
+- **通知**: 解決後30分で自動クローズするメールアラート
+
+**Terraform設定:**
+```bash
+cd terraform/environments/production
+terraform apply -var="notification_email=your-email@example.com"
+```
+
+#### アプリケーション層モニタリング
+
+**追跡されるカスタムメトリクス:**
+- `api/latency`: エンドポイント別リクエストレイテンシ（ms）
+- `api/errors`: エンドポイントとエラータイプ別エラーカウント
+- `query/processing_time`: クエリタイプ別クエリ処理時間（ms）
+- `bigquery/latency`: クエリタイプ別BigQuery実行時間（ms）
+
+**構造化ログ:**
+- Google Cloud Loggingと互換性のあるJSON形式ログ
+- Cloud Loggingによる自動解析とインデックス作成
+- 検索可能フィールド: `timestamp`、`severity`、`message`、`query_type`、`latency_ms`、`error_type`
+
+**エラー分類:**
+- `validation_error`: 入力検証エラー
+- `bigquery_error`: データベースクエリエラー
+- `llm_error`: AIモデル処理エラー
+- `null_response`: サービスからの空レスポンス
+
+**ログ深刻度レベル:**
+- `DEBUG`: 詳細なデバッグ情報
+- `INFO`: 通常の操作イベント（リクエスト、完了）
+- `WARNING`: 重大ではない問題
+- `ERROR`: 注意が必要なエラーイベント
+- `CRITICAL`: 即座の対応が必要な重大な障害
+
+**ログとメトリクスの表示:**
+```bash
+# Cloud Logging
+gcloud logging read "resource.type=cloud_run_revision" --limit 50
+
+# Cloud Monitoring Metrics Explorer
+# 移動先: Cloud Console → Monitoring → Metrics Explorer
+# カスタムメトリクス: custom.googleapis.com/diamond-lens/*
+```
+
 Terraformセットアップと統合手順の詳細は [TERRAFORM_INTEGRATION_GUIDE.md](TERRAFORM_INTEGRATION_GUIDE.md) を参照してください。
 
 ## 📁 プロジェクト構造
@@ -319,12 +461,24 @@ diamond-lens/
 │   │   ├── main.py          # FastAPIアプリケーション
 │   │   ├── api/endpoints/   # APIルートハンドラー
 │   │   ├── services/        # ビジネスロジックサービス
+│   │   │   ├── ai_service.py       # AIクエリ処理
+│   │   │   ├── bigquery_service.py # BigQueryクライアント
+│   │   │   └── monitoring_service.py # カスタムメトリクス
+│   │   ├── utils/           # ユーティリティ関数
+│   │   │   └── structured_logger.py # JSONログ
 │   │   └── config/          # 設定とマッピング
+│   ├── tests/               # ユニットテスト（49テスト）
+│   ├── scripts/             # 検証・ユーティリティスクリプト
 │   ├── requirements.txt     # Python依存関係
 │   └── Dockerfile           # バックエンドコンテナ
 ├── terraform/                # Infrastructure as Code
 │   ├── modules/             # 再利用可能なTerraformモジュール
+│   │   ├── cloud-run/       # Cloud Runサービスモジュール
+│   │   ├── bigquery/        # BigQueryデータセットモジュール
+│   │   ├── monitoring/      # モニタリング & アラートモジュール
+│   │   └── iam/             # IAM設定モジュール
 │   └── environments/        # 環境別設定
+│       └── production/      # 本番環境
 ├── CLAUDE.md                # 開発ガイダンス
 ├── cloudbuild.yaml          # CI/CDパイプライン設定
 ├── TERRAFORM_INTEGRATION_GUIDE.md  # Terraformセットアップガイド

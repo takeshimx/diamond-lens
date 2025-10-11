@@ -16,7 +16,23 @@ steps:
         python -m pytest tests/ -v --tb=short
 
   # ----------------------------------------------------------------------
-  # STEP 1: Terraform Apply (インフラストラクチャ更新)
+  # STEP 1: Schema Validation GATE (スキーマ不一致時はデプロイしない)
+  # ----------------------------------------------------------------------
+  - id: 'schema-validation-gate'
+    name: 'python:3.9'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        cd backend
+        pip install -q google-cloud-bigquery python-dotenv
+        export PYTHONPATH=/workspace/backend
+        export GCP_PROJECT_ID=${PROJECT_ID}
+        export BIGQUERY_DATASET_ID=mlb_analytics_dash_25
+        python scripts/validate_schema_config.py
+
+  # ----------------------------------------------------------------------
+  # STEP 2: Terraform Apply (インフラストラクチャ更新)
   # ----------------------------------------------------------------------
   - id: 'terraform-init'
     name: 'hashicorp/terraform:1.5.0'
@@ -70,13 +86,27 @@ steps:
       - 'push'
       - 'gcr.io/${PROJECT_ID}/mlb-diamond-lens-api:latest'
 
+  # ----------------------------------------------------------------------
+  # 3. Security Scanning (脆弱性スキャン)
+  # ----------------------------------------------------------------------
+  - id: 'backend-security-scan'
+    name: 'aquasec/trivy'
+    args:
+      - 'image'
+      - '--exit-code'
+      - '1'
+      - '--severity'
+      - 'HIGH,CRITICAL'
+      - '--ignore-unfixed'
+      - 'gcr.io/${PROJECT_ID}/mlb-diamond-lens-api:latest'
+
   # _GIT_TAG はGitタグがプッシュされた場合に自動的に設定されます。${_GIT_TAG} はそのタグ名を参照します。
   # それ以外の場合（例: ブランチへのプッシュ）は空になり、エラーになります。
   # その場合は、例えばコミットSHAを使うなど、別のタグ付け戦略を検討してください。
   # 例: 'gcr.io/${PROJECT_ID}/mlb-analytics-api:latest' または 'gcr.io/${PROJECT_ID}/mlb-analytics-api:$COMMIT_SHA'
 
   # ----------------------------------------------------------------------
-  # 3. Cloud Runにデプロイ
+  # 4. Cloud Runにデプロイ
   # ----------------------------------------------------------------------
   - id: 'backend-deploy-cloudrun'
     name: 'gcr.io/cloud-builders/gcloud' # gcloudコマンドを使用
@@ -119,9 +149,23 @@ steps:
     args:
       - 'push'
       - 'gcr.io/${PROJECT_ID}/mlb-diamond-lens-frontend:latest'
-  
+
   # ----------------------------------------------------------------------
-  # 6. Cloud Runにデプロイ
+  # 6. Security Scanning (脆弱性スキャン)
+  # ----------------------------------------------------------------------
+  - id: 'frontend-security-scan'
+    name: 'aquasec/trivy'
+    args:
+      - 'image'
+      - '--exit-code'
+      - '1'
+      - '--severity'
+      - 'HIGH,CRITICAL'
+      - '--ignore-unfixed'
+      - 'gcr.io/${PROJECT_ID}/mlb-diamond-lens-frontend:latest'
+
+  # ----------------------------------------------------------------------
+  # 7. Cloud Runにデプロイ
   # ----------------------------------------------------------------------
   - id: 'frontend-deploy-cloudrun'
     name: 'gcr.io/cloud-builders/gcloud' # gcloudコマンドを使用
