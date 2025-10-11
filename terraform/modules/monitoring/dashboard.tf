@@ -114,8 +114,6 @@ resource "google_monitoring_dashboard" "main" {
               }
               thresholds = [{
                 value = 0.8
-                color = "RED"
-                direction = "ABOVE"
               }]
             }
           }
@@ -150,8 +148,6 @@ resource "google_monitoring_dashboard" "main" {
               }
               thresholds = [{
                 value = 0.8
-                color = "RED"
-                direction = "ABOVE"
               }]
             }
           }
