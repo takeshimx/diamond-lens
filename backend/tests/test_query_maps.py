@@ -13,7 +13,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from app.config.query_maps import (
+from backend.app.config.query_maps import (
     QUERY_TYPE_CONFIG,
     METRIC_MAP,
     DECIMAL_FORMAT_COLUMNS,

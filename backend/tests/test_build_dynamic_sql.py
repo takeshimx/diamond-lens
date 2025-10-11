@@ -13,7 +13,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from app.services.ai_service import _build_dynamic_sql
+from backend.app.services.ai_service import _build_dynamic_sql
 
 
 class TestBuildDynamicSQLBasics:
