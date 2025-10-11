@@ -50,7 +50,7 @@ steps:
       - '-c'
       - |
         cd terraform/environments/production
-        terraform plan -input=false -out=tfplan
+        terraform plan -input=false -var-file=terraform.tfvars -out=tfplan
 
   - id: 'terraform-apply'
     name: 'hashicorp/terraform:1.5.0'
