@@ -24,7 +24,7 @@ from google.api_core import exceptions
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from app.config.query_maps import QUERY_TYPE_CONFIG, METRIC_MAP
+from backend.app.config.query_maps import QUERY_TYPE_CONFIG, METRIC_MAP
 
 # 環境変数から設定を取得
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "tksm-dash-test-25")

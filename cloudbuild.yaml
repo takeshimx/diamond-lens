@@ -12,7 +12,7 @@ steps:
         cd backend
         pip install -q -r requirements.txt
         pip install -q pytest pytest-asyncio
-        export PYTHONPATH=/workspace/backend
+        export PYTHONPATH=/workspace
         python -m pytest tests/ -v --tb=short
 
   # ----------------------------------------------------------------------
@@ -26,7 +26,7 @@ steps:
       - |
         cd backend
         pip install -q google-cloud-bigquery python-dotenv
-        export PYTHONPATH=/workspace/backend
+        export PYTHONPATH=/workspace
         export GCP_PROJECT_ID=${PROJECT_ID}
         export BIGQUERY_DATASET_ID=mlb_analytics_dash_25
         python scripts/validate_schema_config.py
