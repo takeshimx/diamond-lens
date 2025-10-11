@@ -53,6 +53,7 @@ class MonitoringService:
             series.resource.labels["project_id"] = self.project_id
             series.resource.labels["location"] = os.getenv("GCP_REGION", "asia-northeast1")
             series.resource.labels["namespace"] = "mlb-diamond-lens"
+            series.resource.labels["job"] = "diamond-lens-api"
             series.resource.labels["task_id"] = "api"
 
             # Create data point
