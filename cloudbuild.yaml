@@ -50,7 +50,10 @@ steps:
       - '-c'
       - |
         cd terraform/environments/production
-        terraform plan -input=false -var-file=terraform.tfvars -out=tfplan
+        terraform plan -input=false \
+          -var="notification_email=$$NOTIFICATION_EMAIL" \
+          -out=tfplan
+    secretEnv: ['NOTIFICATION_EMAIL']
 
   - id: 'terraform-apply'
     name: 'hashicorp/terraform:1.5.0'
@@ -189,6 +192,8 @@ availableSecrets:
   secretManager:
     - versionName: projects/${PROJECT_ID}/secrets/VITE_APP_PASSWORD/versions/latest
       env: 'VITE_APP_PASSWORD'
+    - versionName: projects/${PROJECT_ID}/secrets/NOTIFICATION_EMAIL/versions/latest
+      env: 'NOTIFICATION_EMAIL'
 
 # トリガー実行時のエラーを回避するため、ログの保存先を明示的に指定
 options:
