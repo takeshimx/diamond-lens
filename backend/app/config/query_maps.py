@@ -16,7 +16,7 @@ QUERY_TYPE_CONFIG = {
         "table_id": "tbl_batter_career_stats_master",
         "year_col": "",
         "player_col": "batter_name",
-        "available_metrics": ["career_homeruns", "career_batting_average", "career_on_base_percentage", "career_slugging_percentage", "career_on_base_plus_slugging", "career_at_bats"]
+        "available_metrics": ["career_homeruns", "career_batting_average", "career_on_base_percentage", "career_slugging_percentage", "career_on_base_plus_slugging", "career_ab"]
     },
     "batting_splits": {
         "risp": {

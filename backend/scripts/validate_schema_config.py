@@ -49,17 +49,17 @@ def print_header(message: str):
 
 def print_success(message: str):
     """成功メッセージを出力"""
-    print(f"{Colors.GREEN}✓ {message}{Colors.RESET}")
+    print(f"{Colors.GREEN}[OK] {message}{Colors.RESET}")
 
 
 def print_error(message: str):
     """エラーメッセージを出力"""
-    print(f"{Colors.RED}✗ {message}{Colors.RESET}")
+    print(f"{Colors.RED}[ERROR] {message}{Colors.RESET}")
 
 
 def print_warning(message: str):
     """警告メッセージを出力"""
-    print(f"{Colors.YELLOW}⚠ {message}{Colors.RESET}")
+    print(f"{Colors.YELLOW}[WARN] {message}{Colors.RESET}")
 
 
 def get_bigquery_schema(client: bigquery.Client, table_id: str) -> Set[str]:
@@ -275,14 +275,14 @@ def main():
     print_header("Validation Summary")
 
     if overall_validation_passed:
-        print_success("✓ ALL VALIDATIONS PASSED")
+        print_success("[OK] ALL VALIDATIONS PASSED")
         print_success("Schema configuration is in sync with BigQuery")
         print("\nCI/CD Pipeline can proceed safely.\n")
         sys.exit(0)
     else:
-        print_error("✗ VALIDATION FAILED")
+        print_error("[ERROR] VALIDATION FAILED")
         print_error("Schema configuration does NOT match BigQuery")
-        print("\n⚠️  CI/CD Pipeline STOPPED to prevent deployment issues.\n")
+        print("\n[WARN] CI/CD Pipeline STOPPED to prevent deployment issues.\n")
         print("Action required:")
         print("  1. Update query_maps.py to match BigQuery schema")
         print("  2. OR update BigQuery tables to match query_maps.py")
