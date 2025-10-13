@@ -135,15 +135,16 @@ output "frontend_url" {
   value       = module.frontend_cloud_run.service_url
 }
 
-output "backend_uptime_check_id" {
-  description = "Backend uptime check ID"
-  value       = module.monitoring.backend_uptime_check_id
-}
-
-output "frontend_uptime_check_id" {
-  description = "Frontend uptime check ID"
-  value       = module.monitoring.frontend_uptime_check_id
-}
+# Uptime checks disabled by default - uncomment if needed
+# output "backend_uptime_check_id" {
+#   description = "Backend uptime check ID"
+#   value       = module.monitoring.backend_uptime_check_id
+# }
+#
+# output "frontend_uptime_check_id" {
+#   description = "Frontend uptime check ID"
+#   value       = module.monitoring.frontend_uptime_check_id
+# }
 
 output "alert_policy_ids" {
   description = "Monitoring alert policy IDs"

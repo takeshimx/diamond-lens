@@ -9,82 +9,89 @@ resource "google_monitoring_notification_channel" "email" {
   }
 }
 
-# Alert Policy: Backend API Down
-resource "google_monitoring_alert_policy" "backend_down" {
-  display_name = "MLB API Down Alert"
-  combiner     = "OR"
-  enabled      = true
+# ============================================================================
+# UPTIME-BASED ALERT POLICIES - DISABLED BY DEFAULT
+# ============================================================================
+# Uptime Checksが無効化されているため、これらのアラートも無効化しています。
+# 必要な場合は uptime_checks.tf と合わせて有効化してください。
+# ============================================================================
 
-  conditions {
-    display_name = "Backend API Uptime Check Failed"
-
-    condition_threshold {
-      filter          = "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\" AND resource.type=\"uptime_url\" AND metric.label.check_id=\"${google_monitoring_uptime_check_config.backend_health.uptime_check_id}\""
-      duration        = "60s"
-      comparison      = "COMPARISON_LT"
-      threshold_value = 1
-
-      aggregations {
-        alignment_period   = "60s"
-        per_series_aligner = "ALIGN_FRACTION_TRUE"
-      }
-    }
-  }
-
-  notification_channels = var.notification_email != "" ? [google_monitoring_notification_channel.email[0].id] : []
-
-  alert_strategy {
-    auto_close = "1800s"  # 30分後に自動クローズ
-  }
-
-  documentation {
-    content   = <<-EOT
-      MLB Diamond Lens API is down!
-
-      **Action Required:**
-      1. Check Cloud Run logs: https://console.cloud.google.com/run?project=${var.project_id}
-      2. Verify /health endpoint
-      3. Check recent deployments
-
-      **Runbook:** See docs/INCIDENT_RESPONSE.md
-    EOT
-    mime_type = "text/markdown"
-  }
-}
-
-# Alert Policy: Frontend Down
-resource "google_monitoring_alert_policy" "frontend_down" {
-  display_name = "MLB Frontend Down Alert"
-  combiner     = "OR"
-  enabled      = true
-
-  conditions {
-    display_name = "Frontend Uptime Check Failed"
-
-    condition_threshold {
-      filter          = "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\" AND resource.type=\"uptime_url\" AND metric.label.check_id=\"${google_monitoring_uptime_check_config.frontend_health.uptime_check_id}\""
-      duration        = "60s"
-      comparison      = "COMPARISON_LT"
-      threshold_value = 1
-
-      aggregations {
-        alignment_period   = "60s"
-        per_series_aligner = "ALIGN_FRACTION_TRUE"
-      }
-    }
-  }
-
-  notification_channels = var.notification_email != "" ? [google_monitoring_notification_channel.email[0].id] : []
-
-  alert_strategy {
-    auto_close = "1800s"
-  }
-
-  documentation {
-    content   = "MLB Diamond Lens Frontend is down. Check Cloud Run service status."
-    mime_type = "text/markdown"
-  }
-}
+# # Alert Policy: Backend API Down
+# resource "google_monitoring_alert_policy" "backend_down" {
+#   display_name = "MLB API Down Alert"
+#   combiner     = "OR"
+#   enabled      = true
+#
+#   conditions {
+#     display_name = "Backend API Uptime Check Failed"
+#
+#     condition_threshold {
+#       filter          = "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\" AND resource.type=\"uptime_url\" AND metric.label.check_id=\"${google_monitoring_uptime_check_config.backend_health.uptime_check_id}\""
+#       duration        = "60s"
+#       comparison      = "COMPARISON_LT"
+#       threshold_value = 1
+#
+#       aggregations {
+#         alignment_period   = "60s"
+#         per_series_aligner = "ALIGN_FRACTION_TRUE"
+#       }
+#     }
+#   }
+#
+#   notification_channels = var.notification_email != "" ? [google_monitoring_notification_channel.email[0].id] : []
+#
+#   alert_strategy {
+#     auto_close = "1800s"  # 30分後に自動クローズ
+#   }
+#
+#   documentation {
+#     content   = <<-EOT
+#       MLB Diamond Lens API is down!
+#
+#       **Action Required:**
+#       1. Check Cloud Run logs: https://console.cloud.google.com/run?project=${var.project_id}
+#       2. Verify /health endpoint
+#       3. Check recent deployments
+#
+#       **Runbook:** See docs/INCIDENT_RESPONSE.md
+#     EOT
+#     mime_type = "text/markdown"
+#   }
+# }
+#
+# # Alert Policy: Frontend Down
+# resource "google_monitoring_alert_policy" "frontend_down" {
+#   display_name = "MLB Frontend Down Alert"
+#   combiner     = "OR"
+#   enabled      = true
+#
+#   conditions {
+#     display_name = "Frontend Uptime Check Failed"
+#
+#     condition_threshold {
+#       filter          = "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\" AND resource.type=\"uptime_url\" AND metric.label.check_id=\"${google_monitoring_uptime_check_config.frontend_health.uptime_check_id}\""
+#       duration        = "60s"
+#       comparison      = "COMPARISON_LT"
+#       threshold_value = 1
+#
+#       aggregations {
+#         alignment_period   = "60s"
+#         per_series_aligner = "ALIGN_FRACTION_TRUE"
+#       }
+#     }
+#   }
+#
+#   notification_channels = var.notification_email != "" ? [google_monitoring_notification_channel.email[0].id] : []
+#
+#   alert_strategy {
+#     auto_close = "1800s"
+#   }
+#
+#   documentation {
+#     content   = "MLB Diamond Lens Frontend is down. Check Cloud Run service status."
+#     mime_type = "text/markdown"
+#   }
+# }
 
 # Alert Policy: High Memory Usage
 resource "google_monitoring_alert_policy" "high_memory" {
