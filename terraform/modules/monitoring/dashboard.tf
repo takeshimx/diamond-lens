@@ -6,60 +6,14 @@ resource "google_monitoring_dashboard" "main" {
       columns = 12
 
       tiles = [
-        # Uptime Check Status
-        {
-          width  = 6
-          height = 4
-          widget = {
-            title = "Backend API Uptime"
-            scorecard = {
-              timeSeriesQuery = {
-                timeSeriesFilter = {
-                  filter = "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\" resource.type=\"uptime_url\" metric.label.check_id=\"${google_monitoring_uptime_check_config.backend_health.uptime_check_id}\""
-                  aggregation = {
-                    alignmentPeriod    = "60s"
-                    perSeriesAligner   = "ALIGN_FRACTION_TRUE"
-                    crossSeriesReducer = "REDUCE_MEAN"
-                  }
-                }
-              }
-              sparkChartView = {
-                sparkChartType = "SPARK_LINE"
-              }
-            }
-          }
-        },
-
-        # Frontend Uptime
-        {
-          width  = 6
-          height = 4
-          xPos   = 6
-          widget = {
-            title = "Frontend Uptime"
-            scorecard = {
-              timeSeriesQuery = {
-                timeSeriesFilter = {
-                  filter = "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\" resource.type=\"uptime_url\" metric.label.check_id=\"${google_monitoring_uptime_check_config.frontend_health.uptime_check_id}\""
-                  aggregation = {
-                    alignmentPeriod    = "60s"
-                    perSeriesAligner   = "ALIGN_FRACTION_TRUE"
-                    crossSeriesReducer = "REDUCE_MEAN"
-                  }
-                }
-              }
-              sparkChartView = {
-                sparkChartType = "SPARK_LINE"
-              }
-            }
-          }
-        },
+        # Uptime widgets removed (uptime checks disabled by default)
+        # Uncomment uptime_checks.tf to re-enable these widgets
 
         # API Latency
         {
           width  = 12
           height = 4
-          yPos   = 4
+          yPos   = 0
           widget = {
             title = "API Request Latency"
             xyChart = {
@@ -90,7 +44,7 @@ resource "google_monitoring_dashboard" "main" {
         {
           width  = 6
           height = 4
-          yPos   = 8
+          yPos   = 4
           widget = {
             title = "Memory Utilization"
             xyChart = {
@@ -124,7 +78,7 @@ resource "google_monitoring_dashboard" "main" {
           width  = 6
           height = 4
           xPos   = 6
-          yPos   = 8
+          yPos   = 4
           widget = {
             title = "CPU Utilization"
             xyChart = {
@@ -157,7 +111,7 @@ resource "google_monitoring_dashboard" "main" {
         {
           width  = 12
           height = 4
-          yPos   = 12
+          yPos   = 8
           widget = {
             title = "Active Instances"
             xyChart = {
