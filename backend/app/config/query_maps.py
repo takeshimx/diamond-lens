@@ -65,7 +65,7 @@ QUERY_TYPE_CONFIG = {
             "table_id": "tbl_batter_pitch_speed_stats",
             "year_col": "game_year",
             "player_col": "batter_name",
-            "available_metrics": ["ab_by_pitch_speed", "avg_by_pitch_speed", "obp_by_pitch_speed", "slg_by_pitch_speed", "homeruns_by_pitch_speed", "ops_by_pitch_speed"]
+            "available_metrics": ["ab_by_release_speed", "avg_by_release_speed", "obp_by_release_speed", "slg_by_release_speed", "homeruns_by_release_speed", "ops_by_release_speed"]
         },
         "game_score_situation": {
             "table_id": "tbl_batter_game_score_situations_stats",
@@ -150,7 +150,7 @@ DECIMAL_FORMAT_COLUMNS = [
     'avg_by_pitch_count', 'obp_by_pitch_count', 'slg_by_pitch_count', 'ops_by_pitch_count',
 
     # Pitch speed stats
-    'avg_by_pitch_speed', 'obp_by_pitch_speed', 'slg_by_pitch_speed', 'ops_by_pitch_speed',
+    'avg_by_release_speed', 'obp_by_release_speed', 'slg_by_release_speed', 'ops_by_release_speed',
 
     # Game score situations stats
     'avg_by_game_score_situation', 'obp_by_game_score_situation', 'slg_by_game_score_situation', 'ops_by_game_score_situation',
@@ -182,7 +182,7 @@ METRIC_MAP = {
         "batting_splits_pitcher_throws": "homeruns_by_p_throws",
         "batting_splits_pitch_type": "homeruns_by_pitch_type",
         "batting_splits_pitch_count": "homeruns_by_pitch_count",
-        "batting_splits_pitch_speed": "homeruns_by_pitch_speed",
+        "batting_splits_pitch_speed": "homeruns_by_release_speed",
         "batting_splits_game_score_situation": "homeruns_by_game_score_situation",
         "batting_splits_zone": "homeruns_by_zone",
         "batting_splits_monthly": "home_runs"
@@ -202,7 +202,7 @@ METRIC_MAP = {
         "batting_splits_pitcher_throws": "avg_by_p_throws",
         "batting_splits_pitch_type": "avg_by_pitch_type",
         "batting_splits_pitch_count": "avg_by_pitch_count",
-        "batting_splits_pitch_speed": "avg_by_pitch_speed",
+        "batting_splits_pitch_speed": "avg_by_release_speed",
         "batting_splits_game_score_situation": "avg_by_game_score_situation",
         "batting_splits_zone": "avg_by_zone",
         "batting_splits_monthly": "batting_average"
@@ -221,7 +221,7 @@ METRIC_MAP = {
         "batting_splits_pitcher_throws": "obp_by_p_throws",
         "batting_splits_pitch_type": "obp_by_pitch_type",
         "batting_splits_pitch_count": "obp_by_pitch_count",
-        "batting_splits_pitch_speed": "obp_by_pitch_speed",
+        "batting_splits_pitch_speed": "obp_by_release_speed",
         "batting_splits_game_score_situation": "obp_by_game_score_situation",
         "batting_splits_zone": "obp_by_zone",
         "batting_splits_monthly": "on_base_percentage"
@@ -241,7 +241,7 @@ METRIC_MAP = {
         "batting_splits_pitcher_throws": "slg_by_p_throws",
         "batting_splits_pitch_type": "slg_by_pitch_type",
         "batting_splits_pitch_count": "slg_by_pitch_count",
-        "batting_splits_pitch_speed": "slg_by_pitch_speed",
+        "batting_splits_pitch_speed": "slg_by_release_speed",
         "batting_splits_game_score_situation": "slg_by_game_score_situation",
         "batting_splits_zone": "slg_by_zone",
         "batting_splits_monthly": "slugging_percentage"
@@ -261,7 +261,7 @@ METRIC_MAP = {
         "batting_splits_pitcher_throws": "ops_by_p_throws",
         "batting_splits_pitch_type": "ops_by_pitch_type",
         "batting_splits_pitch_count": "ops_by_pitch_count",
-        "batting_splits_pitch_speed": "ops_by_pitch_speed",
+        "batting_splits_pitch_speed": "ops_by_release_speed",
         "batting_splits_game_score_situation": "ops_by_game_score_situation",
         "batting_splits_zone": "ops_by_zone",
         "batting_splits_monthly": "on_base_plus_slugging"
@@ -281,7 +281,7 @@ METRIC_MAP = {
         "batting_splits_pitcher_throws": "ab_by_p_throws",
         "batting_splits_pitch_type": "ab_by_pitch_type",
         "batting_splits_pitch_count": "ab_by_pitch_count",
-        "batting_splits_pitch_speed": "ab_by_pitch_speed",
+        "batting_splits_pitch_speed": "ab_by_release_speed",
         "batting_splits_game_score_situation": "ab_by_game_score_situation",
         "batting_splits_zone": "ab_by_zone",
         "batting_splits_monthly": "at_bats"
@@ -321,7 +321,7 @@ METRIC_MAP = {
         "batting_splits_pitcher_throws": "so_by_p_throws",
         "batting_splits_pitch_type": "so_by_pitch_type",
         "batting_splits_pitch_count": "so_by_pitch_count",
-        "batting_splits_pitch_speed": "so_by_pitch_speed",
+        "batting_splits_pitch_speed": "so_by_release_speed",
         "batting_splits_game_score_situation": "so_by_game_score_situation",
         "batting_splits_zone": "so_by_zone"
     },
