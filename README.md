@@ -23,6 +23,7 @@ An AI-powered analytics interface for exploring Major League Baseball statistics
 - **Case-insensitive Search**: Flexible player name matching
 - **Dark Theme UI**: Modern, responsive interface optimized for extended use
 - **Secure Access**: Password-protected interface for authorized users
+- **SQL Injection Protection**: Multi-layered security with input validation and parameterized queries
 
 ## 🏗 Architecture
 
@@ -38,6 +39,7 @@ The application follows a sophisticated 4-step pipeline:
    - Maps extracted parameters to BigQuery table schemas via `query_maps.py`
    - Handles multiple query types: `season_batting`, `season_pitching`, `batting_splits`
    - Supports situational splits (RISP, bases loaded, inning-specific, etc.)
+   - **Security**: Uses parameterized queries to prevent SQL injection attacks
 
 3. **📊 BigQuery Data Retrieval**
    - Executes generated SQL against MLB statistics tables in GCP project `your-project-id`
@@ -307,13 +309,40 @@ git push → Cloud Build Trigger → cloudbuild.yaml execution
 - Docker images are built and deployed after infrastructure updates
 - Secrets are managed outside Terraform for security
 
+### Security
+
+The application implements multiple layers of security to protect against SQL injection and other attacks:
+
+**Security Measures:**
+1. **Input Validation** (`_validate_query_params`):
+   - Validates all LLM-generated parameters before SQL generation
+   - Checks for SQL keywords (SELECT, UNION, DROP, etc.)
+   - Enforces character whitelists for player names
+   - Validates data types, ranges, and formats
+   - Rejects malicious patterns (e.g., `' OR '1'='1`)
+
+2. **Parameterized Queries**:
+   - All user inputs are passed as BigQuery query parameters
+   - SQL structure is separated from data values
+   - Prevents injection attacks at the database level
+   - Uses placeholders (e.g., `@player_name`) instead of string concatenation
+
+3. **Whitelist-based ORDER BY**:
+   - ORDER BY clauses use only pre-defined columns from `METRIC_MAP`
+   - Direct user input never used in ORDER BY clauses
+
+**Test Coverage:**
+- `test_security.py`: SQL injection attack patterns and input validation
+- Tests validate both blocking malicious inputs and allowing legitimate ones
+
 ### Testing
 
 The project includes comprehensive unit tests for critical business logic:
 
-**Test Coverage (49 tests):**
+**Test Coverage (62 tests):**
 - `test_query_maps.py` (21 tests): Configuration validation and data structure integrity
 - `test_build_dynamic_sql.py` (28 tests): SQL generation logic for all query types
+- `test_security.py` (13 tests): SQL injection prevention and input validation
 
 **Run tests locally:**
 ```bash
