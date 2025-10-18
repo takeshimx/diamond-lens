@@ -13,36 +13,39 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from backend.app.services.ai_service import _build_dynamic_sql
+try:
+    from app.services.ai_service import _build_dynamic_sql
+except ImportError:
+    from backend.app.services.ai_service import _build_dynamic_sql
 
 
 class TestBuildDynamicSQLBasics:
     """基本的なSQL生成を検証"""
 
     def test_returns_none_when_query_type_missing(self):
-        """query_typeがない場合はNoneを返すことを検証"""
+        """query_typeがない場合は(None, {})を返すことを検証"""
         params = {
             "metrics": ["homerun"]
         }
         result = _build_dynamic_sql(params)
-        assert result is None
+        assert result == (None, {})
 
     def test_returns_none_when_metrics_missing(self):
-        """metricsがない場合はNoneを返すことを検証"""
+        """metricsがない場合は(None, {})を返すことを検証"""
         params = {
             "query_type": "season_batting"
         }
         result = _build_dynamic_sql(params)
-        assert result is None
+        assert result == (None, {})
 
     def test_returns_none_when_invalid_query_type(self):
-        """無効なquery_typeの場合はNoneを返すことを検証"""
+        """無効なquery_typeの場合は(None, {})を返すことを検証"""
         params = {
             "query_type": "invalid_type",
             "metrics": ["homerun"]
         }
         result = _build_dynamic_sql(params)
-        assert result is None
+        assert result == (None, {})
 
 
 class TestSeasonBattingSQL:
@@ -56,15 +59,17 @@ class TestSeasonBattingSQL:
             "name": "Shohei Ohtani",
             "season": 2024
         }
-        sql = _build_dynamic_sql(params)
+        sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
         assert "SELECT" in sql
         assert "FROM" in sql
         assert "fact_batting_stats_with_risp" in sql
-        assert "Shohei Ohtani" in sql
-        assert "2024" in sql
+        assert "@player_name" in sql  # パラメータ化
+        assert "@season" in sql  # パラメータ化
         assert "hr" in sql  # homerun -> hr mapping
+        assert sql_params["player_name"] == "Shohei Ohtani"
+        assert sql_params["season"] == 2024
 
     def test_multiple_metrics_season_batting(self):
         """複数メトリクスの打撃成績クエリを検証"""
@@ -74,13 +79,14 @@ class TestSeasonBattingSQL:
             "name": "Aaron Judge",
             "season": 2023
         }
-        sql = _build_dynamic_sql(params)
+        sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
         assert "hr" in sql
         assert "avg" in sql
         assert "obp" in sql
-        assert "Aaron Judge" in sql
+        assert "@player_name" in sql
+        assert sql_params["player_name"] == "Aaron Judge"
 
     def test_main_stats_keyword_season_batting(self):
         """main_statsキーワードが主要統計に展開されることを検証"""
@@ -90,7 +96,7 @@ class TestSeasonBattingSQL:
             "name": "Shohei Ohtani",
             "season": 2024
         }
-        sql = _build_dynamic_sql(params)
+        sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
         # MAIN_BATTING_STATS に含まれる主要メトリクスが含まれているはず
@@ -105,7 +111,7 @@ class TestSeasonBattingSQL:
             "order_by": "homerun",
             "season": 2024
         }
-        sql = _build_dynamic_sql(params)
+        sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
         assert "ORDER BY" in sql
@@ -120,10 +126,11 @@ class TestSeasonBattingSQL:
             "season": 2024,
             "limit": 10
         }
-        sql = _build_dynamic_sql(params)
+        sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
-        assert "LIMIT 10" in sql
+        assert "LIMIT @limit" in sql
+        assert sql_params["limit"] == 10
 
     def test_no_where_clause_when_no_conditions(self):
         """条件がない場合、WHERE句がないことを検証"""
@@ -131,7 +138,7 @@ class TestSeasonBattingSQL:
             "query_type": "season_batting",
             "metrics": ["homerun"]
         }
-        sql = _build_dynamic_sql(params)
+        sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
         # WHERE句がない、またはWHERE後に何もない
@@ -149,13 +156,14 @@ class TestSeasonPitchingSQL:
             "name": "Shohei Ohtani",
             "season": 2023
         }
-        sql = _build_dynamic_sql(params)
+        sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
         assert "fact_pitching_stats" in sql
         assert "era" in sql
         assert "whip" in sql
-        assert "Shohei Ohtani" in sql
+        assert "@player_name" in sql
+        assert sql_params["player_name"] == "Shohei Ohtani"
 
     def test_pitching_order_by_ascending(self):
         """投手成績で昇順（ERA等）のORDER BYを検証"""
@@ -165,7 +173,7 @@ class TestSeasonPitchingSQL:
             "order_by": "era",
             "season": 2024
         }
-        sql = _build_dynamic_sql(params)
+        sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
         assert "ORDER BY" in sql
@@ -180,7 +188,7 @@ class TestSeasonPitchingSQL:
             "name": "Shohei Ohtani",
             "season": 2023
         }
-        sql = _build_dynamic_sql(params)
+        sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
         # MAIN_PITCHING_STATS に含まれる主要メトリクス
@@ -198,12 +206,12 @@ class TestCareerBattingSQL:
             "metrics": ["homerun", "batting_average"],
             "name": "Mike Trout"
         }
-        sql = _build_dynamic_sql(params)
+        sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
         assert "tbl_batter_career_stats_master" in sql
-        assert "Mike Trout" in sql
-        # キャリア統計なのでseasonの指定はない
+        assert "@player_name" in sql
+        assert sql_params["player_name"] == "Mike Trout"
         assert "WHERE" in sql
 
     def test_career_batting_special_column_mapping(self):
@@ -213,7 +221,7 @@ class TestCareerBattingSQL:
             "metrics": ["homerun"],
             "name": "Aaron Judge"
         }
-        sql = _build_dynamic_sql(params)
+        sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
         # career_batting の homerun は career_homeruns にマップされる
@@ -232,13 +240,14 @@ class TestBattingSplitsSQL:
             "name": "Mookie Betts",
             "season": 2024
         }
-        sql = _build_dynamic_sql(params)
+        sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
         assert "tbl_batter_clutch_risp" in sql
         assert "avg_at_risp" in sql
         assert "homeruns_at_risp" in sql
-        assert "Mookie Betts" in sql
+        assert "@player_name" in sql
+        assert sql_params["player_name"] == "Mookie Betts"
 
     def test_bases_loaded_batting_splits(self):
         """満塁打撃スプリットのSQL生成を検証"""
@@ -249,7 +258,7 @@ class TestBattingSplitsSQL:
             "name": "Freddie Freeman",
             "season": 2024
         }
-        sql = _build_dynamic_sql(params)
+        sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
         assert "tbl_batter_clutch_bases_loaded" in sql
@@ -265,11 +274,12 @@ class TestBattingSplitsSQL:
             "season": 2024,
             "inning": 7
         }
-        sql = _build_dynamic_sql(params)
+        sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
         assert "tbl_batter_inning_stats" in sql
-        assert "inning = 7" in sql
+        assert "@inning" in sql
+        assert sql_params["inning"] == 7
 
     def test_pitcher_throws_batting_splits(self):
         """投手投げ方別打撃スプリットのSQL生成を検証"""
@@ -281,11 +291,12 @@ class TestBattingSplitsSQL:
             "season": 2024,
             "pitcher_throws": "LHP"
         }
-        sql = _build_dynamic_sql(params)
+        sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
         assert "tbl_batter_pitcher_throws_stats" in sql
-        assert "p_throws = 'LHP'" in sql
+        assert "@pitcher_throws" in sql
+        assert sql_params["pitcher_throws"] == "LHP"
 
     def test_pitch_type_single_batting_splits(self):
         """単一球種別打撃スプリットのSQL生成を検証"""
@@ -297,7 +308,7 @@ class TestBattingSplitsSQL:
             "season": 2024,
             "pitch_type": ["Fastball"]
         }
-        sql = _build_dynamic_sql(params)
+        sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
         assert "tbl_batter_pitch_type_stats" in sql
@@ -313,12 +324,12 @@ class TestBattingSplitsSQL:
             "season": 2024,
             "pitch_type": ["Fastball", "Slider", "Curveball"]
         }
-        sql = _build_dynamic_sql(params)
+        sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
         assert "pitch_name IN" in sql
-        assert "Fastball" in sql
-        assert "Slider" in sql
+        assert "@pitch_types" in sql
+        assert sql_params["pitch_types"] == ["Fastball", "Slider", "Curveball"]
         assert "GROUP BY" in sql  # 複数球種の場合はGROUP BYが必要
 
     def test_monthly_batting_splits(self):
@@ -330,7 +341,7 @@ class TestBattingSplitsSQL:
             "name": "Shohei Ohtani",
             "season": 2024
         }
-        sql = _build_dynamic_sql(params)
+        sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
         assert "tbl_batter_offensive_stats_monthly" in sql
@@ -349,7 +360,7 @@ class TestSQLStructure:
             "name": "Shohei Ohtani",
             "season": 2024
         }
-        sql = _build_dynamic_sql(params)
+        sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
         assert sql.startswith("SELECT")
@@ -363,7 +374,7 @@ class TestSQLStructure:
             "metrics": ["homerun"],
             "season": 2024
         }
-        sql = _build_dynamic_sql(params)
+        sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
         # BigQueryの完全修飾テーブル名フォーマット: `project.dataset.table`
@@ -372,17 +383,18 @@ class TestSQLStructure:
         assert "fact_batting_stats_with_risp" in sql
 
     def test_name_parameter_uses_proper_quoting(self):
-        """選手名が適切にクォートされていることを検証（SQLインジェクション対策）"""
+        """選手名が適切にパラメータ化されていることを検証（SQLインジェクション対策）"""
         params = {
             "query_type": "season_batting",
             "metrics": ["homerun"],
             "name": "Test Player",
             "season": 2024
         }
-        sql = _build_dynamic_sql(params)
+        sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
-        assert "'Test Player'" in sql  # シングルクォートで囲まれている
+        assert "@player_name" in sql  # パラメータ化されている
+        assert sql_params["player_name"] == "Test Player"
 
     def test_metric_deduplication(self):
         """重複メトリクスが除去されることを検証"""
@@ -391,7 +403,7 @@ class TestSQLStructure:
             "metrics": ["homerun", "homerun", "batting_average"],
             "season": 2024
         }
-        sql = _build_dynamic_sql(params)
+        sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
         # hrが一度だけ出現（SELECT句内）
@@ -405,7 +417,7 @@ class TestEdgeCases:
         """空のパラメータでNoneを返すことを検証"""
         params = {}
         result = _build_dynamic_sql(params)
-        assert result is None
+        assert result == (None, {})
 
     def test_none_metrics_filtered_out(self):
         """METRIC_MAPにないメトリクスがフィルタリングされることを検証"""
@@ -414,7 +426,7 @@ class TestEdgeCases:
             "metrics": ["homerun", "invalid_metric_xyz"],
             "season": 2024
         }
-        sql = _build_dynamic_sql(params)
+        sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
         # invalid_metric_xyzは無視される
@@ -429,7 +441,7 @@ class TestEdgeCases:
             "season": 2024
         }
         result = _build_dynamic_sql(params)
-        assert result is None
+        assert result == (None, {})
 
 
 if __name__ == "__main__":
