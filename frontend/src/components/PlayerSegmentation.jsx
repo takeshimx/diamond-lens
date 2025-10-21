@@ -9,6 +9,12 @@ const PlayerSegmentation = () => {
 
   // Backend URL detection
   const getBackendUrl = () => {
+    // Cloud Run environment detection
+    if (window.location.hostname.includes('run.app')) {
+      return 'https://mlb-diamond-lens-api-907924272679.asia-northeast1.run.app';
+    }
+    
+    // GitHub Codespaces environment detection
     const currentUrl = window.location.href;
     if (currentUrl.includes('app.github.dev')) {
       return currentUrl.replace('-5173.app.github.dev', '-8000.app.github.dev').split('?')[0];
