@@ -3,6 +3,7 @@ import { Send, TrendingUp, User, Bot, Activity, MessageCircle, Zap, Settings } f
 import SimpleChatChart from './components/ChatChart.jsx';
 import QuickQuestions from './components/QuickQuestions.jsx';
 import CustomQueryBuilder from './components/CustomQueryBuilder.jsx';
+import StatisticalAnalysis from './components/StatisticalAnalysis.jsx';
 
 // Force dark mode on app load
 const initializeDarkMode = () => {
@@ -44,7 +45,7 @@ const MLBChatApp = () => {
   const [isCheckingAuth, setIsCheckingAuth] = useState(false);
 
   // UIモード管理のstate
-  const [uiMode, setUiMode] = useState('chat'); // 'chat', 'quick', または 'custom'
+  const [uiMode, setUiMode] = useState('chat'); // 'chat', 'quick', 'custom', または 'statistics'
   
   // Quick Questions result state
   const [quickResult, setQuickResult] = useState(null);
@@ -2281,6 +2282,7 @@ const MLBChatApp = () => {
                     {uiMode === 'chat' && 'MLBの統計データについて質問してください'}
                     {uiMode === 'quick' && 'よく使われる質問をワンクリックで実行'}
                     {uiMode === 'custom' && 'カスタムクエリを作成して詳細な分析を実行'}
+                    {uiMode === 'statistics' && '統計分析モデルを使用してチームの勝率を予測'}
                   </p>
                 </div>
               </div>
@@ -2324,13 +2326,28 @@ const MLBChatApp = () => {
                     // Keep custom result when switching to custom mode
                   }}
                   className={`px-4 py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center sm:justify-start gap-2 min-w-0 w-full sm:w-auto ${
-                    uiMode === 'custom' 
-                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' 
+                    uiMode === 'custom'
+                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
                       : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
                   }`}
                 >
                   <Settings className="w-4 h-4 flex-shrink-0" />
                   <span className="truncate">カスタムクエリ</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setUiMode('statistics');
+                    setQuickResult(null);
+                    setCustomResult(null);
+                  }}
+                  className={`px-4 py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center sm:justify-start gap-2 min-w-0 w-full sm:w-auto ${
+                    uiMode === 'statistics'
+                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Activity className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate">統計分析</span>
                 </button>
               </div>
             </div>
@@ -2450,10 +2467,15 @@ const MLBChatApp = () => {
               onClearResult={() => setQuickResult(null)}
             />
           </div>
+        ) : uiMode === 'statistics' ? (
+          /* ===== 統計分析エリア ===== */
+          <div className="px-4 sm:px-6 py-6 sm:py-8 h-full">
+            <StatisticalAnalysis />
+          </div>
         ) : (
           /* ===== カスタムクエリビルダーエリア ===== */
           <div className="px-4 sm:px-6 py-6 sm:py-8 h-full">
-            <CustomQueryBuilder 
+            <CustomQueryBuilder
               isLoading={isLoading}
               onExecuteQuery={handleCustomQuery}
               customResult={customResult}
