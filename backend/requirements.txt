@@ -5,3 +5,6 @@ dotenv
 google-cloud-bigquery
 google-cloud-storage
 google-cloud-monitoring
+scikit-learn
+pandas
+numpy
