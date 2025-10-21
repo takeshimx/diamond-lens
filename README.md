@@ -46,6 +46,44 @@ An AI-powered analytics interface for exploring Major League Baseball statistics
 - `analysis/hypothesis_testing.ipynb` - Statistical hypothesis testing with visualizations
 - `analysis/regression_analysis.ipynb` - Multivariate regression with VIF analysis
 
+### 3. Player Segmentation Analysis (Full Stack)
+**Status**: ✅ Production-ready with frontend UI
+
+**Capabilities**:
+- **🎯 K-means Clustering**: Automated player type classification using unsupervised learning
+- **Multi-dimensional Analysis**: Segment players based on 4-6 performance metrics
+- **Interactive Visualization**: Scatter plots with cluster-based color coding
+- **Cluster Profiling**: Statistical summaries for each player segment
+
+**Frontend Features**:
+- **Player Type Toggle**: Switch between Batter and Pitcher analysis
+- **Scatter Plot Visualization**:
+  - Batters: OPS vs ISO with 4 clusters (Superstar Sluggers, Elite Contact Hitters, Solid Regulars, Struggling)
+  - Pitchers: ERA vs K/9 with 4 clusters (Strikeout Dominant, Elite Balanced, Mid-Tier, Struggling)
+- **Interactive Tooltips**: Player name, team, and key statistics on hover
+- **Cluster Summary Table**: Average metrics and player count per segment
+
+**Clustering Features**:
+- **Batter Segmentation**: OPS, ISO, K%, BB% (n=4 clusters)
+- **Pitcher Segmentation**: ERA, K/9, BB/9, HR/9, WHIP, GB% (n=4 clusters)
+- **Standardization**: Feature scaling for optimal clustering performance
+- **VIF Analysis**: Multicollinearity detection to ensure meaningful clusters
+
+**API Endpoints**:
+- `GET /api/v1/segmentation/batters` - Get batter segmentation with K-means clustering
+- `GET /api/v1/segmentation/pitchers` - Get pitcher segmentation with K-means clustering
+
+**Technologies**: React, Recharts, scikit-learn, pandas, FastAPI
+
+**Analysis Notebooks**:
+- `analysis/player_segmentation.ipynb` - K-means clustering analysis with visualizations
+
+**Business Applications**:
+- **Roster Construction**: Identify player archetypes for targeted acquisitions
+- **Platoon Optimization**: Match player types to game situations
+- **Trade Analysis**: Evaluate fit within team composition
+- **Scouting Efficiency**: Categorize prospects by performance profile
+
 ### Technical Features
 - **AI-Powered Processing**: Uses Gemini 2.5 Flash for query parsing and response generation
 - **Real-time Interface**: Interactive experience with loading states and live updates

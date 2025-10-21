@@ -5,6 +5,7 @@ from .statcast_endpoints import router as statcast_router
 from .performance_analytics_endpoints import router as performance_router
 from .ai_analytics_endpoints import router as ai_router
 from .statistics_endpoints import router as statistics_router
+from .segmentation_endpoints import router as segmentation_router
 
 # メインのAPIルーターを作成
 api_router = APIRouter()
@@ -16,3 +17,4 @@ api_router.include_router(statcast_router)
 api_router.include_router(performance_router)
 api_router.include_router(ai_router)
 api_router.include_router(statistics_router)
+api_router.include_router(segmentation_router)
