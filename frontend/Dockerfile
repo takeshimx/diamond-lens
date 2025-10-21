@@ -18,6 +18,10 @@ RUN npm run build
 
 # Nginxでホスト
 FROM nginx:alpine
+
+# Update Alpine packages to fix security vulnerabilities (including pcre2)
+RUN apk upgrade --no-cache
+
 COPY --from=build /app/dist /usr/share/nginx/html
 
 # Nginxの設定（SPA用）
