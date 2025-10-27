@@ -1,0 +1,42 @@
+sequenceDiagram
+    participant Scheduler as Cloud Scheduler
+    participant Workflows as Cloud Workflows
+    participant ETL as ETL Service
+    participant BQ as BigQuery
+    participant dbt as dbt (Cloud Build)
+    participant Backend as Backend API
+    participant Frontend as Frontend
+    participant Discord as Discord
+
+    Note over Scheduler: Sunday 6:00 AM JST
+    Scheduler->>Workflows: Trigger mlb-pipeline
+
+    activate Workflows
+    Workflows->>ETL: POST /trigger
+    activate ETL
+    ETL->>BQ: INSERT INTO mlb_raw_data.*
+    ETL-->>Workflows: 200 OK
+    deactivate ETL
+
+    Workflows->>dbt: Trigger Cloud Build
+    activate dbt
+    dbt->>BQ: CREATE OR REPLACE VIEW stg_*
+    dbt->>BQ: INSERT INTO fact_* (incremental)
+    dbt->>BQ: CREATE OR REPLACE TABLE tbl_*
+    dbt->>dbt: Run 18 data quality tests
+    dbt-->>Workflows: Build SUCCESS
+    deactivate dbt
+
+    Workflows->>Backend: POST /api/refresh
+    activate Backend
+    Backend->>BQ: SELECT * FROM tbl_batter_clutch_*
+    Backend-->>Workflows: Cache refreshed
+    deactivate Backend
+
+    Workflows->>Frontend: POST /api/cache/clear
+    activate Frontend
+    Frontend-->>Workflows: Cache cleared
+    deactivate Frontend
+
+    Workflows->>Discord: Success notification
+    deactivate Workflows

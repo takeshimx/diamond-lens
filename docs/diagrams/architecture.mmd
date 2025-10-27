@@ -1,0 +1,70 @@
+graph LR
+    subgraph Sources["External Data Sources"]
+        MLB[MLB Stats API]
+        Statcast[Statcast Data API]
+    end
+
+    subgraph AI["AI Services"]
+        Gemini[Gemini 2.5 Flash API<br/>Query Parsing<br/>Response Generation<br/>JP ↔ EN Translation]
+    end
+
+    subgraph ETLLayer["ETL Layer"]
+        ETL[mlb-analytics-etl-service-v2<br/>Python Flask<br/>Weekly extraction]
+    end
+
+    subgraph DWH["Data Warehouse - BigQuery"]
+        RawData[(Raw Data<br/>statcast_*<br/>dim_players<br/>fact_*_staging)]
+    end
+
+    subgraph Transform["Transformation Layer - dbt"]
+        direction TB
+        Staging[Staging<br/>Views]
+        Intermediate[Intermediate<br/>Views]
+        Core[Core<br/>Incremental]
+        Marts[Marts<br/>Tables]
+        Staging --> Intermediate
+        Staging --> Core
+        Intermediate --> Marts
+        Core --> Marts
+    end
+
+    subgraph AppLayer["Application Layer"]
+        Backend[Backend API<br/>FastAPI + LLM Integration<br/>NL → SQL → NL Pipeline]
+        Frontend[Frontend<br/>React + Vite<br/>Chat Interface]
+        Backend --> Frontend
+    end
+
+    subgraph Orchestration["Orchestration"]
+        direction TB
+        Scheduler[Cloud Scheduler<br/>Weekly: Sun 6AM JST]
+        Workflows[Cloud Workflows<br/>mlb-pipeline]
+        Scheduler --> Workflows
+    end
+
+    subgraph Monitoring["Monitoring & Alerts"]
+        direction TB
+        CloudMonitoring[Cloud Monitoring<br/>Metrics & Dashboards]
+        Discord[Discord Webhook<br/>Notifications]
+    end
+
+    Sources --> ETLLayer
+    ETLLayer --> DWH
+    DWH --> Transform
+    Transform --> Marts
+    Marts -->|Query Analytics Tables| Backend
+    Frontend -->|Japanese Query| Backend
+    Backend <-->|Parse & Generate| Gemini
+    Backend -->|Dynamic SQL| Marts
+    Orchestration -.-> ETLLayer
+    Orchestration -.-> Transform
+    Orchestration -.-> Discord
+    AppLayer --> CloudMonitoring
+
+    style ETL fill:#4285f4,color:#fff
+    style Backend fill:#4285f4,color:#fff
+    style Frontend fill:#4285f4,color:#fff
+    style RawData fill:#34a853,color:#fff
+    style Marts fill:#34a853,color:#fff
+    style Workflows fill:#fbbc04,color:#000
+    style CloudMonitoring fill:#ea4335,color:#fff
+    style Gemini fill:#ea4335,color:#fff
