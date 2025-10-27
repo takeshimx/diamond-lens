@@ -40,3 +40,7 @@ profiles.yml
 .user.yml
 
 backend/docs/
+analysis/__pycache__/
+analysis/*.pyc
+analysis/.ipynb_checkpoints/
+analysis/queries
