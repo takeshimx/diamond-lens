@@ -1,6 +1,10 @@
 import pandas as pd
 import numpy as np
 from google.cloud import bigquery
+from backend.app.config.settings import get_settings
+
+
+settings = get_settings()
 
 
 class PitcherFatigueService:
@@ -18,7 +22,7 @@ class PitcherFatigueService:
         query = f"""
         WITH pitcher_games AS (
             SELECT DISTINCT game_pk, pitcher_id
-            FROM `tksm-dash-test-25.mlb_analytics_dash_25.view_pitching_counts_by_inning_2025`
+            FROM `{settings.get_table_full_name('view_pitching_counts_by_inning_2025')}`
             WHERE pitcher_name = '{pitcher_name}'
         )
         SELECT
@@ -33,16 +37,16 @@ class PitcherFatigueService:
             quality.avg_spin_rate as fastball_spin,
             AVG(perf.ops_against) as ops_against,
             AVG(perf.batting_average_against) as batting_average_against
-        FROM `tksm-dash-test-25.mlb_analytics_dash_25.view_pitching_counts_by_inning_2025` as counts
+        FROM `{settings.get_table_full_name('view_pitching_counts_by_inning_2025')}` as counts
         INNER JOIN pitcher_games pg
             ON counts.game_pk = pg.game_pk
             AND counts.pitcher_id = pg.pitcher_id
-        LEFT JOIN `tksm-dash-test-25.mlb_analytics_dash_25.view_pitch_type_quality_by_inning_2025` as quality
+        LEFT JOIN `{settings.get_table_full_name('view_pitch_type_quality_by_inning_2025')}` as quality
             ON counts.pitcher_id = quality.pitcher_id
             AND counts.game_pk = quality.game_pk
             AND counts.inning = quality.inning
             AND quality.pitch_name IN ('4-Seam Fastball', 'Fastball')
-        LEFT JOIN `tksm-dash-test-25.mlb_analytics_dash_25.tbl_pitching_performance_by_inning` as perf
+        LEFT JOIN `{settings.get_table_full_name('tbl_pitching_performance_by_inning')}` as perf
             ON counts.pitcher_id = perf.pitcher_id
             AND counts.inning = perf.inning
             AND perf.game_year = {season}
@@ -61,7 +65,7 @@ class PitcherFatigueService:
                 # 投手名の存在確認
                 check_query = f"""
                 SELECT DISTINCT pitcher_name
-                FROM `tksm-dash-test-25.mlb_analytics_dash_25.tbl_pitching_performance_by_inning`
+                FROM `{settings.get_table_full_name('tbl_pitching_performance_by_inning')}`
                 WHERE game_year = {season}
                 AND pitcher_name LIKE '%{pitcher_name.split()[0]}%'
                 LIMIT 10
@@ -152,13 +156,13 @@ class PitcherFatigueService:
             counts.strike_rate,
             quality.avg_release_speed as fastball_speed,
             perf.ops_against
-        FROM `tksm-dash-test-25.mlb_analytics_dash_25.view_pitching_counts_by_inning_2025` as counts
-        LEFT JOIN `tksm-dash-test-25.mlb_analytics_dash_25.view_pitch_type_quality_by_inning_2025` as quality
+        FROM `{settings.get_table_full_name('view_pitching_counts_by_inning_2025')}` as counts
+        LEFT JOIN `{settings.get_table_full_name('view_pitch_type_quality_by_inning_2025')}` as quality
             ON counts.pitcher_id = quality.pitcher_id
             AND counts.game_pk = quality.game_pk
             AND counts.inning = quality.inning
             AND quality.pitch_name IN ('4-Seam Fastball', 'Fastball')
-        LEFT JOIN `tksm-dash-test-25.mlb_analytics_dash_25.tbl_pitching_performance_by_inning` as perf
+        LEFT JOIN `{settings.get_table_full_name('tbl_pitching_performance_by_inning')}` as perf
             ON counts.pitcher_id = perf.pitcher_id
             AND counts.inning = perf.inning
             AND perf.game_year = {season}

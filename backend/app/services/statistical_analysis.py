@@ -2,6 +2,11 @@ from typing import Dict, List, Optional
 from google.cloud import bigquery
 import pandas as pd
 import numpy as np
+from backend.app.config.settings import get_settings
+
+
+settings = get_settings()
+
 
 class StatisticalAnalysisService:
     """Service for performing statistical analysis on baseball data."""
@@ -35,7 +40,7 @@ class StatisticalAnalysisService:
             predicted_winrate,
             ROUND(predicted_winrate * 162, 0) AS expected_wins_per_season
         FROM ML.PREDICT(
-            MODEL `tksm-dash-test-25.mlb_analytics_dash_25.predict_winrate_from_ops_multivariate`,
+            MODEL `{settings.get_table_full_name('predict_winrate_from_ops_multivariate')}`,
             (SELECT
                 {team_ops} AS ops,
                 {team_era} AS era,
@@ -50,13 +55,13 @@ class StatisticalAnalysisService:
             expected_wins = result['expected_wins_per_season'].values[0]
 
             # Get model evaluation metrics
-            eval_query = """
+            eval_query = f"""
             SELECT
                 r2_score,
                 mean_squared_error,
                 mean_absolute_error
             FROM ML.EVALUATE(
-                MODEL `tksm-dash-test-25.mlb_analytics_dash_25.predict_winrate_from_ops_multivariate`
+                MODEL `{settings.get_table_full_name('predict_winrate_from_ops_multivariate')}`
             )
             """
             eval_result = self.client.query(eval_query).to_dataframe()
@@ -136,7 +141,7 @@ class StatisticalAnalysisService:
             predicted_winrate,
             ROUND(predicted_winrate * 162, 0) as expected_wins
         FROM ML.PREDICT(
-            MODEL `tksm-dash-test-25.mlb_analytics_dash_25.predict_winrate_from_ops_multivariate`,
+            MODEL `{settings.get_table_full_name('predict_winrate_from_ops_multivariate')}`,
             ({ops_values})
         )
         ORDER BY input_ops
@@ -163,35 +168,35 @@ class StatisticalAnalysisService:
         """
 
         # Model evaluation metrics
-        eval_query = """
+        eval_query = f"""
         SELECT
             r2_score,
             mean_squared_error,
             mean_absolute_error
         FROM ML.EVALUATE(
-            MODEL `tksm-dash-test-25.mlb_analytics_dash_25.predict_winrate_from_ops_multivariate`
+            MODEL `{settings.get_table_full_name('predict_winrate_from_ops_multivariate')}`
         )
         """
         eval_result = self.client.query(eval_query).to_dataframe()
 
         # Regression coefficients
-        weights_query = """
+        weights_query = f"""
         SELECT
             processed_input,
             weight
         FROM ML.WEIGHTS(
-            MODEL `tksm-dash-test-25.mlb_analytics_dash_25.predict_winrate_from_ops_multivariate`
+            MODEL `{settings.get_table_full_name('predict_winrate_from_ops_multivariate')}`
         )
         WHERE processed_input != '__INTERCEPT__'
         """
         weights_result = self.client.query(weights_query).to_dataframe()
 
         # Intercept
-        intercept_query = """
+        intercept_query = f"""
         SELECT
             weight AS intercept
         FROM ML.WEIGHTS(
-            MODEL `tksm-dash-test-25.mlb_analytics_dash_25.predict_winrate_from_ops_multivariate`
+            MODEL `{settings.get_table_full_name('predict_winrate_from_ops_multivariate')}`
         )
         WHERE processed_input = '__INTERCEPT__'
         """

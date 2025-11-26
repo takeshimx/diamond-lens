@@ -3,6 +3,10 @@ from google.cloud import bigquery
 import pandas as pd
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
+from backend.app.config.settings import get_settings
+
+
+settings = get_settings()
 
 
 class PlayerSegmentationService:
@@ -38,7 +42,7 @@ class PlayerSegmentationService:
         Returns:
             Dict: A dictionary containing the batter segmentation results.
         """
-        query = """
+        query = f"""
         SELECT
             season,
             name,
@@ -49,13 +53,11 @@ class PlayerSegmentationService:
             (100 * bb / pa) AS bb_rate,
             pa,
             ab
-        FROM `tksm-dash-test-25.mlb_analytics_dash_25.fact_batting_stats_with_risp`
+        FROM `{settings.get_table_full_name('fact_batting_stats_with_risp')}`
         WHERE season = {season}
             AND pa >= {min_pa}
         ORDER BY ops DESC
         """
-
-        query = query.format(season=season, min_pa=min_pa)
 
         try:
             df = self.client.query(query).to_dataframe()
@@ -117,7 +119,7 @@ class PlayerSegmentationService:
         Returns:
             Dict: A dictionary containing the pitcher segmentation results.
         """
-        query = """
+        query = f"""
         SELECT
             season,
             name,
@@ -132,13 +134,11 @@ class PlayerSegmentationService:
             fbpct,
             ip,
             gs
-        FROM `tksm-dash-test-25.mlb_analytics_dash_25.fact_pitching_stats_master`
+        FROM `{settings.get_table_full_name('fact_pitching_stats_master')}`
         WHERE season = {season}
             AND gs > 0 AND ip > {min_ip} -- only starting pitchers
         ORDER BY era ASC
         """
-
-        query = query.format(season=season, min_ip=min_ip)
 
         try:
             df = self.client.query(query).to_dataframe()

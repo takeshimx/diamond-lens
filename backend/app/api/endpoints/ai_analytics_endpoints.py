@@ -1,7 +1,10 @@
 from fastapi import APIRouter, HTTPException, Path, Query
 from typing import Optional, List, Any, Dict
 # サービス層とスキーマをインポート
-from backend.app.services.ai_service import get_ai_response_with_simple_chart # For Development, add backend. path
+# from backend.app.services.ai_service import get_ai_response_with_simple_chart # For Development, add backend. path
+# 新しいインポート（テスト用）
+from backend.app.services.ai_service_refactored import get_ai_response_with_simple_chart
+
 from backend.app.api.schemas import QnARequest # For Development, add backend. path
 from backend.app.utils.structured_logger import get_logger
 from backend.app.services.monitoring_service import get_monitoring_service

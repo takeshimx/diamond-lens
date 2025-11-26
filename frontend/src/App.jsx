@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, TrendingUp, User, Bot, Activity, MessageCircle, Zap, Settings, Users, AlertTriangle, Brain } from 'lucide-react';
+import { Send, TrendingUp, User, Bot, Activity, MessageCircle, Zap, Settings, Users, AlertTriangle, Brain, Target } from 'lucide-react';
 import SimpleChatChart from './components/ChatChart.jsx';
 import QuickQuestions from './components/QuickQuestions.jsx';
 import CustomQueryBuilder from './components/CustomQueryBuilder.jsx';
 import StatisticalAnalysis from './components/StatisticalAnalysis.jsx';
 import PlayerSegmentation from './components/PlayerSegmentation.jsx';
 import PitcherFatigue from './components/PitcherFatigue.jsx';
+import PitcherWhiffPredictor from './components/PitcherWhiffPredictor.jsx';
 
 // Force dark mode on app load
 const initializeDarkMode = () => {
@@ -47,7 +48,7 @@ const MLBChatApp = () => {
   const [isCheckingAuth, setIsCheckingAuth] = useState(false);
 
   // UIモード管理のstate
-  const [uiMode, setUiMode] = useState('chat'); // 'chat', 'quick', 'custom', 'statistics', 'segmentation', 'fatigue'
+  const [uiMode, setUiMode] = useState('chat'); // 'chat', 'quick', 'custom', 'statistics', 'segmentation', 'fatigue', 'pitcher-whiff'
   
   // Quick Questions result state
   const [quickResult, setQuickResult] = useState(null);
@@ -2368,7 +2369,8 @@ const MLBChatApp = () => {
                   <span className="truncate">選手分類</span>
                 </button>
 
-                <button
+                {/* 疲労分析 - 一時無効化 */}
+                {/* <button
                   onClick={() => {
                     setUiMode('fatigue');
                     setQuickResult(null);
@@ -2382,7 +2384,24 @@ const MLBChatApp = () => {
                 >
                   <AlertTriangle className="w-4 h-4 flex-shrink-0" />
                   <span className="truncate">疲労分析</span>
-                </button>
+                </button> */}
+
+                {/* Whiff予測 - 実戦価値が限定的なため一時無効化 */}
+                {/* <button
+                  onClick={() => {
+                    setUiMode('pitcher-whiff');
+                    setQuickResult(null);
+                    setCustomResult(null);
+                  }}
+                  className={`px-4 py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center sm:justify-start gap-2 min-w-0 w-full sm:w-auto ${
+                    uiMode === 'pitcher-whiff'
+                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Target className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate">Whiff予測</span>
+                </button> */}
 
               </div>
             </div>
@@ -2516,6 +2535,11 @@ const MLBChatApp = () => {
           /* ===== 投手疲労分析エリア ===== */
           <div className="px-4 sm:px-6 py-6 sm:py-8 h-full">
             <PitcherFatigue />
+          </div>
+        ) : uiMode === 'pitcher-whiff' ? (
+          /* ===== Pitcher Whiff予測エリア ===== */
+          <div className="px-4 sm:px-6 py-6 sm:py-8 h-full">
+            <PitcherWhiffPredictor />
           </div>
         ) : (
           /* ===== カスタムクエリビルダーエリア ===== */
