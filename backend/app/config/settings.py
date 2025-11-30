@@ -2,6 +2,7 @@
 アプリケーション設定の一元管理
 環境変数を型安全に管理し、バリデーションを実施
 """
+from pydantic import Field
 from pydantic_settings import BaseSettings
 from typing import Optional
 from functools import lru_cache
@@ -49,7 +50,7 @@ class Settings(BaseSettings):
     # ============================================================
     # API Keys
     # ============================================================
-    gemini_api_key: str
+    gemini_api_key: str = Field(validation_alias='GEMINI_API_KEY_V2')
 
     # ============================================================
     # アプリケーション設定
@@ -77,9 +78,6 @@ class Settings(BaseSettings):
         env_file = str(Path(__file__).resolve().parent.parent.parent.parent / ".env")
         env_file_encoding = "utf-8"
         case_sensitive = False
-        fields = {
-            'gemini_api_key': {'env': 'GEMINI_API_KEY_V2'}
-        }
     
     def get_table_full_name(self, table_id: str) -> str:
         """
