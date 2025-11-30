@@ -14,7 +14,7 @@ sys.path.insert(0, str(backend_dir))
 import os
 os.environ.setdefault("GCP_PROJECT_ID", "test-project")
 os.environ.setdefault("BIGQUERY_DATASET_ID", "test-dataset")
-os.environ.setdefault("GEMINI_API_KEY", "test-key")
+os.environ.setdefault("GEMINI_API_KEY_V2", "test-key")
 
 # テスト対象の関数をインポート
 from app.services.ai_service import _validate_query_params, _build_dynamic_sql, _build_dynamic_statcast_sql

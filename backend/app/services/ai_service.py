@@ -61,7 +61,7 @@ PROJECT_ID = os.getenv("GCP_PROJECT_ID")
 DATASET_ID = os.getenv("BIGQUERY_DATASET_ID")
 BATTING_STATS_TABLE_ID = os.getenv("BIGQUERY_BATTING_STATS_TABLE_ID", "fact_batting_stats_with_risp")
 PITCHING_STATS_TABLE_ID = os.getenv("BIGQUERY_PITCHING_STATS_TABLE_ID", "fact_pitching_stats")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY_V2")
 
 # Manage Google cloud alient with singleton pattern
 SERVICE_ACCOUNT_KEY_PATH = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
@@ -73,7 +73,7 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
     データベースで検索するためのパラメータをJSON形式で抽出します。
     """
     if not GEMINI_API_KEY:
-        logger.error("GEMINI_API_KEY is not set.")
+        logger.error("GEMINI_API_KEY_V2 is not set.")
         return None
 
     prompt = f"""
@@ -694,7 +694,7 @@ def _generate_final_response_with_llm(original_query: str, data_df: pd.DataFrame
     * ステップ3はBigQueryからデータを取得することです。
     """
     if not GEMINI_API_KEY:
-        logger.error("GEMINI_API_KEY is not set.")
+        logger.error("GEMINI_API_KEY_V2 is not set.")
         return "AIとの通信に失敗しました。"
     
     data_json_str = data_df.to_json(orient='records', indent=2, force_ascii=False)

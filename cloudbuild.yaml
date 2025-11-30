@@ -51,9 +51,9 @@ steps:
       - |
         cd terraform/environments/production
         terraform plan -input=false \
-          -var="notification_email=$$NOTIFICATION_EMAIL" \
+          -var="notification_email=$$NOTIFICATION_EMAIL_V2" \
           -out=tfplan
-    secretEnv: ['NOTIFICATION_EMAIL']
+    secretEnv: ['NOTIFICATION_EMAIL_V2']
 
   - id: 'terraform-apply'
     name: 'hashicorp/terraform:1.5.0'
@@ -90,18 +90,18 @@ steps:
       - 'gcr.io/${PROJECT_ID}/mlb-diamond-lens-api:latest'
 
   # ----------------------------------------------------------------------
-  # 3. Security Scanning (脆弱性スキャン)
+  # 3. Security Scanning (脆弱性スキャン) - DISABLED (課金対策)
   # ----------------------------------------------------------------------
-  - id: 'backend-security-scan'
-    name: 'aquasec/trivy'
-    args:
-      - 'image'
-      - '--exit-code'
-      - '1'
-      - '--severity'
-      - 'HIGH,CRITICAL'
-      - '--ignore-unfixed'
-      - 'gcr.io/${PROJECT_ID}/mlb-diamond-lens-api:latest'
+  # - id: 'backend-security-scan'
+  #   name: 'aquasec/trivy'
+  #   args:
+  #     - 'image'
+  #     - '--exit-code'
+  #     - '1'
+  #     - '--severity'
+  #     - 'HIGH,CRITICAL'
+  #     - '--ignore-unfixed'
+  #     - 'gcr.io/${PROJECT_ID}/mlb-diamond-lens-api:latest'
 
   # _GIT_TAG はGitタグがプッシュされた場合に自動的に設定されます。${_GIT_TAG} はそのタグ名を参照します。
   # それ以外の場合（例: ブランチへのプッシュ）は空になり、エラーになります。
@@ -138,9 +138,9 @@ steps:
       - |
         echo "Building frontend with password from Secret Manager..."
         docker build -t gcr.io/${PROJECT_ID}/mlb-diamond-lens-frontend:latest \
-          --build-arg VITE_APP_PASSWORD="$$VITE_APP_PASSWORD" \
+          --build-arg VITE_APP_PASSWORD="$$VITE_APP_PASSWORD_V2" \
           ./frontend
-    secretEnv: ['VITE_APP_PASSWORD']
+    secretEnv: ['VITE_APP_PASSWORD_V2']
       # --no-cache を追加すると、キャッシュを使わずに常にゼロからビルドします（問題解決に有効）
       # - '--no-cache'
   
@@ -154,18 +154,18 @@ steps:
       - 'gcr.io/${PROJECT_ID}/mlb-diamond-lens-frontend:latest'
 
   # ----------------------------------------------------------------------
-  # 6. Security Scanning (脆弱性スキャン)
+  # 6. Security Scanning (脆弱性スキャン) - DISABLED (課金対策)
   # ----------------------------------------------------------------------
-  - id: 'frontend-security-scan'
-    name: 'aquasec/trivy'
-    args:
-      - 'image'
-      - '--exit-code'
-      - '1'
-      - '--severity'
-      - 'HIGH,CRITICAL'
-      - '--ignore-unfixed'
-      - 'gcr.io/${PROJECT_ID}/mlb-diamond-lens-frontend:latest'
+  # - id: 'frontend-security-scan'
+  #   name: 'aquasec/trivy'
+  #   args:
+  #     - 'image'
+  #     - '--exit-code'
+  #     - '1'
+  #     - '--severity'
+  #     - 'HIGH,CRITICAL'
+  #     - '--ignore-unfixed'
+  #     - 'gcr.io/${PROJECT_ID}/mlb-diamond-lens-frontend:latest'
 
   # ----------------------------------------------------------------------
   # 7. Cloud Runにデプロイ
@@ -190,10 +190,10 @@ steps:
 # Secret Manager から環境変数を取得
 availableSecrets:
   secretManager:
-    - versionName: projects/${PROJECT_ID}/secrets/VITE_APP_PASSWORD/versions/latest
-      env: 'VITE_APP_PASSWORD'
-    - versionName: projects/${PROJECT_ID}/secrets/NOTIFICATION_EMAIL/versions/latest
-      env: 'NOTIFICATION_EMAIL'
+    - versionName: projects/${PROJECT_ID}/secrets/VITE_APP_PASSWORD_V2/versions/latest
+      env: 'VITE_APP_PASSWORD_V2'
+    - versionName: projects/${PROJECT_ID}/secrets/NOTIFICATION_EMAIL_V2/versions/latest
+      env: 'NOTIFICATION_EMAIL_V2'
 
 # トリガー実行時のエラーを回避するため、ログの保存先を明示的に指定
 options:

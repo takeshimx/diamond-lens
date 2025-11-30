@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     api_timeout: int = 30
     enable_debug_mode: bool = False
-    
+
     # ============================================================
     # LLM設定
     # ============================================================
@@ -77,6 +77,9 @@ class Settings(BaseSettings):
         env_file = str(Path(__file__).resolve().parent.parent.parent.parent / ".env")
         env_file_encoding = "utf-8"
         case_sensitive = False
+        fields = {
+            'gemini_api_key': {'env': 'GEMINI_API_KEY_V2'}
+        }
     
     def get_table_full_name(self, table_id: str) -> str:
         """

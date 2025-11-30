@@ -86,7 +86,7 @@ module "backend_cloud_run" {
   }
 
   secrets = {
-    GEMINI_API_KEY = {
+    GEMINI_API_KEY_V2 = {
       secret_name = module.gemini_api_key.secret_id
       version     = "latest"
     }
