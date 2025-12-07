@@ -31,43 +31,43 @@ steps:
   #       export BIGQUERY_DATASET_ID=mlb_analytics_dash_25
   #       python scripts/validate_schema_config.py
 
-  # # ----------------------------------------------------------------------
-  # # STEP 2: Terraform Apply (インフラストラクチャ更新)
-  # # ----------------------------------------------------------------------
-  # - id: 'terraform-init'
-  #   name: 'hashicorp/terraform:1.5.0'
-  #   entrypoint: 'sh'
-  #   args:
-  #     - '-c'
-  #     - |
-  #       cd terraform/environments/production
-  #       terraform init -input=false
+  # ----------------------------------------------------------------------
+  # STEP 2: Terraform Apply (インフラストラクチャ更新)
+  # ----------------------------------------------------------------------
+  - id: 'terraform-init'
+    name: 'hashicorp/terraform:1.5.0'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        cd terraform/environments/production
+        terraform init -input=false
 
-  # - id: 'terraform-plan'
-  #   name: 'hashicorp/terraform:1.5.0'
-  #   entrypoint: 'sh'
-  #   args:
-  #     - '-c'
-  #     - |
-  #       cd terraform/environments/production
-  #       terraform plan -input=false \
-  #         -var="notification_email=$$NOTIFICATION_EMAIL_V2" \
-  #         -out=tfplan
-  #   secretEnv: ['NOTIFICATION_EMAIL_V2']
+  - id: 'terraform-plan'
+    name: 'hashicorp/terraform:1.5.0'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        cd terraform/environments/production
+        terraform plan -input=false \
+          -var="notification_email=$$NOTIFICATION_EMAIL_V2" \
+          -out=tfplan
+    secretEnv: ['NOTIFICATION_EMAIL_V2']
 
-  # - id: 'terraform-apply'
-  #   name: 'hashicorp/terraform:1.5.0'
-  #   entrypoint: 'sh'
-  #   args:
-  #     - '-c'
-  #     - |
-  #       cd terraform/environments/production
-  #       # planに変更がある場合のみapply
-  #       if terraform show -json tfplan | grep -q '"resource_changes"'; then
-  #         terraform apply -input=false -auto-approve tfplan
-  #       else
-  #         echo "No infrastructure changes detected"
-  #       fi
+  - id: 'terraform-apply'
+    name: 'hashicorp/terraform:1.5.0'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        cd terraform/environments/production
+        # planに変更がある場合のみapply
+        if terraform show -json tfplan | grep -q '"resource_changes"'; then
+          terraform apply -input=false -auto-approve tfplan
+        else
+          echo "No infrastructure changes detected"
+        fi
   # # # ----------------------------------------------------------------------
   # # 1. バックエンド (FastAPI) のDockerイメージをビルド
   # # ----------------------------------------------------------------------
