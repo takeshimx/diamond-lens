@@ -20,7 +20,33 @@ env:
   ARTIFACT_REGISTRY: asia-northeast1-docker.pkg.dev
 
 jobs:
+  # 変更されたファイルパスを検出するジョブ
+  check-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      terraform: ${{ steps.filter.outputs.terraform }}
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check changed files
+        uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+            terraform:
+              - 'terraform/**'
+              - '.github/workflows/terraform-*.yml'
+            backend:
+              - 'backend/**'
+            frontend:
+              - 'frontend/**'
+
   terraform-apply:
+    needs: check-changes
+    if: needs.check-changes.outputs.terraform == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -53,7 +79,11 @@ jobs:
         working-directory: ./terraform/environments/${{ matrix.environment }}
 
   build-and-deploy-backend:
-    needs: terraform-apply
+    needs: [check-changes, terraform-apply]
+    if: |
+      always() &&
+      (needs.terraform-apply.result == 'success' || needs.terraform-apply.result == 'skipped') &&
+      needs.check-changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -91,7 +121,12 @@ jobs:
             --platform=managed
 
   build-and-deploy-frontend:
-    needs: [terraform-apply, build-and-deploy-backend]
+    needs: [check-changes, terraform-apply, build-and-deploy-backend]
+    if: |
+      always() &&
+      (needs.terraform-apply.result == 'success' || needs.terraform-apply.result == 'skipped') &&
+      (needs.build-and-deploy-backend.result == 'success' || needs.build-and-deploy-backend.result == 'skipped') &&
+      needs.check-changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
 
     steps:
