@@ -50,3 +50,5 @@ backend/models
 backend/test_bigquery_client.py
 backend/test_refactored_classes.py
 backend/test_settings.py
+
+test_redis.py
