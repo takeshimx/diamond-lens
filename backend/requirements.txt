@@ -10,3 +10,10 @@ pandas
 numpy
 pydantic>=2.0.0
 pydantic-settings>=2.0.0
+
+# LlamaIndex関連（会話履歴機能用）
+llama-index>=0.10.0
+llama-index-llms-gemini>=0.1.0
+llama-index-core>=0.10.0
+redis>=5.0.0
+python-jose[cryptography]>=3.3.0

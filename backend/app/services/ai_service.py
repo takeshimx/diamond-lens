@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 from .bigquery_service import client
 import logging
+from .conversation_service import get_conversation_service
 
 # インポート: テスト実行時と本番実行時の両方に対応
 try:
@@ -726,19 +727,53 @@ def _generate_final_response_with_llm(original_query: str, data_df: pd.DataFrame
         return "AIによる回答生成中にエラーが発生しました。"
 
 
-def get_ai_response_for_qna_enhanced(query: str, season: Optional[int] = None) -> Optional[Dict[str, Any]]:
+def get_ai_response_for_qna_enhanced(
+        query: str, 
+        season: Optional[int] = None,
+        session_id: Optional[str] = None # Id from frontend to track user session
+    ) -> Optional[Dict[str, Any]]:
     """
     【打撃リーダーボード特化版】
     ユーザーの"打撃リーダーボード"に関する質問を処理します。
     """
-    # Step 1: LLMで質問を解析
-    query_params = _parse_query_with_llm(query, season)
+
+    # Step 0: Resolve conversation context (会話コンテキストの解決 == 直前の履歴から情報を補完)
+    conv_service = get_conversation_service()
+    resolved_query = query
+    context_used = False
+
+    if session_id:
+        logger.info(f"Resolving conversation context for session_id: {session_id}")
+        context_result = conv_service.resolve_context(query, session_id)
+        resolved_query = context_result["resolved_query"]
+        context_used = context_result["context_used"]
+
+        # コンテキストから season を補完
+        if not season and context_result.get("season"):
+            season = int(context_result["season"])
+            logger.info(f"Season {season} inferred from conversation context")
+        
+        if context_used:
+            logger.info(f"Query resolved: '{query}' → '{resolved_query}'")
+        
+        # ユーザーメッセージを会話履歴に保存。次の質問で「さっきの質問をもう一度」などの文脈が使えるようにする。
+        conv_service.add_message(session_id, "user", query)
+
+    # Step 1: LLMで質問を解析（解決後のクエリを使用）
+    query_params = _parse_query_with_llm(resolved_query, season)
     if not query_params:
         logger.warning("Could not extract parameters from the query.")
-        return {
+        error_response = {
             "answer": "質問を理解できませんでした。打撃成績のランキングについて質問してください。（例：2024年のホームラン王は誰？）",
             "isTable": False
         }
+
+        # エラーレスポンスも会話履歴に保存
+        if session_id:
+            conv_service.add_message(session_id, "assistant", error_response["answer"])
+        
+        return error_response
+    
     logger.info(f"Parsed query parameters: {query_params}")
 
     # Step 1.5: セキュリティ検証（SQLインジェクション対策）
@@ -916,7 +951,7 @@ def get_ai_response_for_qna_enhanced(query: str, season: Optional[int] = None) -
                 ]
             }
         
-        return {
+        table_response = {
             "answer": f"以下は{len(results_df)}件の結果です：",
             "isTable": True,
             "isTransposed": is_single_row,
@@ -926,10 +961,41 @@ def get_ai_response_for_qna_enhanced(query: str, season: Optional[int] = None) -
             "grouping": grouping_info
         }
 
+        # テーブル表示も履歴に保存
+        if session_id:
+            # テーブル全体ではなく要約を保存（トークン節約）
+            summary = f"{len(results_df)}件の{query_params.get('query_type', '結果')}データを表示"
+            conv_service.add_message(
+                session_id,
+                "assistant",
+                summary,
+                metadata={ # 後で分析に使える（例: どの選手がよく検索されているか）
+                    "query_type": query_params.get("query_type"),
+                    "player_name": query_params.get("name"),
+                    "is_table": True,
+                    "context_used": context_used
+                }
+            )
+        
+        return table_response
+
     # Step 4: Generate final response with LLM
     else:
         logger.info("Generating final response with LLM.")
         final_response = _generate_final_response_with_llm(query, results_df)
+
+        # 回答を履歴に保存
+        if session_id:
+            conv_service.add_message(
+                session_id,
+                "assistant",
+                final_response,
+                metadata={ # 後で分析に使える（例: どの選手がよく検索されているか）
+                    "query_type": query_params.get("query_type"),
+                    "player_name": query_params.get("name"),
+                    "context_used": context_used
+                }
+            )
         
         # Try to enhance with chart data
         from .simple_chart_service import enhance_response_with_simple_chart
@@ -956,8 +1022,12 @@ def get_ai_response_for_qna_enhanced(query: str, season: Optional[int] = None) -
         }
 
 
-def get_ai_response_with_simple_chart(query: str, season: Optional[int] = None) -> Optional[Dict[str, Any]]:
-    """既存関数を拡張してシンプルチャート対応"""
-    
+def get_ai_response_with_simple_chart(
+    query: str,
+    season: Optional[int] = None,
+    session_id: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """既存関数を拡張してシンプルチャート対応（会話履歴対応）"""
+
     # Just call the existing function for now - we'll integrate chart logic directly into it
-    return get_ai_response_for_qna_enhanced(query, season)
+    return get_ai_response_for_qna_enhanced(query, season, session_id)

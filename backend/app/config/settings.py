@@ -53,6 +53,19 @@ class Settings(BaseSettings):
     gemini_api_key: str = Field(validation_alias='GEMINI_API_KEY_V2')
 
     # ============================================================
+    # Redis設定（会話履歴管理用）
+    # ============================================================
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_password: Optional[str] = None
+
+    # ============================================================
+    # セッション設定（会話履歴用）
+    # ============================================================
+    session_secret_key: str = "default-secret-key-change-in-production"
+    chat_history_ttl: int = 3600  # 会話履歴の有効期限（秒）
+
+    # ============================================================
     # アプリケーション設定
     # ============================================================
     log_level: str = "INFO"

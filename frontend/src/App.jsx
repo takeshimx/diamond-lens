@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, TrendingUp, User, Bot, Activity, MessageCircle, Zap, Settings, Users, AlertTriangle, Brain, Target } from 'lucide-react';
+import { Send, TrendingUp, User, Bot, Activity, MessageCircle, Zap, Settings, Users, AlertTriangle, Brain, Target, Trash2 } from 'lucide-react';
 import SimpleChatChart from './components/ChatChart.jsx';
 import QuickQuestions from './components/QuickQuestions.jsx';
 import CustomQueryBuilder from './components/CustomQueryBuilder.jsx';
@@ -55,6 +55,19 @@ const MLBChatApp = () => {
   
   // Custom Query result state
   const [customResult, setCustomResult] = useState(null);
+
+  // ★ 会話履歴用のセッションID管理 ★
+  const [sessionId, setSessionId] = useState(() => {
+    // ローカルストレージから復元、なければnull
+    return localStorage.getItem('mlb_chat_session_id') || null;
+  });
+
+  // セッションIDが変更されたらローカルストレージに保存
+  useEffect(() => {
+    if (sessionId) {
+      localStorage.setItem('mlb_chat_session_id', sessionId);
+    }
+  }, [sessionId]);
 
   // 重要: 簡易的なパスワード認証用（本番では安全な方法を使用）
   const CORRECT_PASSWORD = (import.meta.env.VITE_APP_PASSWORD || 'defaultpassword').trim();
@@ -149,9 +162,10 @@ const MLBChatApp = () => {
       
       const requestBody = {
         query: query,
-        season: 2024
+        season: 2024,
+        session_id: sessionId  // ★ セッションIDを含める ★
       };
-      
+
       console.log('📤 デバッグ：Sending request to:', endpoint);
       console.log('📤 デバッグ：Request body:', JSON.stringify(requestBody, null, 2));
       
@@ -207,7 +221,13 @@ const MLBChatApp = () => {
       }
 
       console.log('✅ デバッグ：API呼び出し成功');
-      
+
+      // ★ レスポンスからセッションIDを取得・保存 ★
+      if (apiResponse.session_id) {
+        console.log('💾 デバッグ：セッションID保存:', apiResponse.session_id);
+        setSessionId(apiResponse.session_id);
+      }
+
       return {
         answer: apiResponse.answer || "回答を受信しましたが、内容が空でした。",
         isTable: apiResponse.isTable || false,
@@ -938,6 +958,56 @@ const MLBChatApp = () => {
     if (e.key === 'Enter') {
       e.preventDefault();
       handleAuthentication();
+    }
+  };
+
+  // ===== 会話履歴クリア処理 =====
+  const handleClearHistory = async () => {
+    if (!sessionId) {
+      console.log('⚠️ セッションIDが存在しないため、クリアをスキップします');
+      return;
+    }
+
+    try {
+      console.log('🗑️ 会話履歴をクリアします - Session ID:', sessionId);
+
+      // バックエンドAPIを呼び出してRedisの履歴をクリア
+      const backendURL = getBackendURL();
+      const endpoint = `${backendURL}/api/v1/qa/history/${sessionId}`;
+
+      const response = await fetch(endpoint, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`履歴クリアに失敗しました: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ 履歴クリア成功:', result);
+
+      // フロントエンドの状態をリセット
+      setMessages([
+        {
+          id: 1,
+          type: 'bot',
+          content: 'こんにちは！MLBスタッツについて何でも聞いてください。選手の成績、チーム統計、歴史的データなど、お答えします！',
+          timestamp: new Date()
+        }
+      ]);
+
+      // セッションIDをクリア
+      setSessionId(null);
+      localStorage.removeItem('mlb_chat_session_id');
+
+      console.log('✅ フロントエンドの会話履歴もリセットしました');
+
+    } catch (error) {
+      console.error('❌ 履歴クリアエラー:', error);
+      alert('会話履歴のクリアに失敗しました。');
     }
   };
 
@@ -2279,7 +2349,19 @@ const MLBChatApp = () => {
                 </div>
                 {/* アプリタイトルと説明 */}
                 <div>
-                  <h1 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent dark:from-blue-400 dark:to-purple-400 transition-all duration-200">Diamond Lens</h1>
+                  <div className="flex items-center gap-3">
+                    <h1 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent dark:from-blue-400 dark:to-purple-400 transition-all duration-200">Diamond Lens</h1>
+                    {/* 会話履歴クリアボタン */}
+                    {uiMode === 'chat' && sessionId && (
+                      <button
+                        onClick={handleClearHistory}
+                        className="p-2 text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 transition-colors duration-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+                        title="会話履歴をクリア"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                   <div className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">MLB Stats Assistant</div>
                   <p className="text-sm text-gray-600 dark:text-gray-300 transition-colors duration-200">
                     {uiMode === 'chat' && 'MLBの統計データについて質問してください'}

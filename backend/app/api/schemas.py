@@ -594,3 +594,4 @@ class PlayerRankingResult(BaseModel):
 class QnARequest(BaseModel):
     query: str
     season: Optional[int] = None
+    session_id: Optional[str] = None  # 会話履歴用のセッションID
