@@ -52,3 +52,7 @@ backend/test_refactored_classes.py
 backend/test_settings.py
 
 test_redis.py
+
+# RAG vector database and knowledge base PDFs
+backend/app/data/vector_db/
+backend/app/data/knowledge_base/*.pdf
