@@ -66,7 +66,7 @@ variable "cpu" {
 variable "memory" {
   description = "Memory allocation"
   type        = string
-  default     = "512Mi"
+  default     = "1Gi"
 }
 
 variable "allow_unauthenticated" {
