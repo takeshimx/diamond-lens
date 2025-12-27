@@ -17,11 +17,11 @@ requests
 # 会話履歴機能用
 redis>=5.0.0
 
-# RAG関連
-chromadb>=0.4.0
-sentence-transformers>=2.2.0
-pypdf2>=3.0.0
-langchain>=0.1.0
+# RAG関連（一時無効化 - イメージサイズ削減のため）
+# chromadb>=0.4.0
+# sentence-transformers>=2.2.0
+# pypdf2>=3.0.0
+# langchain>=0.1.0
 
 # LlamaIndex関連（将来使用する可能性あり - 現在はコメントアウト）
 # llama-index>=0.10.0

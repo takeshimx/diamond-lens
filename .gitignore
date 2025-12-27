@@ -56,3 +56,8 @@ test_redis.py
 # RAG vector database and knowledge base PDFs
 backend/app/data/vector_db/
 backend/app/data/knowledge_base/*.pdf
+
+# RAG関連ファイル（一時無効化）
+backend/app/api/endpoints/rag_endpoints.py
+backend/app/services/rag_service.py
+backend/scripts/index_knowledge_base.py
