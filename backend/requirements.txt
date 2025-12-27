@@ -1,5 +1,6 @@
 fastapi
 uvicorn[standard]
+python-multipart
 dbt-bigquery
 dotenv
 google-cloud-bigquery
