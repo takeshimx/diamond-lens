@@ -10,12 +10,15 @@ google-cloud-speech # For speech to text
 scikit-learn
 pandas
 numpy
-pydantic>=2.0.0
-pydantic-settings>=2.0.0
+pydantic
+pydantic-settings
 requests
 
-# 会話履歴機能用
-redis>=5.0.0
+# 会話履歴・エージェント機能用
+redis
+langchain
+langchain-google-genai
+langgraph
 
 # RAG関連（一時無効化 - イメージサイズ削減のため）
 # chromadb>=0.4.0

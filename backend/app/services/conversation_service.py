@@ -58,10 +58,15 @@ class ConversationService:
             例: [{"role": "user", "content": "大谷の成績は？"}, ...]
         """
         key = self._get_session_key(session_id)
-        history_json = self.redis_client.get(key)
-
-        if history_json:
-            return json.loads(history_json)
+        try:
+            history_json = self.redis_client.get(key)
+            if history_json:
+                return json.loads(history_json)
+        except redis.exceptions.ConnectionError:
+            logger.warning(f"⚠️ Redis connection failed when getting history for session {session_id}. Proceeding with empty context.")
+        except Exception as e:
+            logger.error(f"❌ Unexpected error getting chat history: {e}")
+            
         return []
     
     def add_message(
@@ -95,11 +100,16 @@ class ConversationService:
 
         # Save updated history back to Redis only 10 latest messages
         trimmed_history = history[-10:]
-        self.redis_client.setex(
-            key,
-            self.ttl,
-            json.dumps(trimmed_history, ensure_ascii=False) # JSON文字列化（日本語対応）
-        )
+        try:
+            self.redis_client.setex(
+                key,
+                self.ttl,
+                json.dumps(trimmed_history, ensure_ascii=False) # JSON文字列化（日本語対応）
+            )
+        except redis.exceptions.ConnectionError:
+            logger.warning(f"⚠️ Redis connection failed when adding message for session {session_id}. History not saved.")
+        except Exception as e:
+            logger.error(f"❌ Unexpected error adding message to chat history: {e}")
     
 
     def resolve_context(
@@ -203,8 +213,13 @@ class ConversationService:
             - テストのクリーンアップ
         """
         key = self._get_session_key(session_id)
-        self.redis_client.delete(key)
-        logger.info(f"Session cleared: {session_id}")
+        try:
+            self.redis_client.delete(key)
+            logger.info(f"Session cleared: {session_id}")
+        except redis.exceptions.ConnectionError:
+            logger.warning(f"⚠️ Redis connection failed when clearing session {session_id}.")
+        except Exception as e:
+            logger.error(f"❌ Unexpected error clearing session: {e}")
     
 
 _conversation_service = None

@@ -57,6 +57,9 @@ const MLBChatApp = () => {
   // Custom Query result state
   const [customResult, setCustomResult] = useState(null);
 
+  // エージェントモード（推論ループ）のON/OFF
+  const [isAgentMode, setIsAgentMode] = useState(false);
+
   // ★ 会話履歴用のセッションID管理 ★
   const [sessionId, setSessionId] = useState(() => {
     // ローカルストレージから復元、なければnull
@@ -173,9 +176,9 @@ const MLBChatApp = () => {
       // タイムアウトを設定（60秒）
       const controller = new AbortController();
       const timeoutId = setTimeout(() => {
-        console.log('⏰ デバッグ：リクエストタイムアウト（60秒）');
+        console.log('⏰ デバッグ：リクエストタイムアウト（120秒）');
         controller.abort();
-      }, 60000);
+      }, 120000);
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -232,6 +235,8 @@ const MLBChatApp = () => {
       return {
         answer: apiResponse.answer || "回答を受信しましたが、内容が空でした。",
         isTable: apiResponse.isTable || false,
+        isAgentic: apiResponse.is_agentic || false,
+        steps: apiResponse.steps || [],
         isTransposed: apiResponse.isTransposed || false,
         tableData: apiResponse.tableData || null,
         columns: apiResponse.columns || null,
@@ -323,9 +328,9 @@ const MLBChatApp = () => {
       // Timeout setup
       const controller = new AbortController();
       const timeoutId = setTimeout(() => {
-        console.log('⏰ デバッグ：リクエストタイムアウト（60秒）');
+        console.log('⏰ デバッグ：リクエストタイムアウト（120秒）');
         controller.abort();
-      }, 60000);
+      }, 120000);
 
       const response = await fetch(endpoint, {
         method: 'GET',
@@ -1066,6 +1071,8 @@ const MLBChatApp = () => {
         chartType: response.chartType, // チャートタイプ
         chartData: response.chartData, // チャートデータ
         chartConfig: response.chartConfig, // チャート設定
+        isAgentic: response.isAgentic, // エージェントモード判定
+        steps: response.steps, // 思考プロセス
         timestamp: new Date()
       };
 
@@ -2652,11 +2659,6 @@ const MLBChatApp = () => {
                     disabled={isLoading} // ローディング中は入力を無効化
                   />
                 </div>
-                {/* 音声入力ボタン */}
-                <VoiceInput
-                  onTranscript={handleVoiceTranscript}
-                  backendURL={getBackendURL()}
-                />
                 {/* 送信ボタン */}
                 <button
                   onClick={handleSendMessage}

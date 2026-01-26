@@ -10,6 +10,7 @@ from backend.app.services.conversation_service import get_conversation_service
 from backend.app.api.schemas import QnARequest # For Development, add backend. path
 from backend.app.utils.structured_logger import get_logger
 from backend.app.services.monitoring_service import get_monitoring_service
+from backend.app.services.ai_agent_service import run_mlb_agent
 import logging
 import time
 
@@ -185,6 +186,81 @@ async def clear_chat_history(session_id: str):
         "message": "Session cleared successfully",
         "session_id": session_id
     }
+
+
+@router.post(
+    "/qa/agentic-stats",
+    response_model=Dict[str, Any],
+    summary="自律型エージェントによる高度な分析・Q&A",
+    description="LangGraphを用いた自律型エージェントが、複雑な質問に対して複数ステップの推論を行い、回答を生成します。",
+    tags=["agentic"]
+)
+async def get_agentic_stats_endpoint(
+    request: QnARequest
+) -> Dict[str, Any]:
+    """
+    自律型エージェント（LangGraph）を起動して回答を得るエンドポイント。
+    """
+    session_id = request.session_id or str(uuid4())
+    start_time = time.time()
+    
+    logger.info(f"🤖 Agentic Request: query='{request.query}', session_id={session_id}")
+    
+    try:
+        # 自律型エージェントの実行
+        result_state = run_mlb_agent(request.query)
+        
+        # 1. 回答の取得（final_answer または 最後のメッセージから）
+        answer = result_state.get("final_answer", "")
+        if not answer:
+            # final_answerが空の場合、メッセージ履歴の最後のAIメッセージを探す
+            for msg in reversed(result_state.get("messages", [])):
+                if msg.type == "ai" and msg.content:
+                    answer = msg.content
+                    break
+        
+        # 2. 思考プロセス（Steps）の抽出をより柔軟に
+        steps = []
+        for msg in result_state.get("messages", []):
+            # ツール呼び出し（思考）の判定
+            tool_calls = getattr(msg, "tool_calls", None)
+            if tool_calls:
+                tool_name = tool_calls[0].get("name", "データ検索") if isinstance(tool_calls[0], dict) else getattr(tool_calls[0], "name", "データ検索")
+                steps.append({
+                    "type": "thought",
+                    "content": f"計画: {tool_name} を実行して情報を収集します。"
+                })
+            # ツール実行結果（実行）の判定
+            elif msg.type == "tool" or hasattr(msg, "tool_call_id"):
+                steps.append({
+                    "type": "execution",
+                    "content": "実行: データベースから必要な情報を取得しました。"
+                })
+
+        elapsed_time = time.time() - start_time
+        logger.info(f"✅ Agentic request completed in {elapsed_time:.2f} seconds. Answer length: {len(answer)}, Steps: {len(steps)}")
+        
+        return {
+            "query": request.query,
+            "answer": answer or "回答を生成できませんでした。プロンプトまたはデータ取得に問題があります。",
+            "steps": steps,
+            "session_id": session_id,
+            "processing_time_ms": round(elapsed_time * 1000, 2),
+            "is_agentic": True,
+            "isTable": result_state.get("isTable", False),
+            "tableData": result_state.get("tableData"),
+            "columns": result_state.get("columns"),
+            "isTransposed": result_state.get("isTransposed", False),
+            "isChart": result_state.get("isChart", False),
+            "chartType": result_state.get("chartType"),
+            "chartData": result_state.get("chartData"),
+            "chartConfig": result_state.get("chartConfig")
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Agentic Error: {str(e)}", exc_info=True)
+        # エラー発生時は詳細を返却
+        raise HTTPException(status_code=500, detail=f"Agent error: {str(e)}")
 
 
 # テスト用のエンドポイント

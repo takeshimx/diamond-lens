@@ -40,9 +40,14 @@ graph TB
         Marts[Marts Layer<br/>tbl_batter_clutch_risp<br/>tbl_batter_clutch_bases_loaded<br/>tbl_batter_monthly_*]
     end
 
-    subgraph "Application Layer - Cloud Run"
+subgraph "Application Layer - Cloud Run"
         Backend[mlb-diamond-lens-api<br/>FastAPI<br/>REST API endpoints]
         Frontend[mlb-diamond-lens-frontend<br/>React + Vite<br/>User dashboard]
+        
+        subgraph "AI Core"
+            StandardAI[Standard AI Service<br/>Gemini 2.5 Flash<br/>Simple Q&A]
+            AgenticAI[Agentic AI Service<br/>LangGraph + Gemini<br/>Multi-step reasoning]
+        end
     end
 
     subgraph "Orchestration Layer"
@@ -66,7 +71,10 @@ graph TB
     Core --> Marts
 
     Marts --> Backend
-    Backend --> Frontend
+    Backend --> StandardAI
+    Backend --> AgenticAI
+    StandardAI --> Frontend
+    AgenticAI --> Frontend
 
     Scheduler --> Workflows
     Workflows --> ETL
@@ -79,6 +87,7 @@ graph TB
     style ETL fill:#4285f4,color:#fff
     style Backend fill:#4285f4,color:#fff
     style Frontend fill:#4285f4,color:#fff
+    style AgenticAI fill:#9c27b0,color:#fff
     style RawData fill:#34a853,color:#fff
     style Marts fill:#34a853,color:#fff
     style Workflows fill:#fbbc04,color:#000
@@ -95,6 +104,7 @@ graph TB
 | **Transformation** | dbt, Cloud Build | Data modeling and quality |
 | **Backend** | FastAPI, Cloud Run | REST API for analytics |
 | **Frontend** | React + Vite, Cloud Run | User interface |
+| **AI Agent** | LangGraph, Gemini 2.5 Flash | Multi-step reasoning & Tool use |
 | **Orchestration** | Cloud Workflows, Cloud Scheduler | Pipeline automation |
 | **Monitoring** | Cloud Monitoring, Discord Webhooks | Custom metrics, alerts, dashboards, pipeline notifications |
 
@@ -166,7 +176,18 @@ graph TB
 | **Endpoints** | `/api/cache/clear` (POST) - Clear frontend cache |
 | **Dependencies** | Backend API |
 
-### 5. Orchestration
+### 5. Agentic AI Service (LangGraph)
+
+| Property | Value |
+|----------|-------|
+| **Core Engine** | LangGraph (StateGraph) |
+| **LLM Model** | Gemini 2.5 Flash |
+| **State Management** | `AgentState` (TypedDict with message history & UI meta) |
+| **Nodes** | Oracle (Planning), mlb_stats_tool (Action), Synthesizer (Reporting) |
+| **Capabilities** | Multi-tool chaining, self-correction, automated Recharts config generation |
+| **Frontend Sync** | Special `isAgentic` flag to trigger Reasoning Steps & Auto-Charts |
+
+### 6. Orchestration
 
 | Property | Value |
 |----------|-------|

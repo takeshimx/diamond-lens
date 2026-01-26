@@ -10,6 +10,7 @@ An AI-powered analytics interface for exploring Major League Baseball statistics
 - **💬 Chat Mode**: Natural language queries in Japanese with AI-powered responses
 - **⚡ Quick Questions**: Pre-defined common baseball queries for instant results
 - **⚙️ Custom Query Builder**: Advanced analytics with custom situational filters
+- **🤖 Autonomous Agent Mode (NEW)**: High-performance reasoning agent using LangGraph for multi-step data exploration and professional analysis
 
 **Analytics Capabilities**:
 - **Batting Statistics**: Season stats, splits, and advanced Statcast metrics
@@ -79,10 +80,17 @@ An AI-powered analytics interface for exploring Major League Baseball statistics
 - `analysis/player_segmentation.ipynb` - K-means clustering analysis with visualizations
 
 **Business Applications**:
-- **Roster Construction**: Identify player archetypes for targeted acquisitions
-- **Platoon Optimization**: Match player types to game situations
-- **Trade Analysis**: Evaluate fit within team composition
 - **Scouting Efficiency**: Categorize prospects by performance profile
+
+### 4. Autonomous Analyst Agent (LangGraph)
+**Status**: ✅ Production-ready with advanced UI
+
+**Capabilities**:
+- **🧠 LangGraph Orchestration**: Uses a "Think-Act-Analyze" loop for complex, multi-step statistical exploration
+- **🔍 Reasoning Visualization**: Live display of the agent's internal thought process (Reasoning Steps)
+- **📊 Adaptive UI**: Automatically switches between narrative reports, interactive charts, and data tables based on found data
+- **🏆 Professional Reports**: Generates structured analyst reports with headers, bullet points, and deep insights
+- **⚖️ Fail-safe Generation**: Code-level guards to ensure complete, natural Japanese sentences without fragments
 
 ### Technical Features
 - **AI-Powered Processing**: Uses Gemini 2.5 Flash for query parsing and response generation
@@ -116,6 +124,11 @@ The application follows a sophisticated 4-step pipeline:
 4. **💬 LLM Response Generation** (`ai_service._generate_final_response_with_llm`)
    - Converts structured data back to natural Japanese responses
    - Supports both narrative (`sentence`) and tabular (`table`) output formats
+
+5. **🤖 Autonomous Multi-step Reasoning** (`ai_agent_service`)
+   - **LangGraph Implementation**: Decouples "Oracle" (Planning), "Executor" (Data Retrieval), and "Synthesizer" (Final Reporting)
+   - **Feedback Loop**: Agent can self-correct and perform multiple tool calls if the initial measurement is insufficient
+   - **Integrated UI**: Pipes structured chart/table metadata directly into the specialized frontend components
 
 ### Key Configuration System
 - **`query_maps.py`**: Central configuration for all query types and metric mappings
@@ -236,6 +249,38 @@ See [TERRAFORM_INTEGRATION_GUIDE.md](TERRAFORM_INTEGRATION_GUIDE.md) for detaile
     "hits": "186",
     "at_bats": "600"
   }
+}
+```
+
+---
+
+### Autonomous Agent API (LangGraph)
+
+**POST** `/api/v1/qa/agentic-stats`
+
+Advanced multi-step analysis powered by LangGraph. Supports complex reasoning and automated visualization.
+
+#### Request Format
+```json
+{
+  "query": "Compare Shohei Ohtani and Aaron Judge's 2024 performance with a chart",
+  "session_id": "optional-uuid"
+}
+```
+
+#### Response Format
+```json
+{
+  "query": "...",
+  "answer": "...",
+  "steps": [
+    {"thought": "...", "tool_call": "...", "status": "planning"},
+    {"thought": "...", "status": "executing"}
+  ],
+  "is_agentic": true,
+  "isChart": true,
+  "chartData": [...],
+  "processing_time_ms": 12500
 }
 ```
 
