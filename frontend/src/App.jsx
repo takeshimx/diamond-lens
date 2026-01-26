@@ -161,7 +161,9 @@ const MLBChatApp = () => {
       const baseURL = getBackendURL();
       console.log('🎯 デバッグ：Final baseURL from getBackendURL():', baseURL);
 
-      const endpoint = `${baseURL}/api/v1/qa/player-stats`;
+      const endpoint = isAgentMode
+        ? `${baseURL}/api/v1/qa/agentic-stats`
+        : `${baseURL}/api/v1/qa/player-stats`;
       console.log('🎯 デバッグ：Final complete endpoint:', endpoint);
 
       const requestBody = {
@@ -2395,8 +2397,8 @@ const MLBChatApp = () => {
                     setCustomResult(null); // Clear custom result when switching to chat
                   }}
                   className={`px-4 py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center sm:justify-start gap-2 min-w-0 w-full sm:w-auto ${uiMode === 'chat'
-                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
                     }`}
                 >
                   <MessageCircle className="w-4 h-4 flex-shrink-0" />
@@ -2409,8 +2411,8 @@ const MLBChatApp = () => {
                     // Keep quick result when switching to quick mode
                   }}
                   className={`px-4 py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center sm:justify-start gap-2 min-w-0 w-full sm:w-auto ${uiMode === 'quick'
-                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
                     }`}
                 >
                   <Zap className="w-4 h-4 flex-shrink-0" />
@@ -2423,8 +2425,8 @@ const MLBChatApp = () => {
                     // Keep custom result when switching to custom mode
                   }}
                   className={`px-4 py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center sm:justify-start gap-2 min-w-0 w-full sm:w-auto ${uiMode === 'custom'
-                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
                     }`}
                 >
                   <Settings className="w-4 h-4 flex-shrink-0" />
@@ -2437,8 +2439,8 @@ const MLBChatApp = () => {
                     setCustomResult(null);
                   }}
                   className={`px-4 py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center sm:justify-start gap-2 min-w-0 w-full sm:w-auto ${uiMode === 'statistics'
-                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
                     }`}
                 >
                   <Activity className="w-4 h-4 flex-shrink-0" />
@@ -2451,8 +2453,8 @@ const MLBChatApp = () => {
                     setCustomResult(null);
                   }}
                   className={`px-4 py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center sm:justify-start gap-2 min-w-0 w-full sm:w-auto ${uiMode === 'segmentation'
-                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
                     }`}
                 >
                   <Users className="w-4 h-4 flex-shrink-0" />
@@ -2520,12 +2522,32 @@ const MLBChatApp = () => {
                       {/* メッセージバブル */}
                       <div
                         className={`px-4 py-3 rounded-lg transition-colors duration-200 ${message.type === 'user'
-                            ? 'bg-blue-600 dark:bg-blue-500 text-white' // ユーザーメッセージは青背景
-                            : 'bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white' // ボットメッセージは白背景
+                          ? 'bg-blue-600 dark:bg-blue-500 text-white' // ユーザーメッセージは青背景
+                          : 'bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white' // ボットメッセージは白背景
                           }`}
                       >
                         {/* メッセージテキスト */}
-                        <p className="whitespace-pre-wrap">{message.content}</p>
+                        <div className="mb-2">
+                          <p className="whitespace-pre-wrap">{message.content}</p>
+                        </div>
+
+                        {/* 思考プロセス（エージェントモード時のみ表示） */}
+                        {message.isAgentic && message.steps && message.steps.length > 0 && (
+                          <div className="mt-4 mb-4 p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-100 dark:border-gray-600">
+                            <div className="flex items-center gap-2 mb-2 text-purple-600 dark:text-purple-400">
+                              <Brain className="w-4 h-4 animate-pulse" />
+                              <span className="text-xs font-bold uppercase tracking-wider">Reasoning Steps</span>
+                            </div>
+                            <div className="space-y-2">
+                              {message.steps.map((step, idx) => (
+                                <div key={idx} className="flex items-start gap-2 text-xs text-gray-600 dark:text-gray-300">
+                                  <div className={`mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0 ${step.type === 'thought' ? 'bg-purple-400' : 'bg-green-400'}`}></div>
+                                  <span>{step.content}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         {/* テーブル表示（テーブルデータがある場合のみ表示） */}
                         {message.isTable && message.tableData && message.columns && (
                           <DataTable
@@ -2647,6 +2669,21 @@ const MLBChatApp = () => {
           {uiMode === 'chat' && (
             <div className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 px-4 sm:px-6 py-4 transition-colors duration-200">
               <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
+                {/* エージェントモード切替トグル */}
+                <div className="flex items-center gap-2 mb-2 sm:mb-0">
+                  <button
+                    onClick={() => setIsAgentMode(!isAgentMode)}
+                    title={isAgentMode ? "エージェントモード：ON" : "エージェントモード：OFF"}
+                    className={`p-3 rounded-lg transition-all duration-200 flex items-center gap-2 ${isAgentMode
+                      ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
+                      }`}
+                  >
+                    <Brain className={`w-5 h-5 ${isAgentMode ? 'animate-pulse' : ''}`} />
+                    <span className="text-xs font-bold sm:hidden">エージェント</span>
+                  </button>
+                </div>
+
                 {/* テキストエリア */}
                 <div className="flex-1">
                   <textarea
