@@ -53,7 +53,7 @@ class MLBDataEngine:
         # 指示
         - 選手名は英語表記（フルネーム）に正規化してください。例：「大谷さん」 -> "Shohei Ohtani"
         - `season`は、ユーザーの質問から年を抽出してください。`season`が指定されていない場合、または「キャリア」や「通算」などの表現があれば、`season`はnullにしてください。
-        - `query_type`は "season_batting"、"season_pitching"、 "batting_splits"、または "career_batting" のいずれかを選択してください。
+        - `query_type`は "season_batting"、"season_pitching"、 "batting_splits"、"pitching_splits"、または "career_batting" のいずれかを選択してください。
         - **重要：特定の状況（得点圏、イニング、左右、月別など）が指定されていない通常のシーズン統計の質問には、絶対に `batting_splits` を使わず、 `season_batting` または `season_pitching` を使用してください。**
         - `metrics`には、ユーザーが知りたい指標をリスト形式で格納してください。例えば、ホームラン数を知りたい場合は ["homerun"] とします。打率の場合は ["batting_average"] とし、単語と単語の間にアンダースコアを使用してください。
         - `split_type`は、「得点圏（RISP）」「満塁」「ランナー1類」「イニング別」「投手が左投げか右投げか」「球種別」「ゲームスコア状況別」などの特定の状況を示します。該当しない場合はnullにしてください。
@@ -69,9 +69,9 @@ class MLBDataEngine:
 
         # JSONスキーマ
         {{
-            "query_type": "season_batting" | "season_pitching" | "batting_splits" | "career_batting" | null,
+            "query_type": "season_batting" | "season_pitching" | "batting_splits" | "pitching_splits" | "career_batting" | null,
             "metrics": ["string"],
-            "split_type": "risp" | "bases_loaded" | "runner_on_1b" | "inning" | "pitcher_throws" | "pitch_type" | "game_score_situation" | "monthly" | null,
+            "split_type": "risp" | "bases_loaded" | "runner_on_1b" | "inning" | "pitcher_throws" | "pitch_type" | "game_score_situation" | "monthly" | "count_situation" | "runner_situation" | null,
             "inning": ["integer"] | null,
             "strikes": "integer | null",
             "balls": "integer | null",
@@ -119,7 +119,7 @@ class MLBDataEngine:
         JSON:
         """
 
-        GEMINI_API_URL=f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+        GEMINI_API_URL=f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
         headers = {"Content-Type": "application/json"}
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
@@ -212,7 +212,7 @@ class MLBDataEngine:
 
         # 3. query_typeの検証（ホワイトリスト）
         if params.get("query_type"):
-            valid_query_types = ["season_batting", "season_pitching", "batting_splits", "career_batting"]
+            valid_query_types = ["season_batting", "season_pitching", "batting_splits", "pitching_splits", "career_batting"]
             if params["query_type"] not in valid_query_types:
                 logger.warning(f"⚠️ Invalid query_type: {params['query_type']}")
                 return False
@@ -221,7 +221,8 @@ class MLBDataEngine:
         if params.get("split_type"):
             valid_split_types = [
                 "risp", "bases_loaded", "runner_on_1b", "inning",
-                "pitcher_throws", "pitch_type", "game_score_situation", "monthly"
+                "pitcher_throws", "pitch_type", "game_score_situation", "monthly",
+                "count_situation", "runner_situation"
             ]
             if params["split_type"] not in valid_split_types:
                 logger.warning(f"⚠️ Invalid split_type: {params['split_type']}")
@@ -585,7 +586,7 @@ class MLBDataEngine:
         # Get config info
         if query_type in ["season_batting", "season_pitching", "career_batting"]:
             config = QUERY_TYPE_CONFIG.get(query_type)
-        elif query_type == "batting_splits" and params.get("split_type"):
+        elif query_type in ["batting_splits", "pitching_splits"] and params.get("split_type"):
             split_type = params.get("split_type")
             config = QUERY_TYPE_CONFIG.get(query_type, {}).get(split_type)
             metric_map_key_base = f"{query_type}_{split_type}"
@@ -604,7 +605,9 @@ class MLBDataEngine:
         elif split_type == "monthly" and month_column:
             default_cols = [f"{player_name_col} as name", f"{month_column} as month"]
         else:
-            default_cols = [f"{player_name_col} as name", f"{year_column} as season"]
+            default_cols = [f"{player_name_col} as name"]
+            if year_column:
+                default_cols.append(f"{year_column} as season")
         if "team" in config.get("available_metrics", []) or config.get("table_id") in [BATTING_STATS_TABLE_ID, PITCHING_STATS_TABLE_ID]:
             if "team" not in default_cols:
                 default_cols.insert(1, "team")
@@ -658,6 +661,19 @@ class MLBDataEngine:
             # BigQueryの配列パラメータを使用してIN句を安全に構築
             where_conditions.append(f"pitch_name IN UNNEST(@pitch_types)")
             query_parameters["pitch_types"] = params["pitch_type"]
+
+        if split_type == "count_situation":
+            if params.get("balls") is not None:
+                where_conditions.append("balls = @balls")
+                query_parameters["balls"] = params["balls"]
+            if params.get("strikes") is not None:
+                where_conditions.append("strikes = @strikes")
+                query_parameters["strikes"] = params["strikes"]
+
+        if split_type == "runner_situation":
+            # runner_situation ビューに合わせて適切なカラム（例: runner_on_base_id など）があれば追加
+            # 現時点ではシンプルに name / season で絞り込める状態
+            pass
 
         where_clause = f"WHERE {' AND '.join(where_conditions)}" if where_conditions else ""
 

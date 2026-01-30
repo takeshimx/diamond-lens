@@ -11,7 +11,9 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, To
 from langchain_core.tools import tool
 from langgraph.graph import StateGraph, END
 
+from google.cloud.bigquery import QueryJobConfig, ScalarQueryParameter
 from .mlb_data_engine import get_mlb_stats_data
+from .bigquery_service import client
 
 logger = logging.getLogger(__name__)
 
@@ -49,18 +51,137 @@ def mlb_stats_tool(query: str, season: int = None):
     # AIはこの Docstring を読んで理解する。
     return get_mlb_stats_data(query, season)
 
+
+@tool
+def mlb_matchup_history_tool(batter_name: str, pitcher_name: str):
+    """
+    特定の打者と投手の『過去の全対決履歴』を取得するツール。
+    打席ごとの配球（球種の流れ）や、結果、コースなどの詳細なプロセスを取得できます。
+    batter_name: 打者のフルネーム（例: 'Shohei Ohtani'）
+    pitcher_name: 投手のフルネーム（例: 'Yu Darvish'）
+    """
+    logger.info(f"🔍 DEBUG: mlb_matchup_history_tool called with batter='{batter_name}', pitcher='{pitcher_name}'")
+    batter_name = batter_name.strip()
+    pitcher_name = pitcher_name.strip()
+
+    # 名前形式の不一致（First Last vs Last, First）および大文字小文字の不一致に対応
+    # ユーザーのスクリーンショットに基づき、正確なテーブル名 `view_matchup_specific_history_2025` を使用
+    query = f"""
+    SELECT *
+    FROM `tksm-dash-test-25.mlb_analytics_dash_25.view_matchup_specific_history_2025`
+    WHERE (
+        (UPPER(batter_name) = UPPER(@batter_name)) OR
+        (UPPER(batter_name) = UPPER(@batter_reversed)) OR
+        (UPPER(batter_name) LIKE UPPER(@batter_part))
+    ) AND (
+        (UPPER(pitcher_name) = UPPER(@pitcher_name)) OR
+        (UPPER(pitcher_name) = UPPER(@pitcher_reversed)) OR
+        (UPPER(pitcher_name) LIKE UPPER(@pitcher_part))
+    )
+    ORDER BY game_date DESC, at_bat_number DESC
+    LIMIT 20
+    """
+
+    def reverse_name(name):
+        parts = name.split()
+        return f"{parts[-1]}, {' '.join(parts[:-1])}" if len(parts) > 1 else name
+
+    b_rev = reverse_name(batter_name)
+    p_rev = reverse_name(pitcher_name)
+    b_part = f"%{batter_name.split()[-1]}%" if len(batter_name.split()) > 0 else "%"
+    p_part = f"%{pitcher_name.split()[-1]}%" if len(pitcher_name.split()) > 0 else "%"
+
+    query_parameters = [
+        ScalarQueryParameter("batter_name", "STRING", batter_name),
+        ScalarQueryParameter("batter_reversed", "STRING", b_rev),
+        ScalarQueryParameter("batter_part", "STRING", b_part),
+        ScalarQueryParameter("pitcher_name", "STRING", pitcher_name),
+        ScalarQueryParameter("pitcher_reversed", "STRING", p_rev),
+        ScalarQueryParameter("pitcher_part", "STRING", p_part)
+    ]
+
+    job_config = QueryJobConfig(query_parameters=query_parameters)
+
+    try:
+        df = client.query(query, job_config=job_config).to_dataframe()
+        logger.info(f"✅ Matchup history: Found {len(df)} rows for {batter_name} vs {pitcher_name}")
+        return df.to_dict(orient='records')
+    except Exception as e:
+        logger.error(f"Error in matchup_history_tool: {e}")
+        return []
+
+
+@tool
+def mlb_matchup_analytics_tool(batter_name: str, pitcher_name: str):
+    """
+    特定の打者と投手の『球種別の対戦相性サマリー』を取得する分析ツール。
+    打率、OPSなどの結果だけでなく、空振り率、球速、平均回転数などの球のクオリティも取得できます。
+    戦略的な分析（どの球種が苦手か、など）を行う際に最適です。
+    batter_name: 打者のフルネーム（例: 'Shohei Ohtani'）
+    pitcher_name: 投手のフルネーム（例: 'Yu Darvish'）
+    """
+    
+    def reverse_name(name):
+        parts = name.split()
+        return f"{parts[-1]}, {' '.join(parts[:-1])}" if len(parts) > 1 else name
+    
+    b_rev = reverse_name(batter_name)
+    p_rev = reverse_name(pitcher_name)
+    b_part = f"%{batter_name.split()[-1]}%" if len(batter_name.split()) > 0 else "%"
+    p_part = f"%{pitcher_name.split()[-1]}%" if len(pitcher_name.split()) > 0 else "%"
+
+    query = f"""
+    SELECT *
+    FROM `tksm-dash-test-25.mlb_analytics_dash_25.view_matchup_pitch_analytics_2021_2025`
+    WHERE (
+        (UPPER(batter_name) = UPPER(@batter_name)) OR
+        (UPPER(batter_name) = UPPER(@batter_reversed)) OR
+        (UPPER(batter_name) LIKE UPPER(@batter_part))
+    ) AND (
+        (UPPER(pitcher_name) = UPPER(@pitcher_name)) OR
+        (UPPER(pitcher_name) = UPPER(@pitcher_reversed)) OR
+        (UPPER(pitcher_name) LIKE UPPER(@pitcher_part))
+    )
+    ORDER BY pitch_count DESC
+    """
+
+    query_parameters = [
+        ScalarQueryParameter("batter_name", "STRING", batter_name),
+        ScalarQueryParameter("batter_reversed", "STRING", b_rev),
+        ScalarQueryParameter("batter_part", "STRING", b_part),
+        ScalarQueryParameter("pitcher_name", "STRING", pitcher_name),
+        ScalarQueryParameter("pitcher_reversed", "STRING", p_rev),
+        ScalarQueryParameter("pitcher_part", "STRING", p_part)
+    ]
+
+    job_config = QueryJobConfig(query_parameters=query_parameters)
+
+    try:
+        df = client.query(query, job_config=job_config).to_dataframe()
+        logger.info(f"Matchup Analytics: Found {len(df)} pitch types for {batter_name} vs {pitcher_name}")
+        return df.to_dict(orient='records')
+    except Exception as e:
+        logger.error(f"Error in mlb_matchup_analytics_tool: {e}")
+        return []
+
+
 # ---- 3. Agent Definition ----
 class MLBStatsAgent:
     def __init__(self):
         # 思考エンジン
         self.raw_model = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash-exp",
+            model="gemini-2.0-flash",
             google_api_key=os.getenv("GEMINI_API_KEY_V2"),
             temperature=0 # 分析精度を高めるため、ランダム性を排除
         )
 
         # Bind tools to model
-        self.model = self.raw_model.bind_tools([mlb_stats_tool])
+        self.tools = [
+            mlb_stats_tool, 
+            mlb_matchup_history_tool,
+            mlb_matchup_analytics_tool
+        ]
+        self.model = self.raw_model.bind_tools(self.tools)
 
         # Build graph
         self.workflow = self._create_workflow()
@@ -107,16 +228,41 @@ class MLBStatsAgent:
     def oracle_node(self, state: AgentState):
         logger.info("--- NODE: ORACLE (Thinking...) ---")
         
-        system_prompt = """あなたはMLBデータ収集の司令塔です。ユーザーの質問を分析し、最適なツール呼び出しを計画してください。
+        # 物理的にツール呼び出しを強制するためのフラグ (Gemini 2.0 Flash用)
+        # 最初のターンの場合、あるいはまだデータがない場合は強制する
+        is_first_turn = len(state["messages"]) <= 1
         
-        **重要な行動指針:**
-        1. 複数の選手や項目（例: 大谷とジャッジ）を比較する場合、1回の検索で済ませようとせず、必ず各対象について個別かつ詳細にデータを取得してください。
-        2. ツールからの応答が「不十分」と感じた場合は、検索クエリを変えて再度実行してください。
-        3. 必要なデータが全て揃ったと確信できるまで、繰り返し実行（continue）を選択してください。"""
+        system_prompt = """あなたはMLBデータエンジニアです。
+        ユーザーの質問を解決するために、利用可能なツールから最適なものを選択して実行してください。
+        
+        【ルール】
+        - 自分の知識で答えず、必ずツール（mlb_matchup_analytics_tool等）を使ってください。
+        - 選手名は英語（Shohei Ohtani等）に変換してツールに渡してください。
+        - このステップでは日本語の説明文を生成せず、ツール呼び出し（tool_call）のみを行ってください。"""
 
-        # これまでの全履歴を Gemini に渡して推理させます
         prompt = [SystemMessage(content=system_prompt)] + state["messages"]
-        response = self.model.invoke(prompt)
+        
+        # tool_choice="any" (またはモデル固有の ANY モード) を使用して強制召喚
+        # config = {"tool_config": {"function_calling_config": {"mode": "ANY"}}}
+        # LangChainの汎用的な方式で試行
+        try:
+            # First turn: Force the matchup analytics tool to ensure we get data
+            if is_first_turn:
+                # 特定の対戦に関する質問なら、analyticsツールを強制
+                response = self.model.invoke(prompt, tool_choice="mlb_matchup_analytics_tool")
+            else:
+                response = self.model.invoke(prompt)
+        except Exception as e:
+            logger.error(f"Error in oracle tool binding: {e}")
+            response = self.model.invoke(prompt)
+        
+        logger.debug(f"🔍 DEBUG: Oracle Response: {response.content}")
+        if response.tool_calls:
+            logger.info(f"✅ Oracle planned {len(response.tool_calls)} tool calls")
+        else:
+            logger.warning("⚠️ Oracle did NOT call any tools. Trying one last fallback.")
+            # それでも呼ばない場合は、モデルを介さず history ツールなどを呼ぶべきだが、まずはinvokeを信じる
+
         return {"messages": [response]}
     
     # Executor node （実際に道具を使う）
@@ -126,15 +272,44 @@ class MLBStatsAgent:
         last_message = state["messages"][-1]
 
         tool_outputs = []
+        # 利用可能なツールをマッピング
+        tools_map = {
+            "mlb_stats_tool": mlb_stats_tool,
+            "mlb_matchup_history_tool": mlb_matchup_history_tool,
+            "mlb_matchup_analytics_tool": mlb_matchup_analytics_tool
+        }
+
         # 要求されたすべてのツール呼び出しを処理
         for tool_call in last_message.tool_calls:
-            # 実際にエンジンを実行
-            result = mlb_stats_tool.invoke(tool_call["args"])
+            tool_name = tool_call["name"]
+            logger.info(f"Calling tool: {tool_name}")
+            
+            if tool_name in tools_map:
+                # ツール名に応じて適切な関数を呼び出す
+                result = tools_map[tool_name].invoke(tool_call["args"])
+            else:
+                logger.warning(f"Tool {tool_name} not found in tools_map")
+                result = {"error": f"Tool '{tool_name}' not found."}
 
-            # 結果を ToolMessage として作成（tool_call_id でどの要求への回答か紐付けます）
+            # 結果を ToolMessage として作成
+            # Gemini API は NaN や Infinity を許容しないため、それらを None (null) に置換します。
+            # また、date型などの特殊な型を文字列に変換できるよう default=str を指定します。
+            def sanitize_data(obj):
+                if isinstance(obj, list):
+                    return [sanitize_data(item) for item in obj]
+                elif isinstance(obj, dict):
+                    return {k: sanitize_data(v) for k, v in obj.items()}
+                elif isinstance(obj, float):
+                    if obj != obj: # NaN check
+                        return None
+                    if obj == float('inf') or obj == float('-inf'):
+                        return None
+                return obj
+
+            sanitized_result = sanitize_data(result)
             tool_outputs.append(ToolMessage(
                 tool_call_id=tool_call["id"],
-                content=json.dumps(result, ensure_ascii=False)
+                content=json.dumps(sanitized_result, ensure_ascii=False, default=str)
             ))
         
         return {"messages": tool_outputs}
@@ -143,20 +318,18 @@ class MLBStatsAgent:
     def synthesizer_node(self, state: AgentState):
         logger.info("--- NODE: SYNTHESIZER (Final analysis) ---")
         
-        # 1. AIへの指示
-        system_prompt = """あなたはMLB公式シニア・アナリストです。
-        提供されたデータを基に、一目でポイントがわかるプロフェッショナルな分析レポートを作成してください。
+        # 1. AIへの指示（丁寧な説明と要約統計を最優先する）
+        system_prompt = """あなたはMLBアナリストです。
+        提供されたデータを基に、ユーザーに対し丁寧かつ魅力的にレポートしてください。
 
-        **【出力構成の必須ルール】:**
-        1. **Markdownによる構造化**:
-           - 適切な見出し（###）を使用し、情報を整理してください。
-           - 数値データの列挙には箇条書き（- ）を使用し、視認性を高めてください。
-        2. **プロの分析エッセンス**:
-           - 単なるデータの朗読ではなく、「なぜそうなったか」「その数字が持つ意味」をアナリストの視点で簡潔に添えてください。
-        3. **流暢で自然な日本語**:
-           - **最初の一文は必ず整合性の取れた完全な文章（例：「大谷選手の〜」）で始めてください。**
-           - 同じ主語（大谷選手は〜）の連続使用を避け、指示語や接続詞を使いこなしたプロの文章を目指してください。
-           - 冗長な表現は避け、核心を突くスマートな記述を心がけてください。"""
+        **【出力の絶対ルール】:**
+        1. **データの裏付けがない回答の禁止**: ツールから提供されたデータ（ToolMessageの内容）のみをソースとしてください。もしツールがデータを返さなかった場合は、知っているふりをせず「データが取得できませんでした」と正直に回答してください。自身の知識で数値を補完することは厳禁です。
+        2. **「説明」から始める**: 数値や結論を出す前に、まず「どのようなデータを調査したか」「その結果、全体として何が分かったか」を最初に言葉で丁寧に説明してください（ユーザーからの強い要望です）。
+        3. **主要成績（Key Stats）の要約**: 打席ごとのデータがある場合は、それらを基に必ず「対戦成績の要約」（打率、OPS、三振、四球など）を算出して提示してください。
+           - 算出項目例: 打率(BA)、出塁率、長打率、OPS、ホームラン数、三振数、四球数。
+           - これらを回答の冒頭（状況説明の直後）に分かりやすく表または箇条書きで示してください。
+        3. **挨拶と丁寧な言葉遣い**: 「分析の結果、〜ということが分かりました」といった対話形式の丁寧な言葉遣いを心がけてください。
+        4. **データがない場合の説明**: 単に「データがありません」で終わらせず、どのような条件で検索し、なぜ見つからなかったのかをユーザーに寄り添って詳しく説明してください。"""
 
         prompt = [
             SystemMessage(content=system_prompt),

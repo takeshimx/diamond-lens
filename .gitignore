@@ -61,3 +61,6 @@ backend/app/data/knowledge_base/*.pdf
 backend/app/api/endpoints/rag_endpoints.py
 backend/app/services/rag_service.py
 backend/scripts/index_knowledge_base.py
+
+# SQL Drafts and Memos
+backend/sql_memo/

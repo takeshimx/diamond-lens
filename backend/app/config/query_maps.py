@@ -86,6 +86,26 @@ QUERY_TYPE_CONFIG = {
             "player_col": "batter_name",
             "available_metrics": ["batting_average", "on_base_percentage", "slugging_percentage", "on_base_plus_slugging", "at_bats"]
         }
+    },
+    "pitching_splits": {
+        "inning": {
+            "table_id": "view_pitcher_summary_25_by_inning",
+            "year_col": "game_year",
+            "player_col": "pitcher_name",
+            "available_metrics": ["pitch_count", "avg_release_speed", "avg_spin_rate", "whiff_rate", "hard_hit_rate", "avg_pfx_x", "avg_pfx_z", "avg_release_extension", "zone_rate", "avg_woba_against"]
+        },
+        "count_situation": {
+            "table_id": "view_pitcher_summary_25_by_count_situation",
+            "year_col": "game_year",
+            "player_col": "pitcher_name",
+            "available_metrics": ["pitch_count", "avg_release_speed", "avg_spin_rate", "whiff_rate", "hard_hit_rate", "avg_pfx_x", "avg_pfx_z", "avg_release_extension", "zone_rate", "avg_woba_against"]
+        },
+        "runner_situation": {
+            "table_id": "view_pitcher_summary_25_by_runner_situation",
+            "year_col": "game_year",
+            "player_col": "pitcher_name",
+            "available_metrics": ["pitch_count", "avg_release_speed", "avg_spin_rate", "whiff_rate", "hard_hit_rate", "avg_pfx_x", "avg_pfx_z", "avg_release_extension", "zone_rate", "avg_woba_against"]
+        }
     }
 }
 
@@ -375,3 +395,13 @@ METRIC_MAP = {
         "season_pitching": "avg"
     }
 }
+
+NEW_PITCHER_METRICS = ["pitch_count", "avg_release_speed", "avg_spin_rate", "whiff_rate", "hard_hit_rate", 
+                       "avg_pfx_x", "avg_pfx_z", "avg_release_extension", "zone_rate", "avg_woba_against"]
+
+for m in NEW_PITCHER_METRICS:
+    if m not in METRIC_MAP:
+        METRIC_MAP[m] = {}
+    
+    for split in ["inning", "count_situation", "runner_situation"]:
+        METRIC_MAP[m][f"pitching_splits_{split}"] = m
