@@ -20,7 +20,9 @@ class ConversationService:
             host=os.getenv("REDIS_HOST", "localhost"),
             port=int(os.getenv("REDIS_PORT", 6379)),
             password=os.getenv("REDIS_PASSWORD", None),
-            decode_responses=True
+            decode_responses=True,
+            socket_connect_timeout=0.5, # 接続タイムアウトを短縮
+            socket_timeout=0.5          # 通信タイムアウトを短縮
         )
 
         # TTL

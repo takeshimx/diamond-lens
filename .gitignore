@@ -68,3 +68,5 @@ backend/sql_memo/
 
 # temporaliy hidden files
 backend/app/api/schemas_experimental
+
+mlb_parsing_practice.py

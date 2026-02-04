@@ -254,7 +254,9 @@ async def get_agentic_stats_endpoint(
             "isChart": result_state.get("isChart", False),
             "chartType": result_state.get("chartType"),
             "chartData": result_state.get("chartData"),
-            "chartConfig": result_state.get("chartConfig")
+            "chartConfig": result_state.get("chartConfig"),
+            "isMatchupCard": result_state.get("isMatchupCard", False),
+            "matchupData": result_state.get("matchupData")
         }
         
     except Exception as e:

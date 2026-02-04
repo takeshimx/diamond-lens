@@ -8,6 +8,7 @@ import PlayerSegmentation from './components/PlayerSegmentation.jsx';
 import PitcherFatigue from './components/PitcherFatigue.jsx';
 import PitcherWhiffPredictor from './components/PitcherWhiffPredictor.jsx';
 import VoiceInput from './components/VoiceInput.jsx';
+import MatchupAnalysisCard from './components/MatchupAnalysisCard.jsx';
 
 // Force dark mode on app load
 const initializeDarkMode = () => {
@@ -249,7 +250,10 @@ const MLBChatApp = () => {
         isChart: apiResponse.isChart || false,
         chartType: apiResponse.chartType || null,
         chartData: apiResponse.chartData || null,
-        chartConfig: apiResponse.chartConfig || null
+        chartConfig: apiResponse.chartConfig || null,
+        // Matchup Card fields
+        isMatchupCard: apiResponse.isMatchupCard || false,
+        matchupData: apiResponse.matchupData || null
       };
 
     } catch (error) {
@@ -1075,6 +1079,8 @@ const MLBChatApp = () => {
         chartConfig: response.chartConfig, // チャート設定
         isAgentic: response.isAgentic, // エージェントモード判定
         steps: response.steps, // 思考プロセス
+        isMatchupCard: response.isMatchupCard, // 対戦分析カード表示フラグ
+        matchupData: response.matchupData, // 対戦分析データ
         timestamp: new Date()
       };
 
@@ -2583,6 +2589,11 @@ const MLBChatApp = () => {
                         ) : null}
                         {/* 統計データカード（データがある場合のみ表示） */}
                         {message.stats && <StatCard stats={message.stats} />}
+
+                        {/* 対戦分析カード (Phase 6 - Incremental) */}
+                        {message.isMatchupCard && message.matchupData && (
+                          <MatchupAnalysisCard matchupData={message.matchupData} />
+                        )}
                       </div>
                       {/* タイムスタンプ */}
                       <p className={`text-xs text-gray-500 dark:text-gray-400 mt-1 transition-colors duration-200 ${message.type === 'user' ? 'text-right' : 'text-left'

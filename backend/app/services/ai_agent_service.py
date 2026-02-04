@@ -1,7 +1,7 @@
 import os
 import json
 import logging
-from typing import Annotated, TypedDict, List, Dict, Any, Union
+from typing import Annotated, TypedDict, List, Dict, Any, Union, Optional
 from operator import add
 import pandas as pd
 from .simple_chart_service import enhance_response_with_simple_chart
@@ -15,7 +15,10 @@ from google.cloud.bigquery import QueryJobConfig, ScalarQueryParameter
 from .mlb_data_engine import get_mlb_stats_data
 from .bigquery_service import client
 
-logger = logging.getLogger(__name__)
+from backend.app.core.exceptions import DataFetchError, AgentReasoningError, DataStructureError
+from backend.app.utils.structured_logger import get_logger
+
+logger = get_logger("ai-agent")
 
 # ---- 1. Agent State ----
 # LangGraphでは、この辞書が各ノード（工程）間を引き継がれます。
@@ -38,6 +41,8 @@ class AgentState(TypedDict):
     isTransposed: bool
     chartType: str
     chartConfig: Any
+    isMatchupCard: bool
+    matchupData: Optional[Dict[str, Any]]
 
 # ---- 2. Tool Definition ----
 # ツールのラッパー（既存ロジックのラップ）
@@ -102,11 +107,10 @@ def mlb_matchup_history_tool(batter_name: str, pitcher_name: str):
 
     try:
         df = client.query(query, job_config=job_config).to_dataframe()
-        logger.info(f"✅ Matchup history: Found {len(df)} rows for {batter_name} vs {pitcher_name}")
+        logger.info(f"✅ Matchup history found", row_count=len(df), batter_name=batter_name, pitcher_name=pitcher_name)
         return df.to_dict(orient='records')
     except Exception as e:
-        logger.error(f"Error in matchup_history_tool: {e}")
-        return []
+        raise DataFetchError("対戦履歴の取得に失敗しました", original_error=e) from e
 
 
 @tool
@@ -161,16 +165,12 @@ def mlb_matchup_analytics_tool(batter_name: str, pitcher_name: str):
 
 # ---- 3. Agent Definition ----
 class MLBStatsAgent:
-    def __init__(self):
+    def __init__(self, model, tools):
         # 思考エンジン
-        self.raw_model = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash",
-            google_api_key=os.getenv("GEMINI_API_KEY_V2"),
-            temperature=0 # 分析精度を高めるため、ランダム性を排除
-        )
+        self.raw_model = model
 
         # Bind tools to model
-        self.tools = [mlb_stats_tool, mlb_matchup_history_tool, mlb_matchup_analytics_tool]
+        self.tools = tools
         self.model = self.raw_model.bind_tools(self.tools)
 
         # Build graph
@@ -216,7 +216,7 @@ class MLBStatsAgent:
     
     # Oracle node (判断)
     def oracle_node(self, state: AgentState):
-        logger.info("--- NODE: ORACLE (Thinking...) ---")
+        logger.info("Oracle node started", node="oracle", status="thinking")
         
         system_prompt = """あなたはMLBデータ収集の司令塔です。ユーザーの質問を分析し、最適なツール呼び出しを計画してください。
         
@@ -228,12 +228,16 @@ class MLBStatsAgent:
 
         # これまでの全履歴を Gemini に渡して推理させます
         prompt = [SystemMessage(content=system_prompt)] + state["messages"]
-        response = self.model.invoke(prompt)
-        return {"messages": [response]}
+
+        try:
+            response = self.model.invoke(prompt)
+            return {"messages": [response]}
+        except Exception as e:
+            raise AgentReasoningError("AIの思考プロセス中にエラーが発生しました", original_error=e) from e
     
     # Executor node （実際に道具を使う）
     def executor_node(self, state: AgentState):
-        logger.info("--- NODE: EXECUTOR (Executing tool...) ---")
+        logger.info("Executor node started", node="executor", status="executing")
         # ユーザーの最新の質問を取得
         last_message = state["messages"][-1]
 
@@ -242,15 +246,13 @@ class MLBStatsAgent:
         for tool_call in last_message.tool_calls:
             tool_name = tool_call["name"]
             logger.info(f"Calling tool: {tool_name}")
-            
-            if tool_name == "mlb_stats_tool":
-                result = mlb_stats_tool.invoke(tool_call["args"])
-            elif tool_name == "mlb_matchup_history_tool":
-                result = mlb_matchup_history_tool.invoke(tool_call["args"])
-            elif tool_name == "mlb_matchup_analytics_tool":
-                result = mlb_matchup_analytics_tool.invoke(tool_call["args"])
+
+            selected_tool = next((t for t in self.tools if t.name == tool_name), None)
+
+            if selected_tool:
+                result = selected_tool.invoke(tool_call["args"])
             else:
-                result = {"error": f"Tool {tool_name} not found"}
+                result = {"error": f"Tool {tool_name} not found in injected tools"}
 
             # Gemini API は NaN や Infinity を許容しないため、それらを None (null) に置換します。
             def sanitize_data(obj):
@@ -277,7 +279,7 @@ class MLBStatsAgent:
     
     # Synthesizer node (分析と応答)
     def synthesizer_node(self, state: AgentState):
-        logger.info("--- NODE: SYNTHESIZER (Final analysis) ---")
+        logger.info("Synthesizer node started", node="synthesizer", status="analyzing")
         
         # 1. AIへの指示
         system_prompt = """あなたはMLB公式シニア・アナリストです。
@@ -320,8 +322,45 @@ class MLBStatsAgent:
             "columns": None,
             "isTransposed": False,
             "chartType": "",
-            "chartConfig": None
+            "chartConfig": None,
+            "isMatchupCard": False,
+            "matchupData": {}
         }
+
+        # ツール呼び出し結果から対戦データを抽出 (UIカード用)
+        matchup_history = []
+        matchup_stats = []
+        
+        for msg in state["messages"]:
+            if isinstance(msg, ToolMessage):
+                try:
+                    data = json.loads(msg.content)
+                    if isinstance(data, list) and len(data) > 0:
+                        first_row = data[0]
+                        # 球種別分析データが含まれているかチェック
+                        if "pitch_name" in first_row and ("batting_average" in first_row or "avg" in first_row):
+                            # カラム名を統一
+                            for item in data:
+                                if "avg" in item and "batting_average" not in item:
+                                    item["batting_average"] = item["avg"]
+                            matchup_stats = data
+                            ui_metadata["isMatchupCard"] = True
+                        # 打席履歴データが含まれているかチェック
+                        elif "game_date" in first_row:
+                            matchup_history = data
+                            ui_metadata["isMatchupCard"] = True
+                except:
+                    continue
+
+        if ui_metadata["isMatchupCard"]:
+            ui_metadata["matchupData"] = {
+                "stats": matchup_stats,
+                "history": matchup_history[:50], # 最新50球分
+                "summary": {
+                    "batter": matchup_stats[0].get("batter_name") if matchup_stats else (matchup_history[0].get("batter_name") if matchup_history else "Batter"),
+                    "pitcher": matchup_stats[0].get("pitcher_name") if matchup_stats else (matchup_history[0].get("pitcher_name") if matchup_history else "Pitcher"),
+                }
+            }
 
         # 履歴を遡って最後のツール実行結果（データ）を探す
         last_tool_res = None
@@ -330,7 +369,8 @@ class MLBStatsAgent:
                 try:
                     last_tool_res = json.loads(msg.content)
                     break
-                except: continue
+                except Exception as e:
+                    raise DataStructureError("JSON解析エラーが発生しました。", original_error=e) from e
         
         if last_tool_res and "data" in last_tool_res:
             # データをデータフレーム化し、カラム名を小文字に統一（チャート/テーブルのキー不一致を防ぐ）
@@ -367,7 +407,19 @@ class MLBStatsAgent:
 
 # Main function from external API
 def run_mlb_agent(query: str) -> dict:
-    agent = MLBStatsAgent()
+    model = ChatGoogleGenerativeAI(
+        model="gemini-2.0-flash",
+        google_api_key=os.getenv("GEMINI_API_KEY_V2"),
+        temperature=0 # 分析精度を高めるため、ランダム性を排除
+    )
+
+    tools = [
+        mlb_stats_tool,
+        mlb_matchup_history_tool,
+        mlb_matchup_analytics_tool
+    ]
+    
+    agent = MLBStatsAgent(model=model, tools=tools)
 
     # 初期状態をセット
     initial_state = {
@@ -382,7 +434,9 @@ def run_mlb_agent(query: str) -> dict:
         "columns": None,
         "isTransposed": False,
         "chartType": "",
-        "chartConfig": None
+        "chartConfig": None,
+        "isMatchupCard": False,
+        "matchupData": None
     }
 
     # グラフを実行（最大10ステップに制限してタイムアウトを防ぐ）
