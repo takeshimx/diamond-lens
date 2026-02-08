@@ -17,6 +17,7 @@ from .bigquery_service import client
 
 from backend.app.core.exceptions import DataFetchError, AgentReasoningError, DataStructureError
 from backend.app.utils.structured_logger import get_logger
+from .cache_service import StatsCache
 
 logger = get_logger("ai-agent")
 
@@ -54,7 +55,71 @@ def mlb_stats_tool(query: str, season: int = None):
     season: 対象年度（例: 2024）。指定がない場合は最新を探します。
     """
     # AIはこの Docstring を読んで理解する。
-    return get_mlb_stats_data(query, season)
+    raw_data = get_mlb_stats_data(query, season)
+
+    data = raw_data.get("data", [])
+    columns = raw_data.get("columns", [])
+
+    if len(data) == 0:
+        return {
+            "answer": "該当するデータが見つかりませんでした。",
+            "isTable": False
+            }
+    
+    # Output Format に応じて処理を分岐
+    params = raw_data.get("parameters", {})
+    output_format = params.get("output_format", "sentence")
+
+    if output_format == "table":
+        return {
+            "answer": f"以下は{len(data)}件の結果です：",
+            "isTable": True,
+            "tableData": data,
+            "columns": [{
+                "key": col,
+                "label": col.replace('_', ' ').title()
+            }
+            for col in columns],
+            "isTransposed": len(data) == 1
+        }
+    else:
+        from .simple_chart_service import enhance_response_with_simple_chart
+        import pandas as pd
+
+        df = pd.DataFrame(data)
+
+        # Chart
+        try:
+            logger.info(f"Attempting chart enhancement for query: {query}")
+            logger.info(f"Parameters: {params}")
+            logger.info(f"DataFrame shape: {df.shape}")
+            
+            chart_data = enhance_response_with_simple_chart(
+                query, params, df, params.get("season")
+            )
+            
+            logger.info(f"Chart data result: {chart_data is not None}")
+
+            if chart_data:
+                response = {
+                    "answer": "📈",
+                    "isTable": False
+                }
+                response.update(chart_data)
+                return response
+        except Exception as e:
+            logger.warning(f"Chart enhancement failed: {e}", exc_info=True)
+        
+        # チャートがない場合: LLM で自然言語生成
+        from .ai_service import _generate_final_response_with_llm
+        final_response = _generate_final_response_with_llm(query, df)
+        
+        return {
+            "answer": final_response,
+            "isTable": False
+        }
+
+    
 
 
 @tool
@@ -105,10 +170,20 @@ def mlb_matchup_history_tool(batter_name: str, pitcher_name: str):
 
     job_config = QueryJobConfig(query_parameters=query_parameters)
 
+    # Check cache first
+    cache = StatsCache()
+    cached_data = cache.get_player_stats(player_name=batter_name, season=2024, query_type=f"matchup_{pitcher_name}")
+    if cached_data:
+        logger.info("Cache HIT")
+        return cached_data
+    
     try:
         df = client.query(query, job_config=job_config).to_dataframe()
         logger.info(f"✅ Matchup history found", row_count=len(df), batter_name=batter_name, pitcher_name=pitcher_name)
-        return df.to_dict(orient='records')
+        result = df.to_dict(orient='records')
+        # Save to Redis
+        cache.set_player_stats(player_name=batter_name, season=2024, query_type=f"matchup_{pitcher_name}", data=result)
+        return result
     except Exception as e:
         raise DataFetchError("対戦履歴の取得に失敗しました", original_error=e) from e
 
@@ -407,42 +482,41 @@ class MLBStatsAgent:
 
 # Main function from external API
 def run_mlb_agent(query: str) -> dict:
+    """
+    Main entry point for MLB agent system.
+    Uses Supervisor pattern to route queries to specialized agents.
+    """
+
+    # Step 1: Import agents
+    from .agents.supervisor_agent import SupervisorAgent
+    from .agents.stats_agent import StatsAgent
+    from .agents.matchup_agent import MatchupAgent
+
+    # Step 2: Route query
+    supervisor = SupervisorAgent()
+    agent_type = supervisor.route_query(query)
+
+    logger.info(f"Supervisor routed to: {agent_type}", query=query, agent_type=agent_type)
+    
+    # Step 3: Initialize model
     model = ChatGoogleGenerativeAI(
         model="gemini-2.0-flash",
         google_api_key=os.getenv("GEMINI_API_KEY_V2"),
         temperature=0 # 分析精度を高めるため、ランダム性を排除
     )
 
-    tools = [
-        mlb_stats_tool,
-        mlb_matchup_history_tool,
-        mlb_matchup_analytics_tool
-    ]
+    # Step 4: Select and initialize agent
+    if agent_type == "matchup":
+        agent = MatchupAgent(model=model)
+        result = agent.run(query)
+    elif agent_type == "stats":
+        agent = StatsAgent(model=model)
+        result = agent.run(query)
+    else: # fallback to stats at this point
+        logger.warning(f"Unknown agent type: '{agent_type}', falling back to StatsAgent")
+        agent = StatsAgent(model=model)
+        result = agent.run(query)
     
-    agent = MLBStatsAgent(model=model, tools=tools)
+    logger.info(f" Agent execution completed", agent_type=agent_type)
 
-    # 初期状態をセット
-    initial_state = {
-        "messages": [HumanMessage(content=query)],
-        "raw_data_store": {},
-        "next_step": "",
-        "final_answer": "",
-        "isTable": False,
-        "isChart": False,
-        "tableData": None,
-        "chartData": None,
-        "columns": None,
-        "isTransposed": False,
-        "chartType": "",
-        "chartConfig": None,
-        "isMatchupCard": False,
-        "matchupData": None
-    }
-
-    # グラフを実行（最大10ステップに制限してタイムアウトを防ぐ）
-    final_state = agent.app.invoke(initial_state, config={"recursion_limit": 10})
-
-    # 最終的なメッセージ履歴を含めた状態全体を返却
-    # AIMessageオブジェクトなどはJSON化できないため、文字列化または辞書化が必要になる場合があるが、
-    # ここでは辞書として返し、エンドポイント側でパースする
-    return final_state
+    return result
