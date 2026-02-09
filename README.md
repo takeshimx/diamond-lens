@@ -82,15 +82,18 @@ An AI-powered analytics interface for exploring Major League Baseball statistics
 **Business Applications**:
 - **Scouting Efficiency**: Categorize prospects by performance profile
 
-### 4. Autonomous Analyst Agent (LangGraph)
-**Status**: ✅ Production-ready with advanced UI
+### 4. Autonomous Analyst Agent (Supervisor + LangGraph)
+**Status**: ✅ Production-ready with specialized agents powered by LangGraph
 
 **Capabilities**:
-- **🧠 LangGraph Orchestration**: Uses a "Think-Act-Analyze" loop for complex, multi-step statistical exploration
-- **🔍 Reasoning Visualization**: Live display of the agent's internal thought process (Reasoning Steps)
-- **📊 Adaptive UI**: Automatically switches between narrative reports, interactive charts, and data tables based on found data
-- **🏆 Professional Reports**: Generates structured analyst reports with headers, bullet points, and deep insights
-- **⚖️ Fail-safe Generation**: Code-level guards to ensure complete, natural Japanese sentences without fragments
+- **🧠 Multi-Agent Orchestration**: Uses a `SupervisorAgent` to intelligently route queries to specialized agents (`StatsAgent`, `MatchupAgent`), each orchestrated by **LangGraph**.
+- **🔍 Reasoning Visualization**: Live display of the autonomous reasoning steps across different specialized graph nodes.
+- **📊 Adaptive UI**: Automatically switches between narrative reports, interactive charts, and data tables based on found data.
+- **⚔️ Specialized Agents**:
+  - **StatsAgent**: Expert in team/player season stats, trends, and group comparisons.
+  - **MatchupAgent**: Expert in batter vs. pitcher head-to-head analytics and historic outcomes.
+- **🏆 Professional Reports**: Generates structured analyst reports with headers, bullet points, and deep insights.
+- **⚖️ Fail-safe Generation**: Code-level guards to ensure complete, natural Japanese sentences without fragments.
 
 ### Technical Features
 - **AI-Powered Processing**: Uses Gemini 2.5 Flash for query parsing and response generation
@@ -125,10 +128,14 @@ The application follows a sophisticated 4-step pipeline:
    - Converts structured data back to natural Japanese responses
    - Supports both narrative (`sentence`) and tabular (`table`) output formats
 
-5. **🤖 Autonomous Multi-step Reasoning** (`ai_agent_service`)
-   - **LangGraph Implementation**: Decouples "Oracle" (Planning), "Executor" (Data Retrieval), and "Synthesizer" (Final Reporting)
-   - **Feedback Loop**: Agent can self-correct and perform multiple tool calls if the initial measurement is insufficient
-   - **Integrated UI**: Pipes structured chart/table metadata directly into the specialized frontend components
+5. **🤖 Autonomous Multi-Agent Reasoning** (`app/services/agents/`)
+   - **Supervisor Architecture**: Decouples query routing from data retrieval via a `SupervisorAgent`.
+   - **Specialized Agents**: 
+     - `StatsAgent`: Handles general statistical queries and trend analysis.
+     - `MatchupAgent`: Handles specific head-to-head player historical comparisons.
+   - **LangGraph Implementation**: Each agent maintains its own "Oracle" (Planning), "Executor" (Data Retrieval), and "Synthesizer" (Final Reporting) loop.
+   - **Feedback Loop**: Agents can self-correct and perform multiple tool calls if the initial measurement is insufficient.
+   - **Integrated UI**: Pipes structured chart/table metadata directly into the specialized frontend components.
 
 ### Key Configuration System
 - **`query_maps.py`**: Central configuration for all query types and metric mappings

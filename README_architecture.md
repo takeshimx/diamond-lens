@@ -46,7 +46,11 @@ subgraph "Application Layer - Cloud Run"
         
         subgraph "AI Core"
             StandardAI[Standard AI Service<br/>Gemini 2.5 Flash<br/>Simple Q&A]
-            AgenticAI[Agentic AI Service<br/>LangGraph + Gemini<br/>Multi-step reasoning]
+            subgraph "Multi-Agent System"
+                Supervisor[SupervisorAgent<br/>Query Routing]
+                StatsAgent[StatsAgent<br/>Season Analytics]
+                MatchupAgent[MatchupAgent<br/>Matchup History]
+            end
         end
     end
 
@@ -72,9 +76,12 @@ subgraph "Application Layer - Cloud Run"
 
     Marts --> Backend
     Backend --> StandardAI
-    Backend --> AgenticAI
+    Backend --> Supervisor
+    Supervisor --> StatsAgent
+    Supervisor --> MatchupAgent
     StandardAI --> Frontend
-    AgenticAI --> Frontend
+    StatsAgent --> Frontend
+    MatchupAgent --> Frontend
 
     Scheduler --> Workflows
     Workflows --> ETL
@@ -176,16 +183,19 @@ subgraph "Application Layer - Cloud Run"
 | **Endpoints** | `/api/cache/clear` (POST) - Clear frontend cache |
 | **Dependencies** | Backend API |
 
-### 5. Agentic AI Service (LangGraph)
+### 5. Agentic AI System (Supervisor + LangGraph)
 
 | Property | Value |
 |----------|-------|
+| **Architecture** | Supervisor + Specialized Agents |
 | **Core Engine** | LangGraph (StateGraph) |
-| **LLM Model** | Gemini 2.5 Flash |
-| **State Management** | `AgentState` (TypedDict with message history & UI meta) |
-| **Nodes** | Oracle (Planning), mlb_stats_tool (Action), Synthesizer (Reporting) |
-| **Capabilities** | Multi-tool chaining, self-correction, automated Recharts config generation |
-| **Frontend Sync** | Special `isAgentic` flag to trigger Reasoning Steps & Auto-Charts |
+| **LLM Model** | Gemini 2.0/2.5 Flash |
+| **Supervisor** | `SupervisorAgent` - Parses intent and routes to Stats or Matchup |
+| **Specialized Agents** | `StatsAgent` (Season/Trend), `MatchupAgent` (Head-to-Head) |
+| **State Management** | `AgentState` (TypedDict with message history, UI meta, and specialized analytics data) |
+| **Nodes per Agent** | Oracle (Planning), Action Tool, Synthesizer (Reporting) |
+| **Capabilities** | Intelligently handles complex vs specific queries, automated visualization, and professional analyst reports |
+| **Frontend Sync** | Structured `matchupData` or `chartData` triggers specialized UI components |
 
 ### 6. Orchestration
 
