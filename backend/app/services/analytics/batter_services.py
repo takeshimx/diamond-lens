@@ -10,10 +10,10 @@ import re
 from dotenv import load_dotenv
 # from functools import lru_cache
 from datetime import datetime
-from .bigquery_service import client
+from ..bigquery_service import client
 import logging
-from .conversation_service import get_conversation_service
-from .analytics.base_engine import BaseEngine
+from ..conversation_service import get_conversation_service
+from .base_engine import BaseEngine
 
 # インポート: テスト実行時と本番実行時の両方に対応
 try:
@@ -22,7 +22,6 @@ try:
         QUERY_TYPE_CONFIG,
         METRIC_MAP,
         DECIMAL_FORMAT_COLUMNS,
-        MAIN_PITCHING_STATS,
         MAIN_BATTING_STATS,
         MAIN_CAREER_BATTING_STATS,
         MAIN_RISP_BATTING_STATS, MAIN_BASES_LOADED_BATTING_STATS, MAIN_RUNNER_ON_1B_BATTING_STATS,
@@ -36,7 +35,6 @@ except ImportError:
         QUERY_TYPE_CONFIG,
         METRIC_MAP,
         DECIMAL_FORMAT_COLUMNS,
-        MAIN_PITCHING_STATS,
         MAIN_BATTING_STATS,
         MAIN_CAREER_BATTING_STATS,
         MAIN_RISP_BATTING_STATS, MAIN_BASES_LOADED_BATTING_STATS, MAIN_RUNNER_ON_1B_BATTING_STATS,
@@ -62,7 +60,6 @@ load_dotenv(dotenv_path=dotenv_path)
 PROJECT_ID = os.getenv("GCP_PROJECT_ID")
 DATASET_ID = os.getenv("BIGQUERY_DATASET_ID")
 BATTING_STATS_TABLE_ID = os.getenv("BIGQUERY_BATTING_STATS_TABLE_ID", "fact_batting_stats_with_risp")
-PITCHING_STATS_TABLE_ID = os.getenv("BIGQUERY_PITCHING_STATS_TABLE_ID", "fact_pitching_stats")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY_V2")
 
 # Manage Google cloud alient with singleton pattern
@@ -79,13 +76,16 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
         return None
 
     prompt = f"""
-    あなたはMLBのデータアナリストです。ユーザーからの"打撃成績のランキング"、"投手成績のランキング"、または"選手成績"に関する以下の質問を解析し、
+    あなたはMLBのデータアナリストです。ユーザーからの"打撃成績のランキング"、または"選手成績"に関する以下の質問を解析し、
     データベースで検索するためのパラメータをJSON形式で抽出してください。
 
     # 指示
     - 選手名は英語表記（フルネーム）に正規化してください。例：「大谷さん」 -> "Shohei Ohtani"
-    - `season`は、ユーザーの質問から年を抽出してください。`season`が指定されていない場合、または「キャリア」や「通算」などの表現があれば、`season`はnullにしてください。
-    - `query_type`は "season_batting"、"season_pitching"、 "batting_splits"、または "career_batting" のいずれかを選択してください。
+    - **重要**: `season`と`query_type`の判定ルール:
+        1. 質問に「2024年」「2023年」など具体的な年が含まれている場合、必ず`season`にその年を設定し、`query_type`は"season_batting"にしてください。
+        2. 「キャリア」「通算」「全期間」などの表現がある場合のみ、`season`をnullにし、`query_type`を"career_batting"にしてください。
+        3. 年の記載がなく、特定の状況（RISP、満塁など）が指定されている場合は、`query_type`を"batting_splits"にしてください。
+    - `query_type`は "season_batting"、 "batting_splits"、または "career_batting" のいずれかを選択してください。
     - `metrics`には、ユーザーが知りたい指標をリスト形式で格納してください。例えば、ホームラン数を知りたい場合は ["homerun"] とします。打率の場合は ["batting_average"] とし、単語と単語の間にアンダースコアを使用してください。
     - `split_type`は、「得点圏（RISP）」「満塁」「ランナー1類」「イニング別」「投手が左投げか右投げか」「球種別」「ゲームスコア状況別」などの特定の状況を示します。該当しない場合はnullにしてください。
     - `split_type`で、game_score_situation (ゲームスコア状況別) を選択した場合、`game_score`に具体的なスコア状況（例：1点リード、2点ビハインドなど）を示す必要があります。
@@ -100,7 +100,7 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
 
     # JSONスキーマ
     {{
-        "query_type": "season_batting" | "season_pitching" | "batting_splits" | "career_batting" | null,
+        "query_type": "season_batting" | "batting_splits" | "career_batting" | null,
         "metrics": ["string"],
         "split_type": "risp" | "bases_loaded" | "runner_on_1b" | "inning" | "pitcher_throws" | "pitch_type" | "game_score_situation" | "monthly" | null,
         "inning": ["integer"] | null,
@@ -176,88 +176,7 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
         return None
 
 
-def _validate_query_params(params: Dict[str, Any]) -> bool:
-    """
-    LLM出力パラメータのセキュリティ検証を行います。
-    SQLインジェクション攻撃やその他の不正な入力を検出します。
-
-    Args:
-        params: LLMから抽出されたクエリパラメータ
-
-    Returns:
-        bool: 検証に合格した場合True、不正な入力を検出した場合False
-
-    検証項目:
-        1. 選手名: 英字、スペース、ピリオド、ハイフン、アポストロフィのみ許可
-        2. Season: 妥当な年の範囲（1900-2100）
-        3. query_type: ホワイトリストに含まれる値のみ
-        4. split_type: ホワイトリストに含まれる値のみ
-        5. metrics: METRIC_MAPに含まれる値のみ（main_statsを除く）
-        6. order_by: METRIC_MAPに含まれる値のみ
-        7. pitcher_throws: RHPまたはLHPのみ
-        8. inning: 1-9の整数のみ
-        9. strikes/balls: 0-3の整数のみ
-        10. 長さ制限: 異常に長い文字列を拒否
-    """
-
-    return BaseEngine.validate_query_params(params)
-
-
-# Helper function to determine query strategy (using a simple query or more complex one)
-def _determine_query_strategy(params: Dict[str, Any]) -> str:
-    """
-    クエリの複雑さに基づいて戦略を決定する
-    - 複合条件が2つ以上: statcast master table
-    - 単一条件: aggregated table
-    - パフォーマンス重視が必要な場合の特別処理も含む
-    """
-
-    return BaseEngine.determine_query_strategy(params)
-
-
-# Helper function to build dynamic SQL queries with statcast_master_table
-def _build_dynamic_statcast_sql(params: Dict[str, Any]) -> tuple[str, dict]:
-    """
-    statcast_master_tableに対するパラメータ化クエリを構築します。
-
-    Args:
-        params: LLMから抽出されたクエリパラメータ
-
-    Returns:
-        tuple[str, dict]: (SQL文字列, パラメータ辞書)
-    """
-
-    return BaseEngine.build_dynamic_statcast_sql(params)
-        
- 
-
-# Helper function to build dynamic SQL queries with aggregated table
-def _build_dynamic_sql(params: Dict[str, Any]) -> tuple[str, dict]:
-    """
-    [ステップ2] 抽出したパラメータを元に、BigQuery用のパラメータ化クエリを構築します。
-
-    Args:
-        params: LLMから抽出されたクエリパラメータ
-
-    Returns:
-        tuple[str, dict]: (SQL文字列, パラメータ辞書)
-        - SQL文字列: プレースホルダー（@param_name）を含むクエリ
-        - パラメータ辞書: プレースホルダーに対応する実際の値
-    """
-
-    return BaseEngine.build_dynamic_sql(params)
-
-
-def _generate_final_response_with_llm(original_query: str, data_df: pd.DataFrame) -> str:
-    """
-    [ステップ4] 取得したデータと元の質問に基づいて、LLMが自然言語の回答を生成します。
-    * ステップ3はBigQueryからデータを取得することです。
-    """
-   
-    return BaseEngine.generate_final_response_with_llm(original_query, data_df)
-
-
-def get_ai_response_for_qna_enhanced(
+def get_ai_response_for_batter_stats(
         query: str, 
         season: Optional[int] = None,
         session_id: Optional[str] = None # Id from frontend to track user session
@@ -307,7 +226,7 @@ def get_ai_response_for_qna_enhanced(
     logger.info(f"Parsed query parameters: {query_params}")
 
     # Step 1.5: セキュリティ検証（SQLインジェクション対策）
-    if not _validate_query_params(query_params):
+    if not BaseEngine.validate_query_params(query_params):
         logger.error(f"Security validation failed for parameters: {query_params}")
         return {
             "answer": "不正な入力を検出しました。正しい形式で質問してください。",
@@ -315,12 +234,12 @@ def get_ai_response_for_qna_enhanced(
         }
 
     # Step 2: Build SQL with parameterization
-    query_strategy = _determine_query_strategy(query_params)
+    query_strategy = BaseEngine.determine_query_strategy(query_params)
     logger.info(f"Using query strategy: {query_strategy}")
 
     if query_strategy == "aggregated_table":
         # Using aggregated table
-        sql_query, sql_parameters = _build_dynamic_sql(query_params)
+        sql_query, sql_parameters = BaseEngine.build_dynamic_sql(query_params)
         if not sql_query:
             logger.warning("Failed to build SQL query.")
             return {
@@ -331,7 +250,7 @@ def get_ai_response_for_qna_enhanced(
         logger.info(f"Query parameters: {sql_parameters}")
 
     else: # Using statcast master table
-        sql_query, sql_parameters = _build_dynamic_statcast_sql(query_params)
+        sql_query, sql_parameters = BaseEngine.build_dynamic_statcast_sql(query_params)
         if not sql_query:
             logger.warning("Failed to build SQL query with statcast master table.")
             return {
@@ -512,7 +431,7 @@ def get_ai_response_for_qna_enhanced(
     # Step 4: Generate final response with LLM
     else:
         logger.info("Generating final response with LLM.")
-        final_response = _generate_final_response_with_llm(query, results_df)
+        final_response = BaseEngine.generate_final_response_with_llm(query, results_df)
 
         # 回答を履歴に保存
         if session_id:
@@ -528,7 +447,7 @@ def get_ai_response_for_qna_enhanced(
             )
         
         # Try to enhance with chart data
-        from .simple_chart_service import enhance_response_with_simple_chart
+        from ..simple_chart_service import enhance_response_with_simple_chart
         try:
             chart_data = enhance_response_with_simple_chart(
                 query, query_params, results_df, season
@@ -552,12 +471,12 @@ def get_ai_response_for_qna_enhanced(
         }
 
 
-def get_ai_response_with_simple_chart(
-    query: str,
-    season: Optional[int] = None,
-    session_id: Optional[str] = None
-) -> Optional[Dict[str, Any]]:
-    """既存関数を拡張してシンプルチャート対応（会話履歴対応）"""
+# def get_ai_response_with_simple_chart(
+#     query: str,
+#     season: Optional[int] = None,
+#     session_id: Optional[str] = None
+# ) -> Optional[Dict[str, Any]]:
+#     """既存関数を拡張してシンプルチャート対応（会話履歴対応）"""
 
-    # Just call the existing function for now - we'll integrate chart logic directly into it
-    return get_ai_response_for_qna_enhanced(query, season, session_id)
+#     # Just call the existing function for now - we'll integrate chart logic directly into it
+#     return get_ai_response_for_batter_stats(query, season, session_id)

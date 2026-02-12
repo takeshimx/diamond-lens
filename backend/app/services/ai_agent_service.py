@@ -119,7 +119,19 @@ def mlb_stats_tool(query: str, season: int = None):
             "isTable": False
         }
 
-    
+
+@tool
+def get_batter_stats_tool(query: str, season: int = None):
+    """打撃成績（打率、本塁打、ランキング、状況別スタッツ等）を取得する専門ツール"""
+    from .analytics.batter_services import get_ai_response_for_batter_stats
+    return get_ai_response_for_batter_stats(query, season)
+
+
+@tool
+def get_pitcher_stats_tool(query: str, season: int = None):
+    """投球成績（防御率、奪三振、ランキング、状況別スタッツ等）を取得する専門ツール"""
+    from .analytics.pitcher_services import get_ai_response_for_pitcher_stats
+    return get_ai_response_for_pitcher_stats(query, season)
 
 
 @tool
@@ -490,6 +502,8 @@ def run_mlb_agent(query: str) -> dict:
     # Step 1: Import agents
     from .agents.supervisor_agent import SupervisorAgent
     from .agents.stats_agent import StatsAgent
+    from .agents.batter_agents import BatterAgent
+    from .agents.pitcher_agents import PitcherAgent
     from .agents.matchup_agent import MatchupAgent
 
     # Step 2: Route query
@@ -508,6 +522,12 @@ def run_mlb_agent(query: str) -> dict:
     # Step 4: Select and initialize agent
     if agent_type == "matchup":
         agent = MatchupAgent(model=model)
+        result = agent.run(query)
+    elif agent_type == "batter":
+        agent = BatterAgent(model=model)
+        result = agent.run(query)
+    elif agent_type == "pitcher":
+        agent = PitcherAgent(model=model)
         result = agent.run(query)
     elif agent_type == "stats":
         agent = StatsAgent(model=model)
