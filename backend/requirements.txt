@@ -20,6 +20,9 @@ langchain
 langchain-google-genai
 langgraph
 
+# MCP Server
+mcp>=0.9.0
+
 # RAG関連（一時無効化 - イメージサイズ削減のため）
 # chromadb>=0.4.0
 # sentence-transformers>=2.2.0

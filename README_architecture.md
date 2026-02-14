@@ -43,6 +43,7 @@ graph TB
 subgraph "Application Layer - Cloud Run"
         Backend[mlb-diamond-lens-api<br/>FastAPI<br/>REST API endpoints]
         Frontend[mlb-diamond-lens-frontend<br/>React + Vite<br/>User dashboard]
+        MCPServer[MCP Server<br/>Model Context Protocol<br/>Claude Desktop/Cursor]
         
         subgraph "AI Core"
             StandardAI[Standard AI Service<br/>Gemini 2.5 Flash<br/>Simple Q&A]
@@ -75,8 +76,10 @@ subgraph "Application Layer - Cloud Run"
     Core --> Marts
 
     Marts --> Backend
+    Marts --> MCPServer
     Backend --> StandardAI
     Backend --> Supervisor
+    MCPServer --> StandardAI
     Supervisor --> StatsAgent
     Supervisor --> MatchupAgent
     StandardAI --> Frontend
@@ -111,6 +114,7 @@ subgraph "Application Layer - Cloud Run"
 | **Transformation** | dbt, Cloud Build | Data modeling and quality |
 | **Backend** | FastAPI, Cloud Run | REST API for analytics |
 | **Frontend** | React + Vite, Cloud Run | User interface |
+| **MCP Server** | Model Context Protocol | Claude Desktop/Cursor integration |
 | **AI Agent** | LangGraph, Gemini 2.5 Flash | Multi-step reasoning & Tool use |
 | **Orchestration** | Cloud Workflows, Cloud Scheduler | Pipeline automation |
 | **Monitoring** | Cloud Monitoring, Discord Webhooks | Custom metrics, alerts, dashboards, pipeline notifications |

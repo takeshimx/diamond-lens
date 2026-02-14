@@ -98,6 +98,7 @@ An AI-powered analytics interface for exploring Major League Baseball statistics
 ### Technical Features
 - **AI-Powered Processing**: Uses Gemini 2.5 Flash for query parsing and response generation
 - **Real-time Interface**: Interactive experience with loading states and live updates
+- **MCP Server Support**: Access MLB stats directly from Claude Desktop and Cursor via Model Context Protocol
 - **Case-insensitive Search**: Flexible player name matching
 - **Dark Theme UI**: Modern, responsive interface optimized for extended use
 - **Secure Access**: Password-protected interface for authorized users
@@ -155,6 +156,7 @@ The application follows a sophisticated 4-step pipeline:
 ### Backend
 - **FastAPI** - Modern Python web framework
 - **Uvicorn** - ASGI server for production deployment
+- **MCP Server** - Model Context Protocol server for Claude Desktop/Cursor integration
 - **Google Cloud BigQuery** - Data warehouse for MLB statistics
 - **Google Cloud Storage** - Additional data storage
 - **Gemini 2.5 Flash API** - AI-powered query processing

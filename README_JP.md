@@ -98,6 +98,7 @@
 ### 技術機能
 - **AI搭載処理**: Gemini 2.5 Flashを使用したクエリ解析とレスポンス生成
 - **リアルタイムインターフェース**: ローディング状態とライブ更新付きのインタラクティブ体験
+- **MCPサーバー対応**: Model Context Protocol経由でClaude DesktopやCursorから直接MLB統計にアクセス
 - **大文字小文字非依存検索**: 柔軟な選手名マッチング
 - **ダークテーマUI**: 長時間使用に最適化されたモダンでレスポンシブなインターフェース
 - **セキュアアクセス**: 認証ユーザー向けパスワード保護インターフェース
@@ -155,6 +156,7 @@
 ### バックエンド
 - **FastAPI** - モダンなPython Webフレームワーク
 - **Uvicorn** - 本番デプロイメント用ASGIサーバー
+- **MCPサーバー** - Claude Desktop/Cursor統合用Model Context Protocolサーバー
 - **Google Cloud BigQuery** - MLB統計のデータウェアハウス
 - **Google Cloud Storage** - 追加データストレージ
 - **Gemini 2.5 Flash API** - AI搭載クエリ処理
