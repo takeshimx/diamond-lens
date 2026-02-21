@@ -11,6 +11,8 @@ from backend.app.api.schemas import QnARequest # For Development, add backend. p
 from backend.app.utils.structured_logger import get_logger
 from backend.app.services.monitoring_service import get_monitoring_service
 from backend.app.services.ai_agent_service import run_mlb_agent
+from backend.app.services.llm_logger_service import get_llm_logger, LLMLogEntry
+from backend.app.config.prompt_registry import get_prompt_version
 import logging
 import time
 
@@ -19,6 +21,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 structured_logger = get_logger("diamond-lens")
 monitoring = get_monitoring_service()
+llm_logger = get_llm_logger()
 
 # APIRouterインスタンスを作成
 # このルーターは、FastAPIアプリケーションの他の部分とは独立してエンドポイントを定義できます。
@@ -44,9 +47,14 @@ async def get_player_stats_qna_endpoint(
     """
     # セッションIDがない場合は新規作成
     session_id = request.session_id or str(uuid4())
-
     start_time = time.time()
-    logger.info(f"🚀 Request received: query='{request.query}', season={request.season}, session_id={session_id}")
+    # LLM ログエントリを初期化
+    log_entry = LLMLogEntry()
+    log_entry.session_id = session_id
+    log_entry.user_query = request.query
+    log_entry.endpoint = "/qa/player-stats"
+    log_entry.prompt_name = "parse_query"
+    log_entry.prompt_version = get_prompt_version("parse_query")
 
     # Structured logging for query
     structured_logger.info(
@@ -80,6 +88,11 @@ async def get_player_stats_qna_endpoint(
         gemini_end = time.time()
         logger.info(f"🤖 Gemini API completed in {gemini_end - gemini_start:.2f} seconds")
 
+        # ログエントリに結果を記録
+        log_entry.llm_latency_ms = (gemini_end - gemini_start) * 1000
+        log_entry.total_latency_ms = (time.time() - start_time) * 1000
+        log_entry.bigquery_latency_ms = bq_latency
+
         total_time = time.time() - start_time
         total_time_ms = total_time * 1000
         logger.info(f"✅ Total request completed in {total_time:.2f} seconds")
@@ -87,6 +100,9 @@ async def get_player_stats_qna_endpoint(
         # Record processing metrics
         if ai_response and ai_response.get("query_info"):
             query_type = ai_response["query_info"].get("query_type", "unknown")
+            log_entry.parsed_query_type = query_type
+            log_entry.parsed_player_name = ai_response["query_info"].get("name")
+            log_entry.parsed_season = ai_response["query_info"].get("season")
             monitoring.record_query_processing_time(query_type, total_time_ms)
             monitoring.record_bigquery_latency(query_type, bq_latency)
 
@@ -99,9 +115,19 @@ async def get_player_stats_qna_endpoint(
 
         if ai_response is None:
             logger.error("❌ AI response is None")
+            log_entry.success = False
+            log_entry.error_type = "null_response"
+            llm_logger.log(log_entry)  # エラーもログに記録
             monitoring.record_api_error("/qa/player-stats", "null_response")
             structured_logger.error("AI response is None")
             raise HTTPException(status_code=500, detail="Failed to generate AI response.")
+        
+        # 成功時のログ記録
+        log_entry.response_answer = ai_response.get("answer", "")
+        log_entry.response_has_table = ai_response.get("isTable", False)
+        log_entry.response_has_chart = ai_response.get("isChart", False)
+        log_entry.success = True
+        llm_logger.log(log_entry)
 
         # ★ レスポンスにセッションIDを含める ★
         ai_response["session_id"] = session_id
@@ -120,6 +146,12 @@ async def get_player_stats_qna_endpoint(
             error_type = "bigquery_error"
         elif "llm" in str(e).lower() or "gemini" in str(e).lower():
             error_type = "llm_error"
+        
+        log_entry.success = False
+        log_entry.error_type = error_type
+        log_entry.error_message = str(e)
+        log_entry.total_latency_ms = (time.time() - start_time) * 1000
+        llm_logger.log(log_entry)  # エラーもログに記録
 
         monitoring.record_api_error("/qa/player-stats", error_type)
         structured_logger.error(
