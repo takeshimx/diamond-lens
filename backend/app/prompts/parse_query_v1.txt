@@ -6,7 +6,15 @@ prompt = f"""
     - 選手名は英語表記（フルネーム）に正規化してください。例：「大谷さん」 -> "Shohei Ohtani"
     - `season`は、ユーザーの質問から年を抽出してください。`season`が指定されていない場合、または「キャリア」や「通算」などの表現があれば、`season`はnullにしてください。
     - `query_type`は "season_batting"、"season_pitching"、 "batting_splits"、または "career_batting" のいずれかを選択してください。
-    - `metrics`には、ユーザーが知りたい指標をリスト形式で格納してください。例えば、ホームラン数を知りたい場合は ["homerun"] とします。打率の場合は ["batting_average"] とし、単語と単語の間にアンダースコアを使用してください。
+    - `metrics`には、ユーザーが知りたい指標をリスト形式で格納してください。
+    - **重要**: metricsには以下の定義済みキー名のみを使用してください。それ以外の名前は絶対に使わないでください。
+    
+    【打撃指標（season_batting / batting_splits / career_batting）】
+    homerun, batting_average, on_base_percentage, slugging_percentage, on_base_plus_slugging, at_bats, hits, runs_batted_in, stolen_bases, strikeouts, games, war
+    
+    【投手指標（season_pitching）】
+    era（防御率）, whip（WHIP）, strikeouts（奪三振）, fip（FIP）, wins（勝利数）, innings_pitched（投球回）, games_started（先発数）, hits_allowed（被安打）, runs（失点）, earned_runs（自責点）, base_on_balls（四球）, batting_average_against（被打率）
+    
     - `split_type`は、「得点圏（RISP）」「満塁」「ランナー1類」「イニング別」「投手が左投げか右投げか」「球種別」「ゲームスコア状況別」などの特定の状況を示します。該当しない場合はnullにしてください。
     - `split_type`で、game_score_situation (ゲームスコア状況別) を選択した場合、`game_score`に具体的なスコア状況（例：1点リード、2点ビハインドなど）を示す必要があります。
         例えば、「1点差ゲーム、1点リード、1点ビハインド」は、'one_run_game'、'one_run_lead'、'one_run_trail'のように表現します。4点以上の差は'four_plus_run_lead'や'four_plus_run_trail'としてください。該当しない場合はnullにしてください。
@@ -15,7 +23,7 @@ prompt = f"""
     - 例えば、「フルカウント」は、 `strikes`を2、`balls`を3としてください。「初球」は、`strikes`を0、`balls`を0とします。該当しない場合はnullにしてください。
     - `pitcher_throws`は、投手の投げ方（右投げまたは左投げ）を示します。右投げはRHP、左投げはLHPとし、該当しない場合はnullにしてください。
     - ユーザーが「主要スタッツ」や「主な成績」のような曖昧な表現を使った場合、metricsには ["main_stats"] というキーワードを一つだけ格納してください。
-    - `order_by`には、ランキングの基準となる指標を一つだけ設定してください。
+    - `order_by`には、ランキングの基準となる指標を一つだけ設定してください。order_byにもmetricsと同じ定義済みキー名を使用してください。
     - `output_format`では、デフォルトは "sentence" です。もしユーザーの質問に『表で』『一覧で』『まとめて』といったような言葉が含まれていたら、output_formatをtableに設定してください。そうでなければsentenceにしてください。
 
     # JSONスキーマ
@@ -54,6 +62,12 @@ prompt = f"""
 
     質問: 「大谷さんのキャリア主要打撃成績を一覧で教えて」
     JSON: {{ "query_type": "career_batting", "name": "Shohei Ohtani", "metrics": ["main_stats"], "order_by": null, "limit": 1, "output_format": "table" }}
+
+    質問: 「2025年の防御率トップ5を表で見せて」
+    JSON: {{ "query_type": "season_pitching", "metrics": ["era"], "season": 2025, "order_by": "era", "limit": 5, "output_format": "table" }}
+
+    質問: 「ポールスキーンズの2025年の防御率とWHIPは？」
+    JSON: {{ "query_type": "season_pitching", "name": "Paul Skenes", "season": 2025, "metrics": ["era", "whip"], "order_by": null, "limit": 1 }}
 
     質問: 「大谷さんの2024年の、1点ビハインドでの主要スタッツは？」
     JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["main_stats"], "split_type": "game_score_situation", "game_score": "one_run_trail", "order_by": null, "limit": 1 }}

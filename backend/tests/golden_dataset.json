@@ -1,0 +1,140 @@
+{
+    "description": "LLM評価用ゴールデンデータセット - パース精度の検証",
+    "version": "1.0",
+    "created_at": "2026-02-22",
+    "test_cases": [
+        {
+            "id": "GD-001",
+            "category": "season_batting",
+            "query": "2025年のホームラン王は誰？",
+            "season": null,
+            "expected": {
+                "query_type": "season_batting",
+                "metrics_contains": [
+                    "homerun"
+                ],
+                "season": 2025,
+                "order_by": "homerun",
+                "name": null
+            }
+        },
+        {
+            "id": "GD-002",
+            "category": "season_batting",
+            "query": "大谷翔平の2025年の打率は？",
+            "season": null,
+            "expected": {
+                "query_type": "season_batting",
+                "metrics_contains": [
+                    "batting_average"
+                ],
+                "season": 2025,
+                "name": "Shohei Ohtani"
+            }
+        },
+        {
+            "id": "GD-003",
+            "category": "season_pitching",
+            "query": "2025年の防御率トップ5を表で見せて",
+            "season": null,
+            "expected": {
+                "query_type": "season_pitching",
+                "metrics_contains": [
+                    "era"
+                ],
+                "season": 2025,
+                "output_format": "table",
+                "limit": 5
+            }
+        },
+        {
+            "id": "GD-004",
+            "category": "batting_splits",
+            "query": "ムーキー・ベッツの2025年得点圏打率は？",
+            "season": null,
+            "expected": {
+                "query_type": "batting_splits",
+                "split_type": "risp",
+                "metrics_contains": [
+                    "batting_average"
+                ],
+                "name": "Mookie Betts",
+                "season": 2025
+            }
+        },
+        {
+            "id": "GD-005",
+            "category": "career_batting",
+            "query": "マイク・トラウトの通算ホームラン数は？",
+            "season": null,
+            "expected": {
+                "query_type": "career_batting",
+                "metrics_contains": [
+                    "homerun"
+                ],
+                "name": "Mike Trout",
+                "season": null
+            }
+        },
+        {
+            "id": "GD-006",
+            "category": "season_batting",
+            "query": "アーロン・ジャッジの2025年の主要スタッツを教えて",
+            "season": null,
+            "expected": {
+                "query_type": "season_batting",
+                "metrics_contains": [
+                    "main_stats"
+                ],
+                "name": "Aaron Judge",
+                "season": 2025
+            }
+        },
+        {
+            "id": "GD-007",
+            "category": "batting_splits",
+            "query": "大谷翔平の左投手に対する打率は？2025年",
+            "season": null,
+            "expected": {
+                "query_type": "batting_splits",
+                "split_type": "pitcher_throws",
+                "metrics_contains": [
+                    "batting_average"
+                ],
+                "name": "Shohei Ohtani",
+                "pitcher_throws": "LHP",
+                "season": 2025
+            }
+        },
+        {
+            "id": "GD-008",
+            "category": "season_pitching",
+            "query": "2025年のWHIPが最も低いピッチャーは？",
+            "season": null,
+            "expected": {
+                "query_type": "season_pitching",
+                "metrics_contains": [
+                    "whip"
+                ],
+                "name": null,
+                "season": 2025,
+                "order_by": "whip"
+            }
+        },
+        {
+            "id": "GD-010",
+            "category": "season_pitching",
+            "query": "ポールスキーンズの2025年の防御率とWHIPは？",
+            "season": null,
+            "expected": {
+                "query_type": "season_pitching",
+                "metrics_contains": [
+                    "era",
+                    "whip"
+                ],
+                "name": "Paul Skenes",
+                "season": 2025
+            }
+        }
+    ]
+}
