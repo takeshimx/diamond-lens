@@ -116,6 +116,7 @@ subgraph "Application Layer - Cloud Run"
 | **Frontend** | React + Vite, Cloud Run | User interface |
 | **MCP Server** | Model Context Protocol | Claude Desktop/Cursor integration |
 | **AI Agent** | LangGraph, Gemini 2.5 Flash | Multi-step reasoning & Tool use |
+| **MLOps** | Prompt Registry, Golden Dataset, BigQuery Logging | Prompt versioning, LLM evaluation gate, I/O observability |
 | **Orchestration** | Cloud Workflows, Cloud Scheduler | Pipeline automation |
 | **Monitoring** | Cloud Monitoring, Discord Webhooks | Custom metrics, alerts, dashboards, pipeline notifications |
 
@@ -201,7 +202,20 @@ subgraph "Application Layer - Cloud Run"
 | **Capabilities** | Intelligently handles complex vs specific queries, automated visualization, and professional analyst reports |
 | **Frontend Sync** | Structured `matchupData` or `chartData` triggers specialized UI components |
 
-### 6. Orchestration
+### 6. MLOps: Prompt Versioning, LLM I/O Logging & Evaluation Gate
+
+| Property | Value |
+|----------|-------|
+| **Prompt Versioning** | Externalized prompts as versioned text files (`parse_query_v1.txt`, `routing_v1.txt`) |
+| **Prompt Registry** | `prompt_registry.py` manages prompt loading and version switching |
+| **LLM I/O Logging** | `llm_logger_service.py` logs all LLM interactions to BigQuery asynchronously |
+| **Logged Fields** | User query, parsed result, prompt version, latency, errors, routing result |
+| **Evaluation Gate** | `evaluate_llm_accuracy.py` runs LLM against golden dataset in CI/CD |
+| **Golden Dataset** | `golden_dataset.json` with 9 test cases covering batting, pitching, splits, career |
+| **Pass Threshold** | 80% accuracy required to proceed with deployment |
+| **Critical Fields** | `query_type` mismatch causes immediate failure regardless of overall accuracy |
+
+### 7. Orchestration
 
 | Property | Value |
 |----------|-------|

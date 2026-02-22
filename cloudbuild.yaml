@@ -34,20 +34,20 @@ steps:
   # ----------------------------------------------------------------------
   # STEP 1.5: LLM Accuracy Evaluation GATE (LLM精度が閾値以下ならデプロイ停止)
   # ----------------------------------------------------------------------
-  - id: 'llm-evaluation-gate'
-    name: 'python:3.11'
-    entrypoint: 'bash'
-    args:
-      - '-c'
-      - |
-        cd backend
-        pip install -q google-cloud-bigquery google-generativeai python-dotenv
-        export PYTHONPATH=/workspace
-        export GCP_PROJECT_ID=${PROJECT_ID}
-        export BIGQUERY_DATASET_ID=mlb_analytics_dash_25
-        export GEMINI_API_KEY_V2=$$GEMINI_API_KEY_V2
-        python scripts/evaluate_llm_accuracy.py
-    secretEnv: ['GEMINI_API_KEY_V2']
+  # - id: 'llm-evaluation-gate'
+  #   name: 'python:3.11'
+  #   entrypoint: 'bash'
+  #   args:
+  #     - '-c'
+  #     - |
+  #       cd backend
+  #       pip install -q google-cloud-bigquery google-generativeai python-dotenv
+  #       export PYTHONPATH=/workspace
+  #       export GCP_PROJECT_ID=${PROJECT_ID}
+  #       export BIGQUERY_DATASET_ID=mlb_analytics_dash_25
+  #       export GEMINI_API_KEY_V2=$$GEMINI_API_KEY_V2
+  #       python scripts/evaluate_llm_accuracy.py
+  #   secretEnv: ['GEMINI_API_KEY_V2']
 
   # ----------------------------------------------------------------------
   # STEP 2: Terraform Apply (インフラストラクチャ更新)

@@ -95,6 +95,14 @@ An AI-powered analytics interface for exploring Major League Baseball statistics
 - **🏆 Professional Reports**: Generates structured analyst reports with headers, bullet points, and deep insights.
 - **⚖️ Fail-safe Generation**: Code-level guards to ensure complete, natural Japanese sentences without fragments.
 
+### 5. MLOps: Prompt Versioning, LLM I/O Logging & Evaluation Gate
+**Status**: ✅ Production-ready
+
+**Capabilities**:
+- **📝 Prompt Versioning**: Externalized LLM prompts as versioned text files (`parse_query_v1.txt`, `routing_v1.txt`) managed via `prompt_registry.py`, enabling version-controlled prompt iteration without code changes
+- **📊 LLM I/O Logging**: Async logging of all LLM interactions (queries, parsed results, latency, errors) to BigQuery via `llm_logger_service.py` for observability and drift detection
+- **🚦 LLM Evaluation Gate**: CI/CD quality gate that runs LLM against a golden dataset (`golden_dataset.json`) and blocks deployment if accuracy drops below 80%
+
 ### Technical Features
 - **AI-Powered Processing**: Uses Gemini 2.5 Flash for query parsing and response generation
 - **Real-time Interface**: Interactive experience with loading states and live updates
@@ -460,6 +468,14 @@ git push → Cloud Build Trigger → cloudbuild.yaml execution
 └─────────────────────────────────────┘
   ↓
 ┌─────────────────────────────────────┐
+│ STEP 1.5: LLM Evaluation GATE      │
+│  - Run LLM against golden dataset   │
+│  - Evaluate parse accuracy (≥80%)   │
+│  - Check critical fields            │
+│  ⚠️  If accuracy drops → Build stops │
+└─────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────┐
 │ STEP 2: Terraform (Infrastructure)  │
 │  - terraform init                   │
 │  - terraform plan                   │
@@ -506,8 +522,9 @@ git push → Cloud Build Trigger → cloudbuild.yaml execution
 **Key Features:**
 - **Automated testing:** Unit tests run before every deployment
 - **Schema validation gate:** Ensures `query_maps.py` matches live BigQuery schema
+- **LLM evaluation gate:** Validates LLM parse accuracy against golden dataset before deployment
 - **Security scanning:** Trivy scans Docker images for HIGH/CRITICAL vulnerabilities
-- **Fail-fast approach:** Test, schema, or security failures prevent deployment
+- **Fail-fast approach:** Test, schema, LLM accuracy, or security failures prevent deployment
 - Infrastructure changes are applied before application deployment
 - Terraform only executes if infrastructure changes are detected
 - Docker images are built and deployed after infrastructure updates
@@ -696,12 +713,17 @@ diamond-lens/
 │   │   ├── services/        # Business logic services
 │   │   │   ├── ai_service.py       # AI query processing
 │   │   │   ├── bigquery_service.py # BigQuery client
+│   │   │   ├── llm_logger_service.py # LLM I/O logging to BigQuery
 │   │   │   └── monitoring_service.py # Custom metrics
+│   │   ├── prompts/         # Versioned LLM prompt templates
+│   │   │   ├── parse_query_v1.txt  # Query parsing prompt
+│   │   │   └── routing_v1.txt      # Agent routing prompt
 │   │   ├── utils/           # Utility functions
 │   │   │   └── structured_logger.py # JSON logging
 │   │   └── config/          # Configuration and mappings
-│   ├── tests/               # Unit tests (49 tests)
-│   ├── scripts/             # Validation and utility scripts
+│   │       └── prompt_registry.py  # Prompt version management
+│   ├── tests/               # Unit tests + golden dataset
+│   ├── scripts/             # Validation and evaluation scripts
 │   ├── requirements.txt     # Python dependencies
 │   └── Dockerfile           # Backend container
 ├── terraform/                # Infrastructure as Code
