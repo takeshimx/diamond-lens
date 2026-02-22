@@ -20,8 +20,8 @@ langchain
 langchain-google-genai
 langgraph
 
-# MCP Server
-mcp
+# MCP Server (only for local development)
+# mcp
 
 # RAG関連（一時無効化 - イメージサイズ削減のため）
 # chromadb>=0.4.0
