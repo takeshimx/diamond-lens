@@ -1,35 +1,35 @@
 # CI/CD Pipeline Configuration for MLB API Service Deployment (as of Aug 24, 2025, wip)
 steps:
-  # # ----------------------------------------------------------------------
-  # # STEP 0: Unit Tests (テスト失敗時はデプロイしない)
-  # # ----------------------------------------------------------------------
-  # - id: 'backend-unit-tests'
-  #   name: 'python:3.9'
-  #   entrypoint: 'bash'
-  #   args:
-  #     - '-c'
-  #     - |
-  #       cd backend
-  #       pip install -q -r requirements.txt
-  #       pip install -q pytest pytest-asyncio
-  #       export PYTHONPATH=/workspace
-  #       python -m pytest tests/ -v --tb=short
+  # ----------------------------------------------------------------------
+  # STEP 0: Unit Tests (テスト失敗時はデプロイしない)
+  # ----------------------------------------------------------------------
+  - id: 'backend-unit-tests'
+    name: 'python:3.9'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        cd backend
+        pip install -q -r requirements.txt
+        pip install -q pytest pytest-asyncio
+        export PYTHONPATH=/workspace
+        python -m pytest tests/test_security.py tests/test_build_dynamic_sql.py tests/test_query_maps.py tests/test_llm_evaluation.py -v --tb=short
 
-  # # ----------------------------------------------------------------------
-  # # STEP 1: Schema Validation GATE (スキーマ不一致時はデプロイしない)
-  # # ----------------------------------------------------------------------
-  # - id: 'schema-validation-gate'
-  #   name: 'python:3.9'
-  #   entrypoint: 'bash'
-  #   args:
-  #     - '-c'
-  #     - |
-  #       cd backend
-  #       pip install -q google-cloud-bigquery python-dotenv
-  #       export PYTHONPATH=/workspace
-  #       export GCP_PROJECT_ID=${PROJECT_ID}
-  #       export BIGQUERY_DATASET_ID=mlb_analytics_dash_25
-  #       python scripts/validate_schema_config.py
+  # ----------------------------------------------------------------------
+  # STEP 1: Schema Validation GATE (スキーマ不一致時はデプロイしない)
+  # ----------------------------------------------------------------------
+  - id: 'schema-validation-gate'
+    name: 'python:3.9'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        cd backend
+        pip install -q google-cloud-bigquery python-dotenv
+        export PYTHONPATH=/workspace
+        export GCP_PROJECT_ID=${PROJECT_ID}
+        export BIGQUERY_DATASET_ID=mlb_analytics_dash_25
+        python scripts/validate_schema_config.py
 
   # ----------------------------------------------------------------------
   # STEP 1.5: LLM Accuracy Evaluation GATE (LLM精度が閾値以下ならデプロイ停止)
