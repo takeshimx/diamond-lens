@@ -205,6 +205,13 @@ def validate_metric_mappings(client: bigquery.Client) -> bool:
                         table_id = QUERY_TYPE_CONFIG["batting_splits"][split_type]["table_id"]
                     else:
                         continue  # 不明なスプリットタイプはスキップ
+                elif "pitching_splits" in query_type_key:
+                    # pitching_splitsの場合、QUERY_TYPE_CONFIGから取得
+                    split_type = query_type_key.replace("pitching_splits_", "")
+                    if split_type in QUERY_TYPE_CONFIG.get("pitching_splits", {}):
+                        table_id = QUERY_TYPE_CONFIG["pitching_splits"][split_type]["table_id"]
+                    else:
+                        continue  # 不明なスプリットタイプはスキップ
                 else:
                     continue  # 不明なクエリタイプはスキップ
 
@@ -247,9 +254,12 @@ def main():
     # QUERY_TYPE_CONFIGの検証
     print_header("Validating QUERY_TYPE_CONFIG Tables")
 
+    # ネスト構造を持つクエリタイプ（batting_splits, pitching_splits など）
+    nested_query_types = {"batting_splits", "pitching_splits"}
+
     for query_type, config in QUERY_TYPE_CONFIG.items():
-        if query_type == "batting_splits":
-            # batting_splitsのネスト構造を処理
+        if query_type in nested_query_types:
+            # ネスト構造を処理
             for split_name, split_config in config.items():
                 table_id = split_config["table_id"]
                 result = validate_table_columns(
