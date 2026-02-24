@@ -26,42 +26,47 @@ from backend.app.config.query_maps import (
 class TestQueryTypeConfig:
     """QUERY_TYPE_CONFIG の構造を検証"""
 
+    # ネスト構造を持つクエリタイプ（batting_splits, pitching_splits など）
+    NESTED_QUERY_TYPES = {"batting_splits", "pitching_splits"}
+
     def test_all_query_types_have_required_fields(self):
         """すべてのクエリタイプが必須フィールドを持つことを検証"""
         required_fields = ["table_id", "year_col", "player_col"]
 
         for query_type, config in QUERY_TYPE_CONFIG.items():
-            if query_type == "batting_splits":
-                # batting_splits は特殊構造なのでスキップ
+            if query_type in self.NESTED_QUERY_TYPES:
+                # ネスト構造はスキップ（専用テストで検証）
                 continue
 
             for field in required_fields:
                 assert field in config, f"{query_type} lacks required field: {field}"
 
-    def test_batting_splits_structure(self):
-        """batting_splits の特殊構造を検証"""
-        assert "batting_splits" in QUERY_TYPE_CONFIG
-        batting_splits = QUERY_TYPE_CONFIG["batting_splits"]
-
-        # batting_splits は辞書のネスト構造
-        assert isinstance(batting_splits, dict)
-
-        # 各スプリットタイプが必須フィールドを持つ
+    def test_nested_splits_structure(self):
+        """ネスト構造（batting_splits, pitching_splits）の構造を検証"""
         required_fields = ["table_id", "year_col", "player_col"]
-        for split_name, split_config in batting_splits.items():
-            for field in required_fields:
-                assert field in split_config, f"batting_splits.{split_name} lacks {field}"
+
+        for nested_type in self.NESTED_QUERY_TYPES:
+            assert nested_type in QUERY_TYPE_CONFIG, f"{nested_type} not in QUERY_TYPE_CONFIG"
+            splits = QUERY_TYPE_CONFIG[nested_type]
+
+            # ネスト構造は辞書の辞書
+            assert isinstance(splits, dict), f"{nested_type} must be a dict"
+
+            # 各スプリットタイプが必須フィールドを持つ
+            for split_name, split_config in splits.items():
+                for field in required_fields:
+                    assert field in split_config, f"{nested_type}.{split_name} lacks {field}"
 
     def test_all_query_types_have_available_metrics(self):
         """すべてのクエリタイプが available_metrics を持つことを検証"""
         for query_type, config in QUERY_TYPE_CONFIG.items():
-            if query_type == "batting_splits":
-                # batting_splits の各サブタイプをチェック
+            if query_type in self.NESTED_QUERY_TYPES:
+                # ネスト構造の各サブタイプをチェック
                 for split_name, split_config in config.items():
                     assert "available_metrics" in split_config, \
-                        f"batting_splits.{split_name} lacks available_metrics"
+                        f"{query_type}.{split_name} lacks available_metrics"
                     assert isinstance(split_config["available_metrics"], list), \
-                        f"batting_splits.{split_name}.available_metrics must be a list"
+                        f"{query_type}.{split_name}.available_metrics must be a list"
             else:
                 assert "available_metrics" in config, \
                     f"{query_type} lacks available_metrics"
@@ -71,10 +76,10 @@ class TestQueryTypeConfig:
     def test_table_ids_are_strings(self):
         """すべての table_id が文字列であることを検証"""
         for query_type, config in QUERY_TYPE_CONFIG.items():
-            if query_type == "batting_splits":
+            if query_type in self.NESTED_QUERY_TYPES:
                 for split_name, split_config in config.items():
                     assert isinstance(split_config["table_id"], str), \
-                        f"batting_splits.{split_name}.table_id must be a string"
+                        f"{query_type}.{split_name}.table_id must be a string"
             else:
                 assert isinstance(config["table_id"], str), \
                     f"{query_type}.table_id must be a string"
@@ -82,10 +87,10 @@ class TestQueryTypeConfig:
     def test_player_col_not_empty_for_non_career(self):
         """career以外のクエリタイプでは player_col が空でないことを検証"""
         for query_type, config in QUERY_TYPE_CONFIG.items():
-            if query_type == "batting_splits":
+            if query_type in self.NESTED_QUERY_TYPES:
                 for split_name, split_config in config.items():
                     assert split_config["player_col"], \
-                        f"batting_splits.{split_name}.player_col should not be empty"
+                        f"{query_type}.{split_name}.player_col should not be empty"
             elif query_type not in ["career_batting"]:
                 assert config["player_col"], \
                     f"{query_type}.player_col should not be empty"
@@ -234,13 +239,15 @@ class TestMainStatsLists:
 class TestCrossValidation:
     """異なる設定間の整合性を検証"""
 
+    NESTED_QUERY_TYPES = {"batting_splits", "pitching_splits"}
+
     def test_available_metrics_match_metric_map_keys(self):
         """available_metrics の値が METRIC_MAP のキーと整合していることを検証"""
         # すべての available_metrics を収集
         all_available_metrics = set()
 
         for query_type, config in QUERY_TYPE_CONFIG.items():
-            if query_type == "batting_splits":
+            if query_type in self.NESTED_QUERY_TYPES:
                 for split_config in config.values():
                     all_available_metrics.update(split_config["available_metrics"])
             else:

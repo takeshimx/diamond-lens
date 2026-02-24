@@ -1,0 +1,14 @@
+# CI/CD テスト実行用イメージ（依存プリインストール済み）
+# ビルド: docker build -f Dockerfile.test -t gcr.io/<PROJECT_ID>/python-test-runner:latest .
+# プッシュ: docker push gcr.io/<PROJECT_ID>/python-test-runner:latest
+# 再ビルドが必要なタイミング: requirements.txt を変更したとき
+
+FROM python:3.9-slim
+
+WORKDIR /workspace
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir pytest pytest-asyncio
+
+ENV PYTHONPATH=/workspace

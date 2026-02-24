@@ -4,14 +4,14 @@ steps:
   # STEP 0: Unit Tests (テスト失敗時はデプロイしない)
   # ----------------------------------------------------------------------
   - id: 'backend-unit-tests'
-    name: 'python:3.9'
+    name: 'gcr.io/${PROJECT_ID}/python-test-runner:latest'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
         cd backend
-        pip install -q -r requirements.txt
-        pip install -q pytest pytest-asyncio
+        pip install -q --cache-dir /workspace/.pip-cache -r requirements.txt
+        pip install -q --cache-dir /workspace/.pip-cache pytest pytest-asyncio
         export PYTHONPATH=/workspace
         python -m pytest tests/test_security.py tests/test_build_dynamic_sql.py tests/test_query_maps.py tests/test_llm_evaluation.py -v --tb=short
 
