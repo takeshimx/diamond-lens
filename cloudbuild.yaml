@@ -210,8 +210,8 @@ availableSecrets:
   secretManager:
     - versionName: projects/${PROJECT_ID}/secrets/VITE_APP_PASSWORD_V2/versions/latest
       env: 'VITE_APP_PASSWORD_V2'
-    - versionName: projects/${PROJECT_ID}/secrets/NOTIFICATION_EMAIL_V2/versions/latest
-      env: 'NOTIFICATION_EMAIL_V2'
+    # - versionName: projects/${PROJECT_ID}/secrets/NOTIFICATION_EMAIL_V2/versions/latest
+    #   env: 'NOTIFICATION_EMAIL_V2'
 
 # トリガー実行時のエラーを回避するため、ログの保存先を明示的に指定
 options:
