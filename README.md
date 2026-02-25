@@ -131,7 +131,7 @@ The application follows a sophisticated 4-step pipeline:
 3. **📊 BigQuery Data Retrieval**
    - Executes generated SQL against MLB statistics tables in GCP project `your-project-id`
    - Main tables: `fact_batting_stats_with_risp`, `fact_pitching_stats`
-   - Specialized tables for splits: `tbl_batter_clutch_*`, `tbl_batter_inning_stats`, etc.
+   - Specialized tables for splits: `tbl_batter_clutch_*`, `mart_batter_inning_stats`, etc.
 
 4. **💬 LLM Response Generation** (`ai_service._generate_final_response_with_llm`)
    - Converts structured data back to natural Japanese responses

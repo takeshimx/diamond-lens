@@ -131,7 +131,7 @@
 3. **📊 BigQueryデータ取得**
    - GCPプロジェクト `project-id` のMLB統計テーブルに対して生成されたSQLを実行
    - メインテーブル：`fact_batting_stats_with_risp`、`fact_pitching_stats`
-   - スプリット専用テーブル：`tbl_batter_clutch_*`、`tbl_batter_inning_stats`など
+   - スプリット専用テーブル：`tbl_batter_clutch_*`、`mart_batter_inning_stats`など
 
 4. **💬 LLMレスポンス生成** (`ai_service._generate_final_response_with_llm`)
    - 構造化データを自然な日本語レスポンスに変換

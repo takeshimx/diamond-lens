@@ -648,6 +648,10 @@ class MLBDataEngine:
         if params.get("season"):
             where_conditions.append(f"{year_column} = @season")
             query_parameters["season"] = params["season"]
+        
+        if config.get("filter_col") and config.get("filter_val"):
+            where_conditions.append(f"{config['filter_col']} = @filter_val")
+            query_parameters["filter_val"] = config["filter_val"]
 
         if params.get("inning") is not None and split_type == "inning":
             where_conditions.append(f"inning = @inning")

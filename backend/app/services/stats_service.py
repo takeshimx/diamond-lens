@@ -194,28 +194,30 @@ def get_batter_season_splits_stats(
     指定された選手名とシーズンに基づいて、選手の打撃スプリット成績を取得します。
     """
     if split_type == 'risp':
-        available_metrics = ["hits_at_risp", "homeruns_at_risp", "doubles_at_risp", "triples_at_risp", "singles_at_risp", "ab_at_risp", 
-                             "avg_at_risp", "obp_at_risp", "slg_at_risp", "ops_at_risp", "strikeout_rate_at_risp"]
-        table_id = "tbl_batter_clutch_risp"
+        available_metrics = ["hits", "homeruns", "doubles", "triples", "singles", "ab", 
+                             "avg", "obp", "slg", "ops", "strikeout_rate"]
+        table_id = "mart_batter_clutch"
     elif split_type == 'bases_loaded':
-        available_metrics = ["hits_at_bases_loaded", "grandslam", "doubles_at_bases_loaded", "triples_at_bases_loaded", "singles_at_bases_loaded", "ab_at_bases_loaded", 
-                             "avg_at_bases_loaded", "obp_at_bases_loaded", "slg_at_bases_loaded", "ops_at_bases_loaded", "strikeout_rate_at_bases_loaded"]
-        table_id = "tbl_batter_clutch_bases_loaded"
+        available_metrics = ["hits", "homeruns", "doubles", "triples", "singles", "ab", 
+                             "avg", "obp", "slg", "ops", "strikeout_rate"]
+        table_id = "mart_batter_clutch"
     # Add more split type if needed
     
     selected_metrics = ", ".join([metric for metric in metrics if metric in available_metrics]) if metrics else ""
 
     # Build WHERE clause based on season parameter
     if season is not None:
-        where_clause = "batter_id = @player_id AND game_year = @season"
+        where_clause = "batter_id = @player_id AND game_year = @season AND situation_type = @situation_type"
         query_parameters = [
             bigquery.ScalarQueryParameter("player_id", "INT64", player_id),
-            bigquery.ScalarQueryParameter("season", "INT64", season)
+            bigquery.ScalarQueryParameter("season", "INT64", season),
+            bigquery.ScalarQueryParameter("situation_type", "STRING", split_type)
         ]
     else:
-        where_clause = "batter_id = @player_id"
+        where_clause = "batter_id = @player_id AND situation_type = @situation_type"
         query_parameters = [
-            bigquery.ScalarQueryParameter("player_id", "INT64", player_id)
+            bigquery.ScalarQueryParameter("player_id", "INT64", player_id),
+            bigquery.ScalarQueryParameter("situation_type", "STRING", split_type)
         ]
 
     query = f"""
@@ -796,7 +798,7 @@ def get_batter_performance_at_risp(
 #     query = f"""
 #         SELECT
 #             *
-#         FROM `{PROJECT_ID}.{DATASET_ID}.tbl_batter_inning_stats`
+#         FROM `{PROJECT_ID}.{DATASET_ID}.mart_batter_inning_stats`
 #         WHERE batter_id = @batter_id
 #         {season_where_clause}
 #     """

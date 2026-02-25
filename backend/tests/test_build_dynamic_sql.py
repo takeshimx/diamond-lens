@@ -243,11 +243,13 @@ class TestBattingSplitsSQL:
         sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
-        assert "tbl_batter_clutch_risp" in sql
-        assert "avg_at_risp" in sql
-        assert "homeruns_at_risp" in sql
+        assert "mart_batter_clutch" in sql
+        assert "avg" in sql
+        assert "homeruns" in sql
         assert "@player_name" in sql
         assert sql_params["player_name"] == "Mookie Betts"
+        assert "@filter_val" in sql
+        assert sql_params["filter_val"] == "risp"
 
     def test_bases_loaded_batting_splits(self):
         """満塁打撃スプリットのSQL生成を検証"""
@@ -261,8 +263,10 @@ class TestBattingSplitsSQL:
         sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
-        assert "tbl_batter_clutch_bases_loaded" in sql
-        assert "avg_at_bases_loaded" in sql
+        assert "mart_batter_clutch" in sql
+        assert "avg" in sql
+        assert "@filter_val" in sql
+        assert sql_params["filter_val"] == "bases_loaded"
 
     def test_inning_batting_splits(self):
         """イニング別打撃スプリットのSQL生成を検証"""
@@ -277,7 +281,7 @@ class TestBattingSplitsSQL:
         sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
-        assert "tbl_batter_inning_stats" in sql
+        assert "mart_batter_inning_stats" in sql
         assert "@inning" in sql
         assert sql_params["inning"] == 7
 
@@ -294,7 +298,7 @@ class TestBattingSplitsSQL:
         sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
-        assert "tbl_batter_pitcher_throws_stats" in sql
+        assert "mart_batter_pitcher_throws" in sql
         assert "@pitcher_throws" in sql
         assert sql_params["pitcher_throws"] == "LHP"
 
@@ -311,7 +315,7 @@ class TestBattingSplitsSQL:
         sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
-        assert "tbl_batter_pitch_type_stats" in sql
+        assert "mart_batter_pitch_type" in sql
         assert "pitch_name = 'Fastball'" in sql or "pitch_name IN" in sql
 
     def test_pitch_type_multiple_batting_splits(self):
