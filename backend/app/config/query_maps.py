@@ -44,43 +44,43 @@ QUERY_TYPE_CONFIG = {
             "available_metrics": ["ab", "avg", "obp", "slg", "homeruns"]
         },
         "inning": {
-            "table_id": "tbl_batter_inning_stats",
+            "table_id": "mart_batter_inning_stats",
             "year_col": "game_year",
             "player_col": "batter_name",
             "available_metrics": ["ab_by_inning", "avg_by_inning", "obp_by_inning", "slg_by_inning", "homeruns_by_inning", "ops_by_inning"]
         },
         "pitcher_throws": {
-            "table_id": "tbl_batter_pitcher_throws_stats",
+            "table_id": "mart_batter_pitcher_throws",
             "year_col": "game_year",
             "player_col": "batter_name",
             "available_metrics": ["ab_by_p_throws", "avg_by_p_throws", "obp_by_p_throws", "slg_by_p_throws", "homeruns_by_p_throws", "ops_by_p_throws"]
         },
         "pitch_type": {
-            "table_id": "tbl_batter_pitch_type_stats",
+            "table_id": "mart_batter_pitch_type",
             "year_col": "game_year",
             "player_col": "batter_name",
             "available_metrics": ["ab_by_pitch_type", "avg_by_pitch_type", "obp_by_pitch_type", "slg_by_pitch_type", "homeruns_by_pitch_type", "ops_by_pitch_type"]
         },
         "pitch_count": {
-            "table_id": "tbl_batter_pitch_count_stats",
+            "table_id": "mart_batter_pitch_count",
             "year_col": "game_year",
             "player_col": "batter_name",
             "available_metrics": ["ab_by_pitch_count", "avg_by_pitch_count", "obp_by_pitch_count", "slg_by_pitch_count", "homeruns_by_pitch_count", "ops_by_pitch_count"]
         },
         "pitch_speed": {
-            "table_id": "tbl_batter_pitch_speed_stats",
+            "table_id": "mart_batter_pitch_speed",
             "year_col": "game_year",
             "player_col": "batter_name",
             "available_metrics": ["ab_by_release_speed", "avg_by_release_speed", "obp_by_release_speed", "slg_by_release_speed", "homeruns_by_release_speed", "ops_by_release_speed"]
         },
         "game_score_situation": {
-            "table_id": "tbl_batter_game_score_situations_stats",
+            "table_id": "mart_batter_game_score_situations",
             "year_col": "game_year",
             "player_col": "batter_name",
             "available_metrics": ["ab_by_game_score_situation", "avg_by_game_score_situation", "obp_by_game_score_situation", "slg_by_game_score_situation", "homeruns_by_game_score_situation", "ops_by_game_score_situation"]
         },
         "zone": {
-            "table_id": "tbl_batter_zone_stats",
+            "table_id": "mart_batter_zone",
             "year_col": "game_year",
             "player_col": "batter_name",
             "available_metrics": ["ab_by_zone", "avg_by_zone", "obp_by_zone", "slg_by_zone", "homeruns_by_zone", "ops_by_zone"]

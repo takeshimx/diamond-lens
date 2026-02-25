@@ -281,7 +281,7 @@ class TestBattingSplitsSQL:
         sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
-        assert "tbl_batter_inning_stats" in sql
+        assert "mart_batter_inning_stats" in sql
         assert "@inning" in sql
         assert sql_params["inning"] == 7
 
@@ -298,7 +298,7 @@ class TestBattingSplitsSQL:
         sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
-        assert "tbl_batter_pitcher_throws_stats" in sql
+        assert "mart_batter_pitcher_throws" in sql
         assert "@pitcher_throws" in sql
         assert sql_params["pitcher_throws"] == "LHP"
 
@@ -315,7 +315,7 @@ class TestBattingSplitsSQL:
         sql, sql_params = _build_dynamic_sql(params)
 
         assert sql is not None
-        assert "tbl_batter_pitch_type_stats" in sql
+        assert "mart_batter_pitch_type" in sql
         assert "pitch_name = 'Fastball'" in sql or "pitch_name IN" in sql
 
     def test_pitch_type_multiple_batting_splits(self):

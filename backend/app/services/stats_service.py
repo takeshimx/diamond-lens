@@ -798,7 +798,7 @@ def get_batter_performance_at_risp(
 #     query = f"""
 #         SELECT
 #             *
-#         FROM `{PROJECT_ID}.{DATASET_ID}.tbl_batter_inning_stats`
+#         FROM `{PROJECT_ID}.{DATASET_ID}.mart_batter_inning_stats`
 #         WHERE batter_id = @batter_id
 #         {season_where_clause}
 #     """
