@@ -164,7 +164,7 @@ class QueryBuilder:
         
         # WHERE句の構築
         where_clause, query_parameters = self._build_where_clause(
-            params, player_name_col, year_column, split_type
+            params, player_name_col, year_column, split_type, config
         )
         
         # GROUP BY句の構築
@@ -439,7 +439,8 @@ class QueryBuilder:
         params: Dict[str, Any],
         player_name_col: str,
         year_column: str,
-        split_type: Optional[str]
+        split_type: Optional[str],
+        config: Dict
     ) -> Tuple[str, Dict[str, Any]]:
         """WHERE句を構築（パラメータ化）"""
         where_conditions = []
@@ -452,6 +453,10 @@ class QueryBuilder:
         if params.get("season"):
             where_conditions.append(f"{year_column} = @season")
             query_parameters["season"] = params["season"]
+        
+        if config.get("filter_col") and config.get("filter_val"):
+            where_conditions.append(f"{config['filter_col']} = @filter_val")
+            query_parameters["filter_val"] = config["filter_val"]
         
         if params.get("inning") is not None and split_type == "inning":
             where_conditions.append("inning = @inning")

@@ -20,22 +20,28 @@ QUERY_TYPE_CONFIG = {
     },
     "batting_splits": {
         "risp": {
-            "table_id": "tbl_batter_clutch_risp",
+            "table_id": "mart_batter_clutch",
             "year_col": "game_year",
             "player_col": "batter_name",
-            "available_metrics": ["ab_at_risp", "avg_at_risp", "obp_at_risp", "slg_at_risp", "homeruns_at_risp"]
+            "filter_col": "situation_type",
+            "filter_val": "risp",
+            "available_metrics": ["ab", "avg", "obp", "slg", "homeruns"]
         },
         "bases_loaded": {
-            "table_id": "tbl_batter_clutch_bases_loaded",
+            "table_id": "mart_batter_clutch",
             "year_col": "game_year",
             "player_col": "batter_name",
-            "available_metrics": ["ab_at_bases_loaded", "avg_at_bases_loaded", "obp_at_bases_loaded", "slg_at_bases_loaded", "grandslam"]
+            "filter_col": "situation_type",
+            "filter_val": "bases_loaded",
+            "available_metrics": ["ab", "avg", "obp", "slg", "homeruns"]
         },
         "runner_on_1b": {
-            "table_id": "tbl_batter_clutch_runner_on_1b",
+            "table_id": "mart_batter_clutch",
             "year_col": "game_year",
             "player_col": "batter_name",
-            "available_metrics": ["ab_at_runner_on_1b", "avg_at_runner_on_1b", "obp_at_runner_on_1b", "slg_at_runner_on_1b", "homeruns_at_runner_on_1b"]
+            "filter_col": "situation_type",
+            "filter_val": "runner_on_1b",
+            "available_metrics": ["ab", "avg", "obp", "slg", "homeruns"]
         },
         "inning": {
             "table_id": "tbl_batter_inning_stats",
@@ -148,14 +154,14 @@ DECIMAL_FORMAT_COLUMNS = [
     'avg', 'obp', 'slg', 'ops', 'batting_average', 'on_base_percentage', 
     'slugging_percentage', 'on_base_plus_slugging',
     
-    # RISP stats
-    'avg_at_risp', 'obp_at_risp', 'slg_at_risp', 'ops_at_risp',
+    # # RISP stats
+    # 'avg', 'obp', 'slg', 'ops',
     
-    # Bases loaded stats
-    'avg_at_bases_loaded', 'obp_at_bases_loaded', 'slg_at_bases_loaded', 'ops_at_bases_loaded',
+    # # Bases loaded stats
+    # 'avg', 'obp', 'slg', 'ops',
     
-    # Runner on 1B stats
-    'avg_at_runner_on_1b', 'obp_at_runner_on_1b', 'slg_at_runner_on_1b', 'ops_at_runner_on_1b',
+    # # Runner on 1B stats
+    # 'avg', 'obp', 'slg', 'ops',
     
     # Inning stats
     'avg_by_inning', 'obp_by_inning', 'slg_by_inning', 'ops_by_inning',
@@ -195,9 +201,9 @@ METRIC_MAP = {
             "risp": "career_homeruns_at_risp",
             "bases_loaded": "career_grandslam_at_bases_loaded"
         },
-        "batting_splits_risp": "homeruns_at_risp",
-        "batting_splits_bases_loaded": "grandslam",
-        "batting_splits_runner_on_1b": "homeruns_at_runner_on_1b",
+        "batting_splits_risp": "homeruns",
+        "batting_splits_bases_loaded": "homeruns",
+        "batting_splits_runner_on_1b": "homeruns",
         "batting_splits_inning": "homeruns_by_inning",
         "batting_splits_pitcher_throws": "homeruns_by_p_throws",
         "batting_splits_pitch_type": "homeruns_by_pitch_type",
@@ -215,9 +221,9 @@ METRIC_MAP = {
             "risp": "career_avg_at_risp",
             "bases_loaded": "career_avg_at_bases_loaded"
         },
-        "batting_splits_risp": "avg_at_risp",
-        "batting_splits_bases_loaded": "avg_at_bases_loaded",
-        "batting_splits_runner_on_1b": "avg_at_runner_on_1b",
+        "batting_splits_risp": "avg",
+        "batting_splits_bases_loaded": "avg",
+        "batting_splits_runner_on_1b": "avg",
         "batting_splits_inning": "avg_by_inning",
         "batting_splits_pitcher_throws": "avg_by_p_throws",
         "batting_splits_pitch_type": "avg_by_pitch_type",
@@ -234,9 +240,9 @@ METRIC_MAP = {
             "risp": "career_obp_at_risp",
             "bases_loaded": "career_obp_at_bases_loaded"
         },
-        "batting_splits_risp": "obp_at_risp",
-        "batting_splits_bases_loaded": "obp_at_bases_loaded",
-        "batting_splits_runner_on_1b": "obp_at_runner_on_1b",
+        "batting_splits_risp": "obp",
+        "batting_splits_bases_loaded": "obp",
+        "batting_splits_runner_on_1b": "obp",
         "batting_splits_inning": "obp_by_inning",
         "batting_splits_pitcher_throws": "obp_by_p_throws",
         "batting_splits_pitch_type": "obp_by_pitch_type",
@@ -254,9 +260,9 @@ METRIC_MAP = {
             "risp": "career_slg_at_risp",
             "bases_loaded": "career_slg_at_bases_loaded"
         },
-        "batting_splits_risp": "slg_at_risp",
-        "batting_splits_bases_loaded": "slg_at_bases_loaded",
-        "batting_splits_runner_on_1b": "slg_at_runner_on_1b",
+        "batting_splits_risp": "slg",
+        "batting_splits_bases_loaded": "slg",
+        "batting_splits_runner_on_1b": "slg",
         "batting_splits_inning": "slg_by_inning",
         "batting_splits_pitcher_throws": "slg_by_p_throws",
         "batting_splits_pitch_type": "slg_by_pitch_type",
@@ -274,9 +280,9 @@ METRIC_MAP = {
             "risp": "career_ops_at_risp",
             "bases_loaded": "career_ops_at_bases_loaded"
         },
-        "batting_splits_risp": "ops_at_risp",
-        "batting_splits_bases_loaded": "ops_at_bases_loaded",
-        "batting_splits_runner_on_1b": "ops_at_runner_on_1b",
+        "batting_splits_risp": "ops",
+        "batting_splits_bases_loaded": "ops",
+        "batting_splits_runner_on_1b": "ops",
         "batting_splits_inning": "ops_by_inning",
         "batting_splits_pitcher_throws": "ops_by_p_throws",
         "batting_splits_pitch_type": "ops_by_pitch_type",
@@ -294,9 +300,9 @@ METRIC_MAP = {
             "risp": "career_ab_at_risp",
             "bases_loaded": "career_ab_at_bases_loaded"
         },
-        "batting_splits_risp": "ab_at_risp",
-        "batting_splits_bases_loaded": "ab_at_bases_loaded",
-        "batting_splits_runner_on_1b": "ab_at_runner_on_1b",
+        "batting_splits_risp": "ab",
+        "batting_splits_bases_loaded": "ab",
+        "batting_splits_runner_on_1b": "ab",
         "batting_splits_inning": "ab_by_inning",
         "batting_splits_pitcher_throws": "ab_by_p_throws",
         "batting_splits_pitch_type": "ab_by_pitch_type",
@@ -334,9 +340,9 @@ METRIC_MAP = {
             "risp": "career_so_at_risp",
             "bases_loaded": "career_so_at_bases_loaded"
         },
-        "batting_splits_risp": "so_at_risp",
-        "batting_splits_bases_loaded": "so_at_bases_loaded",
-        "batting_splits_runner_on_1b": "so_at_runner_on_1b",
+        "batting_splits_risp": "so",
+        "batting_splits_bases_loaded": "so",
+        "batting_splits_runner_on_1b": "so",
         "batting_splits_inning": "so_by_inning",
         "batting_splits_pitcher_throws": "so_by_p_throws",
         "batting_splits_pitch_type": "so_by_pitch_type",
