@@ -229,6 +229,10 @@ const MLBChatApp = () => {
 
       console.log('✅ デバッグ：API呼び出し成功');
 
+      // ★ レスポンスヘッダーからリクエストIDを取得 ★
+      const requestId = response.headers.get('X-Request-ID');
+      console.log(`🔗 Request ID: ${requestId}`);
+
       // ★ レスポンスからセッションIDを取得・保存 ★
       if (apiResponse.session_id) {
         console.log('💾 デバッグ：セッションID保存:', apiResponse.session_id);
@@ -237,6 +241,7 @@ const MLBChatApp = () => {
 
       return {
         answer: apiResponse.answer || "回答を受信しましたが、内容が空でした。",
+        requestId: requestId,
         isTable: apiResponse.isTable || false,
         isAgentic: apiResponse.is_agentic || false,
         steps: apiResponse.steps || [],
@@ -257,11 +262,12 @@ const MLBChatApp = () => {
       };
 
     } catch (error) {
-      console.error('❌ デバッグ：API呼び出しエラー:', error);
+      console.error('❌ デバッグ：API呼び出しエラー:', error, '| Request ID:', response?.headers?.get('X-Request-ID') ?? 'N/A');
 
       if (error.name === 'AbortError') {
         return {
           answer: 'リクエストがタイムアウトしました（60秒）。バックエンドの処理が重い可能性があります。',
+          requestId: null,
           isTable: false,
           isTransposed: false,
           tableData: null,
@@ -278,6 +284,7 @@ const MLBChatApp = () => {
 
       return {
         answer: `エラーが発生しました: ${error.message}`,
+        requestId: null,
         isTable: false,
         isTransposed: false,
         tableData: null,
