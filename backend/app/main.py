@@ -6,6 +6,7 @@ import logging
 import time
 from backend.app.utils.structured_logger import get_logger
 from backend.app.services.monitoring_service import get_monitoring_service
+from backend.app.middleware.request_id import RequestIDMiddleware
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -64,15 +65,17 @@ origins = [
     "http://localhost:3000",
 ]
 
-# "*" # 全てのオリジンを許可 (開発中のみ使用、セキュリティ上の理由で本番環境では制限することを推奨
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,  # <-- これが True であることを確認
-    allow_methods=["*"],  # 全てのHTTPメソッドを許可
-    allow_headers=["*"],  # 全てのヘッダーを許可 (Authorizationヘッダーも含む)
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], # DO NOT add " *" to allow_methods
+    allow_headers=["Content-Type", "Authorization"],  # DO NOT add " *" to allow_headers
+    expose_headers=['X-Request-ID'] # Frontend can read this header
 )
+
+# RequestIDMiddleware: 最後に登録 = 最も外側で実行される
+app.add_middleware(RequestIDMiddleware)
 
 
 # Include the players router into FastAPI app

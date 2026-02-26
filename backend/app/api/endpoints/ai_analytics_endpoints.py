@@ -13,6 +13,7 @@ from backend.app.services.monitoring_service import get_monitoring_service
 from backend.app.services.ai_agent_service import run_mlb_agent
 from backend.app.services.llm_logger_service import get_llm_logger, LLMLogEntry
 from backend.app.config.prompt_registry import get_prompt_version
+from backend.app.middleware.request_id import get_request_id
 import logging
 import time
 
@@ -50,6 +51,7 @@ async def get_player_stats_qna_endpoint(
     start_time = time.time()
     # LLM ログエントリを初期化
     log_entry = LLMLogEntry()
+    log_entry.request_id = get_request_id()
     log_entry.session_id = session_id
     log_entry.user_query = request.query
     log_entry.endpoint = "/qa/player-stats"

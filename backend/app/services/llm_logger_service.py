@@ -27,6 +27,7 @@ class LLMLogEntry:
     def __init__(self):
         self.log_id = str(uuid.uuid4())
         self.timestamp = datetime.now(timezone.utc).isoformat()
+        self.request_id: Optional[str] = None
         self.session_id: Optional[str] = None
         self.user_query: str = ""
         self.resolved_query: Optional[str] = None
@@ -53,6 +54,7 @@ class LLMLogEntry:
         return {
             "log_id": self.log_id,
             "timestamp": self.timestamp,
+            "request_id": self.request_id,
             "session_id": self.session_id,
             "user_query": self.user_query,
             "resolved_query": self.resolved_query,
