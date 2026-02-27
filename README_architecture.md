@@ -40,6 +40,10 @@ graph TB
         Marts[Marts Layer<br/>tbl_batter_clutch_risp<br/>tbl_batter_clutch_bases_loaded<br/>tbl_batter_monthly_*]
     end
 
+    subgraph "Authentication Layer"
+        FirebaseAuth[Firebase Authentication<br/>Google Sign-In<br/>ID Token Verification]
+    end
+
 subgraph "Application Layer - Cloud Run"
         Backend[mlb-diamond-lens-api<br/>FastAPI<br/>REST API endpoints]
         Frontend[mlb-diamond-lens-frontend<br/>React + Vite<br/>User dashboard]
@@ -60,6 +64,13 @@ subgraph "Application Layer - Cloud Run"
         Workflows[Cloud Workflows<br/>mlb-pipeline<br/>Orchestrates entire pipeline]
     end
 
+    subgraph "HITL Feedback Loop"
+        FeedbackUI[Feedback UI<br/>👍👎 + Category + Reason]
+        FeedbackBQ[(BigQuery<br/>llm_interaction_logs<br/>user_rating, category, reason)]
+        PendingReview[pending_review.json<br/>Human Review]
+        GoldenDataset[golden_dataset.json<br/>LLM Evaluation]
+    end
+
     subgraph "Monitoring & Alerts"
         CloudMonitoring[Cloud Monitoring<br/>Custom Metrics<br/>Alert Policies<br/>Dashboards]
         Discord[Discord Webhook<br/>Pipeline status notifications]
@@ -77,6 +88,8 @@ subgraph "Application Layer - Cloud Run"
 
     Marts --> Backend
     Marts --> MCPServer
+    Frontend --> FirebaseAuth
+    FirebaseAuth --> Backend
     Backend --> StandardAI
     Backend --> Supervisor
     MCPServer --> StandardAI
@@ -91,9 +104,18 @@ subgraph "Application Layer - Cloud Run"
     Workflows --> Staging
     Workflows --> Discord
 
+    Frontend --> FeedbackUI
+    FeedbackUI --> FeedbackBQ
+    FeedbackBQ --> PendingReview
+    PendingReview --> GoldenDataset
+
     Backend --> CloudMonitoring
     Frontend --> CloudMonitoring
 
+    style FeedbackUI fill:#e91e63,color:#fff
+    style FeedbackBQ fill:#34a853,color:#fff
+    style GoldenDataset fill:#9c27b0,color:#fff
+    style FirebaseAuth fill:#ff9800,color:#fff
     style ETL fill:#4285f4,color:#fff
     style Backend fill:#4285f4,color:#fff
     style Frontend fill:#4285f4,color:#fff
@@ -112,11 +134,13 @@ subgraph "Application Layer - Cloud Run"
 | **ETL** | Python Flask, Cloud Run | Data extraction and loading |
 | **Data Warehouse** | BigQuery | Centralized data storage |
 | **Transformation** | dbt, Cloud Build | Data modeling and quality |
+| **Authentication** | Firebase Auth (Google Sign-In), Firebase Admin SDK | User authentication and server-side token verification |
 | **Backend** | FastAPI, Cloud Run | REST API for analytics |
 | **Frontend** | React + Vite, Cloud Run | User interface |
 | **MCP Server** | Model Context Protocol | Claude Desktop/Cursor integration |
 | **AI Agent** | LangGraph, Gemini 2.5 Flash | Multi-step reasoning & Tool use |
 | **MLOps** | Prompt Registry, Golden Dataset, BigQuery Logging | Prompt versioning, LLM evaluation gate, I/O observability |
+| **HITL Feedback** | Feedback UI, BigQuery, pending_review.json | User feedback collection, golden dataset expansion pipeline |
 | **Orchestration** | Cloud Workflows, Cloud Scheduler | Pipeline automation |
 | **Monitoring** | Cloud Monitoring, Discord Webhooks | Custom metrics, alerts, dashboards, pipeline notifications |
 
@@ -160,7 +184,28 @@ subgraph "Application Layer - Cloud Run"
 - **Core**: `fact_batting_stats_master` (incremental), `statcast_2025_partitioned`
 - **Marts**: `tbl_batter_clutch_risp`, `tbl_batter_monthly_performance`
 
-### 3. Backend API
+### 3. Authentication (Firebase)
+
+| Property | Value |
+|----------|-------|
+| **Provider** | Firebase Authentication (Google Sign-In) |
+| **Frontend SDK** | Firebase JS SDK (`signInWithPopup` + `GoogleAuthProvider`) |
+| **Backend SDK** | Firebase Admin SDK (`firebase-admin`) |
+| **Middleware** | `FirebaseAuthMiddleware` (Pure ASGI) |
+| **Token Format** | `Authorization: Bearer <Firebase ID Token>` |
+| **Public Paths** | `/`, `/health`, `/debug/routes`, `/docs`, `/openapi.json`, `/redoc` |
+| **User Tracking** | `user_id` extracted from token, logged to BigQuery via `llm_logger_service.py` |
+| **CSP** | `nginx.conf` allows `apis.google.com`, `gstatic.com`, `accounts.google.com`, `*.firebaseapp.com` |
+
+**Authentication Flow:**
+1. User clicks "Sign in with Google" on frontend
+2. Firebase SDK opens Google OAuth popup and returns ID token
+3. Frontend attaches `Authorization: Bearer <token>` to all API requests
+4. Backend `FirebaseAuthMiddleware` intercepts requests and verifies token via Firebase Admin SDK
+5. Verified `user_id` and `email` are stored in `request.state` for downstream use
+6. Unauthenticated requests to protected endpoints receive `401 Unauthorized`
+
+### 4. Backend API
 
 | Property | Value |
 |----------|-------|
@@ -174,7 +219,7 @@ subgraph "Application Layer - Cloud Run"
 | **Endpoints** | `/api/refresh` (POST) - Refresh data cache |
 | **Dependencies** | BigQuery `mlb_analytics_dash_25` |
 
-### 4. Frontend Dashboard
+### 5. Frontend Dashboard
 
 | Property | Value |
 |----------|-------|
@@ -188,7 +233,7 @@ subgraph "Application Layer - Cloud Run"
 | **Endpoints** | `/api/cache/clear` (POST) - Clear frontend cache |
 | **Dependencies** | Backend API |
 
-### 5. Agentic AI System (Supervisor + LangGraph)
+### 6. Agentic AI System (Supervisor + LangGraph)
 
 | Property | Value |
 |----------|-------|
@@ -202,20 +247,48 @@ subgraph "Application Layer - Cloud Run"
 | **Capabilities** | Intelligently handles complex vs specific queries, automated visualization, and professional analyst reports |
 | **Frontend Sync** | Structured `matchupData` or `chartData` triggers specialized UI components |
 
-### 6. MLOps: Prompt Versioning, LLM I/O Logging & Evaluation Gate
+### 7. MLOps: Prompt Versioning, LLM I/O Logging & Evaluation Gate
 
 | Property | Value |
 |----------|-------|
 | **Prompt Versioning** | Externalized prompts as versioned text files (`parse_query_v1.txt`, `routing_v1.txt`) |
 | **Prompt Registry** | `prompt_registry.py` manages prompt loading and version switching |
 | **LLM I/O Logging** | `llm_logger_service.py` logs all LLM interactions to BigQuery asynchronously |
-| **Logged Fields** | User query, parsed result, prompt version, latency, errors, routing result |
+| **Logged Fields** | User query, parsed result, prompt version, latency, errors, routing result, user feedback |
 | **Evaluation Gate** | `evaluate_llm_accuracy.py` runs LLM against golden dataset in CI/CD |
-| **Golden Dataset** | `golden_dataset.json` with 9 test cases covering batting, pitching, splits, career |
+| **Golden Dataset** | `golden_dataset.json` with test cases covering batting, pitching, splits, career (expandable via HITL) |
 | **Pass Threshold** | 80% accuracy required to proceed with deployment |
 | **Critical Fields** | `query_type` mismatch causes immediate failure regardless of overall accuracy |
 
-### 7. Orchestration
+### 8. Human-in-the-Loop (HITL) Feedback System
+
+| Property | Value |
+|----------|-------|
+| **Feedback UI** | Thumbs up/down on every bot response, detailed form for negative ratings |
+| **Feedback Categories** | `inaccurate`, `slow`, `irrelevant`, `wrong_player`, `wrong_stats` |
+| **Storage** | Feedback logged to BigQuery `llm_interaction_logs` table with `user_rating`, `feedback_category`, `feedback_reason` |
+| **API Endpoint** | `POST /api/v1/qa/feedback` |
+| **Extract Script** | `extract_golden_dataset.py` fetches bad-rated queries → `pending_review.json` |
+| **Approve Script** | `approve_to_golden.py` promotes reviewed cases → `golden_dataset.json` |
+| **Review Process** | Manual: developer edits `pending_review.json`, fills correct `expected` values, sets `reviewed: true` |
+
+**HITL Feedback Loop**:
+
+```mermaid
+graph TD
+    A[User rates response 👎] --> B[BigQuery: feedback logged]
+    B --> C[extract_golden_dataset.py]
+    C --> D[pending_review.json<br/>TODOs as placeholders]
+    D --> E[Developer reviews<br/>fills correct expected values]
+    E --> F[approve_to_golden.py]
+    F --> G[golden_dataset.json<br/>test cases expanded]
+    G --> H[CI/CD Evaluation Gate<br/>LLM accuracy checked]
+    H -->|Accuracy ≥ 80%| I[Deploy]
+    H -->|Accuracy < 80%| J[Block: Fix prompts]
+    J --> H
+```
+
+### 8. Orchestration
 
 | Property | Value |
 |----------|-------|

@@ -49,6 +49,9 @@ class LLMLogEntry:
         self.total_latency_ms: Optional[float] = None
         self.bigquery_latency_ms: Optional[float] = None
         self.endpoint: Optional[str] = None
+        self.user_rating: Optional[str] = None
+        self.feedback_category: Optional[str] = None
+        self.feedback_reason: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
         """BigQuery INSERT 用の辞書に変換"""
@@ -78,6 +81,9 @@ class LLMLogEntry:
             "total_latency_ms": self.total_latency_ms,
             "bigquery_latency_ms": self.bigquery_latency_ms,
             "endpoint": self.endpoint,
+            "user_rating": self.user_rating,
+            "feedback_category": self.feedback_category,
+            "feedback_reason": self.feedback_reason,
         }
 
 
@@ -108,6 +114,51 @@ class LLMLoggerService:
             daemon=True # メインプロセス終了時に自動的に終了
         )
         thread.start()
+    
+    def update_feedback(
+        self, 
+        request_id: str, 
+        session_id: str, 
+        user_rating: str, 
+        category: Optional[str] = None,
+        reason: Optional[str] = None
+        ):
+        """非同期で既存のログにフィードバックを更新する"""
+        if not self.client:
+            return
+        
+        thread = threading.Thread(
+            target=self._update_bigquery_feedback,
+            args=(request_id, session_id, user_rating, category, reason),
+            daemon=True
+        )
+        thread.start()
+    
+    def _update_bigquery_feedback(self, request_id: str, session_id: str, user_rating: str, category: Optional[str], reason: Optional[str]):
+        """BigQueryにフィードバック用の追記行をINSERT (UPDATEできないStreaming Buffer仕様への対応)"""
+        try:
+            # フィードバック情報のみを含む新しい行を追記する
+            # 分析側では request_id で集約し、最新の timestamp を参照する
+            feedback_entry = {
+                "log_id": str(uuid.uuid4()),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "request_id": request_id,
+                "session_id": session_id,
+                "user_rating": user_rating,
+                "feedback_category": category,
+                "feedback_reason": reason,
+                # Required fields must not be null
+                "user_query": "[FEEDBACK_UPDATE]",
+                "endpoint": "/qa/feedback",
+                "success": True
+            }
+            
+            logger.info(f"Inserting feedback row for request {request_id}")
+            self._write_to_bigquery(feedback_entry)
+            
+        except Exception as e:
+            logger.error(f"Failed to update LLM feedback: {e}")
+
     
     def _write_to_bigquery(self, row_data: Dict[str, Any]):
         """BigQuery にRow を挿入（内部用）"""

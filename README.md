@@ -103,13 +103,50 @@ An AI-powered analytics interface for exploring Major League Baseball statistics
 - **📊 LLM I/O Logging**: Async logging of all LLM interactions (queries, parsed results, latency, errors) to BigQuery via `llm_logger_service.py` for observability and drift detection
 - **🚦 LLM Evaluation Gate**: CI/CD quality gate that runs LLM against a golden dataset (`golden_dataset.json`) and blocks deployment if accuracy drops below 80%
 
+### 6. Human-in-the-Loop (HITL) Feedback System
+**Status**: ✅ Production-ready
+
+**Capabilities**:
+- **👍👎 User Feedback UI**: Thumbs up/down buttons on every AI response with detailed feedback form for negative ratings
+- **📋 Feedback Categories**: Structured categorization (`inaccurate`, `slow`, `irrelevant`, `wrong_player`, `wrong_stats`) with optional free-text reason
+- **🗄️ BigQuery Logging**: All feedback (rating, category, reason) is recorded to BigQuery alongside the original LLM interaction log
+- **🔄 Golden Dataset Pipeline**: Three-step workflow to continuously improve LLM accuracy from user feedback
+
+**HITL Feedback Loop**:
+```
+User rates response 👎 + selects category + writes reason
+         │
+         ▼
+  BigQuery logs (feedback recorded)
+         │
+  ┌──────┴───────┐
+  │   Extract     │  python backend/scripts/extract_golden_dataset.py
+  │   bad queries │  → pending_review.json (with TODO placeholders)
+  └──────┬───────┘
+         ▼
+  ┌──────┴───────┐
+  │  Human Review │  Developer fills in correct expected values
+  │  (manual)     │  → reviewed: true
+  └──────┬───────┘
+         ▼
+  ┌──────┴───────┐
+  │   Approve     │  python backend/scripts/approve_to_golden.py
+  │   to golden   │  → golden_dataset.json (test cases grow)
+  └──────┴───────┘
+         ▼
+  CI/CD Evaluation Gate runs with expanded golden dataset
+```
+
+**API Endpoint**:
+- `POST /api/v1/qa/feedback` - Submit user feedback (rating, category, reason)
+
 ### Technical Features
 - **AI-Powered Processing**: Uses Gemini 2.5 Flash for query parsing and response generation
 - **Real-time Interface**: Interactive experience with loading states and live updates
 - **MCP Server Support**: Access MLB stats directly from Claude Desktop and Cursor via Model Context Protocol
 - **Case-insensitive Search**: Flexible player name matching
 - **Dark Theme UI**: Modern, responsive interface optimized for extended use
-- **Secure Access**: Password-protected interface for authorized users
+- **Secure Access**: Firebase Authentication with Google Sign-In and server-side token verification
 - **SQL Injection Protection**: Multi-layered security with input validation and parameterized queries
 
 ## 🏗 Architecture
@@ -157,6 +194,7 @@ The application follows a sophisticated 4-step pipeline:
 ### Frontend
 - **React 19.1.1** - Modern React with latest features
 - **Vite 7.1.2** - Fast build tool and development server
+- **Firebase SDK** - Google Sign-In authentication
 - **Tailwind CSS 4.1.11** - Utility-first CSS framework with dark mode
 - **Lucide React 0.539.0** - Beautiful icon library
 - **ESLint** - Code linting and formatting
@@ -164,6 +202,7 @@ The application follows a sophisticated 4-step pipeline:
 ### Backend
 - **FastAPI** - Modern Python web framework
 - **Uvicorn** - ASGI server for production deployment
+- **Firebase Admin SDK** - Server-side authentication and token verification
 - **MCP Server** - Model Context Protocol server for Claude Desktop/Cursor integration
 - **Google Cloud BigQuery** - Data warehouse for MLB statistics
 - **Google Cloud Storage** - Additional data storage
@@ -196,7 +235,17 @@ BIGQUERY_BATTING_STATS_TABLE_ID=fact_batting_stats_with_risp
 BIGQUERY_PITCHING_STATS_TABLE_ID=fact_pitching_stats
 GEMINI_API_KEY=<your_gemini_api_key>
 GOOGLE_APPLICATION_CREDENTIALS=<path_to_service_account_json>
-VITE_APP_PASSWORD=<your_app_password>
+```
+
+Create a `.env` file in the frontend directory:
+
+```env
+VITE_FIREBASE_API_KEY=<your_firebase_api_key>
+VITE_FIREBASE_AUTH_DOMAIN=<your_project>.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=<your_project_id>
+VITE_FIREBASE_STORAGE_BUCKET=<your_project>.firebasestorage.app
+VITE_FIREBASE_MESSAGING_SENDER_ID=<your_sender_id>
+VITE_FIREBASE_APP_ID=<your_app_id>
 ```
 
 ### Development
@@ -414,7 +463,7 @@ Analyze OPS impact on win rate with fixed ERA and home runs allowed.
 - **Dark Theme**: Permanent dark mode optimized for extended use
 - **Responsive Design**: Mobile-friendly interface
 - **Real-time Updates**: Live message updates with typing indicators
-- **Password Protection**: Secure access control
+- **Firebase Authentication**: Google Sign-In with server-side token verification
 - **Auto-scroll**: Automatic scrolling to latest messages
 - **Loading States**: Visual feedback during API calls
 - **Error Handling**: Graceful error display and recovery
@@ -532,9 +581,18 @@ git push → Cloud Build Trigger → cloudbuild.yaml execution
 
 ### Security
 
-The application implements multiple layers of security to protect against SQL injection and other attacks:
+The application implements multiple layers of security to protect against SQL injection, unauthorized access, and other attacks:
 
 **Security Measures:**
+
+0. **Firebase Authentication**:
+   - Google Sign-In on the frontend via Firebase SDK (`signInWithPopup` + `GoogleAuthProvider`)
+   - Server-side token verification via Firebase Admin SDK (`firebase-admin`)
+   - Pure ASGI middleware (`FirebaseAuthMiddleware`) validates `Authorization: Bearer <token>` on all API requests
+   - Public paths (`/health`, `/docs`, etc.) are excluded from authentication
+   - User identity (`user_id`, `email`) is extracted and passed to endpoints for per-user logging
+   - Content Security Policy (CSP) configured to allow Google/Firebase authentication domains
+
 1. **Input Validation** (`_validate_query_params`):
    - Validates all LLM-generated parameters before SQL generation
    - Checks for SQL keywords (SELECT, UNION, DROP, etc.)
@@ -701,6 +759,8 @@ diamond-lens/
 ├── frontend/                 # React frontend application
 │   ├── src/
 │   │   ├── App.jsx          # Main application component
+│   │   ├── firebase.js      # Firebase SDK configuration
+│   │   ├── hooks/useAuth.js # Google Sign-In authentication hook
 │   │   ├── main.jsx         # Application entry point
 │   │   └── index.css        # Global styles
 │   ├── tailwind.config.js   # Tailwind CSS configuration
@@ -710,10 +770,14 @@ diamond-lens/
 │   ├── app/
 │   │   ├── main.py          # FastAPI application
 │   │   ├── api/endpoints/   # API route handlers
+│   │   ├── middleware/       # ASGI middleware
+│   │   │   ├── firebase_auth.py    # Firebase token verification middleware
+│   │   │   └── request_id.py       # Request ID tracking
 │   │   ├── services/        # Business logic services
 │   │   │   ├── ai_service.py       # AI query processing
 │   │   │   ├── bigquery_service.py # BigQuery client
-│   │   │   ├── llm_logger_service.py # LLM I/O logging to BigQuery
+│   │   │   ├── firebase_service.py # Firebase Admin SDK initialization
+│   │   │   ├── llm_logger_service.py # LLM I/O logging to BigQuery (with user_id)
 │   │   │   └── monitoring_service.py # Custom metrics
 │   │   ├── prompts/         # Versioned LLM prompt templates
 │   │   │   ├── parse_query_v1.txt  # Query parsing prompt
@@ -723,7 +787,12 @@ diamond-lens/
 │   │   └── config/          # Configuration and mappings
 │   │       └── prompt_registry.py  # Prompt version management
 │   ├── tests/               # Unit tests + golden dataset
+│   │   ├── golden_dataset.json    # LLM evaluation test cases
+│   │   └── pending_review.json    # HITL feedback pending human review
 │   ├── scripts/             # Validation and evaluation scripts
+│   │   ├── extract_golden_dataset.py  # Extract bad-rated queries from BigQuery
+│   │   ├── approve_to_golden.py       # Promote reviewed cases to golden dataset
+│   │   └── evaluate_llm_accuracy.py   # CI/CD LLM accuracy gate
 │   ├── requirements.txt     # Python dependencies
 │   └── Dockerfile           # Backend container
 ├── terraform/                # Infrastructure as Code
