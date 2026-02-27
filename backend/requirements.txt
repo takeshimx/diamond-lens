@@ -20,6 +20,8 @@ langchain
 langchain-google-genai
 langgraph
 
+firebase-admin
+
 # MCP Server (only for local development)
 # mcp
 

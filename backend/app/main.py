@@ -7,6 +7,7 @@ import time
 from backend.app.utils.structured_logger import get_logger
 from backend.app.services.monitoring_service import get_monitoring_service
 from backend.app.middleware.request_id import RequestIDMiddleware
+from backend.app.middleware.firebase_auth import FirebaseAuthMiddleware
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -73,6 +74,9 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization"],  # DO NOT add " *" to allow_headers
     expose_headers=['X-Request-ID'] # Frontend can read this header
 )
+
+# Firebase認証ミドルウェア
+app.add_middleware(FirebaseAuthMiddleware)
 
 # RequestIDMiddleware: 最後に登録 = 最も外側で実行される
 app.add_middleware(RequestIDMiddleware)
