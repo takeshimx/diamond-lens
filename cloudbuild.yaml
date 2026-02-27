@@ -86,64 +86,64 @@ steps:
   #       else
   #         echo "No infrastructure changes detected"
   #       fi
+  # # # ----------------------------------------------------------------------
+  # # 1. バックエンド (FastAPI) のDockerイメージをビルド
   # # ----------------------------------------------------------------------
-  # 1. バックエンド (FastAPI) のDockerイメージをビルド
-  # ----------------------------------------------------------------------
-  - id: 'backend-build-image'
-    name: 'gcr.io/cloud-builders/docker' # Dockerビルド
-    args:
-      - 'build'
-      - '-t'
-      - 'gcr.io/${PROJECT_ID}/mlb-diamond-lens-api:latest'
-      - './backend'
-      # --no-cache を追加すると、キャッシュを使わずに常にゼロからビルドします（問題解決に有効）
-      # - '--no-cache'
-  # ----------------------------------------------------------------------
-  # 2. ビルドしたDockerイメージをContainer Registryにプッシュ
-  # ----------------------------------------------------------------------
-  - id: 'backend-push-image'
-    name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'push'
-      - 'gcr.io/${PROJECT_ID}/mlb-diamond-lens-api:latest'
+  # - id: 'backend-build-image'
+  #   name: 'gcr.io/cloud-builders/docker' # Dockerビルド
+  #   args:
+  #     - 'build'
+  #     - '-t'
+  #     - 'gcr.io/${PROJECT_ID}/mlb-diamond-lens-api:latest'
+  #     - './backend'
+  #     # --no-cache を追加すると、キャッシュを使わずに常にゼロからビルドします（問題解決に有効）
+  #     # - '--no-cache'
+  # # ----------------------------------------------------------------------
+  # # 2. ビルドしたDockerイメージをContainer Registryにプッシュ
+  # # ----------------------------------------------------------------------
+  # - id: 'backend-push-image'
+  #   name: 'gcr.io/cloud-builders/docker'
+  #   args:
+  #     - 'push'
+  #     - 'gcr.io/${PROJECT_ID}/mlb-diamond-lens-api:latest'
+
+  # # # ----------------------------------------------------------------------
+  # # # 3. Security Scanning (脆弱性スキャン) - DISABLED (課金対策)
+  # # # ----------------------------------------------------------------------
+  # # # - id: 'backend-security-scan'
+  # # #   name: 'aquasec/trivy'
+  # # #   args:
+  # # #     - 'image'
+  # # #     - '--exit-code'
+  # # #     - '1'
+  # # #     - '--severity'
+  # # #     - 'HIGH,CRITICAL'
+  # # #     - '--ignore-unfixed'
+  # # #     - 'gcr.io/${PROJECT_ID}/mlb-diamond-lens-api:latest'
+
+  # # # _GIT_TAG はGitタグがプッシュされた場合に自動的に設定されます。${_GIT_TAG} はそのタグ名を参照します。
+  # # # それ以外の場合（例: ブランチへのプッシュ）は空になり、エラーになります。
+  # # # その場合は、例えばコミットSHAを使うなど、別のタグ付け戦略を検討してください。
+  # # # 例: 'gcr.io/${PROJECT_ID}/mlb-analytics-api:latest' または 'gcr.io/${PROJECT_ID}/mlb-analytics-api:$COMMIT_SHA'
 
   # # ----------------------------------------------------------------------
-  # # 3. Security Scanning (脆弱性スキャン) - DISABLED (課金対策)
+  # # 4. Cloud Runにデプロイ
   # # ----------------------------------------------------------------------
-  # # - id: 'backend-security-scan'
-  # #   name: 'aquasec/trivy'
-  # #   args:
-  # #     - 'image'
-  # #     - '--exit-code'
-  # #     - '1'
-  # #     - '--severity'
-  # #     - 'HIGH,CRITICAL'
-  # #     - '--ignore-unfixed'
-  # #     - 'gcr.io/${PROJECT_ID}/mlb-diamond-lens-api:latest'
-
-  # # _GIT_TAG はGitタグがプッシュされた場合に自動的に設定されます。${_GIT_TAG} はそのタグ名を参照します。
-  # # それ以外の場合（例: ブランチへのプッシュ）は空になり、エラーになります。
-  # # その場合は、例えばコミットSHAを使うなど、別のタグ付け戦略を検討してください。
-  # # 例: 'gcr.io/${PROJECT_ID}/mlb-analytics-api:latest' または 'gcr.io/${PROJECT_ID}/mlb-analytics-api:$COMMIT_SHA'
-
-  # ----------------------------------------------------------------------
-  # 4. Cloud Runにデプロイ
-  # ----------------------------------------------------------------------
-  - id: 'backend-deploy-cloudrun'
-    name: 'gcr.io/cloud-builders/gcloud' # gcloudコマンドを使用
-    args:
-      - 'run'
-      - 'deploy'
-      - 'mlb-diamond-lens-api' # サービス名を直接指定
-      - '--image'
-      - 'gcr.io/${PROJECT_ID}/mlb-diamond-lens-api:latest' # ビルドしたイメージを指定
-      - '--region'
-      - 'asia-northeast1' # デプロイ先のリージョン
-      - '--platform'
-      - 'managed' # マネージドCloud Runを使用
-      - '--allow-unauthenticated' # 認証なしでアクセス可能にする (APIサービス)
-      - '--port'
-      - '8080' # FastAPIのデフォルトポートを指定
+  # - id: 'backend-deploy-cloudrun'
+  #   name: 'gcr.io/cloud-builders/gcloud' # gcloudコマンドを使用
+  #   args:
+  #     - 'run'
+  #     - 'deploy'
+  #     - 'mlb-diamond-lens-api' # サービス名を直接指定
+  #     - '--image'
+  #     - 'gcr.io/${PROJECT_ID}/mlb-diamond-lens-api:latest' # ビルドしたイメージを指定
+  #     - '--region'
+  #     - 'asia-northeast1' # デプロイ先のリージョン
+  #     - '--platform'
+  #     - 'managed' # マネージドCloud Runを使用
+  #     - '--allow-unauthenticated' # 認証なしでアクセス可能にする (APIサービス)
+  #     - '--port'
+  #     - '8080' # FastAPIのデフォルトポートを指定
 
   # ----------------------------------------------------------------------
   # 4. フロントエンド (React) のDockerイメージをビルド
