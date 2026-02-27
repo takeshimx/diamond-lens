@@ -14,6 +14,7 @@ from backend.app.services.ai_agent_service import run_mlb_agent
 from backend.app.services.llm_logger_service import get_llm_logger, LLMLogEntry
 from backend.app.config.prompt_registry import get_prompt_version
 from backend.app.middleware.request_id import get_request_id
+from backend.app.core.exceptions import PromptInjectionError
 import logging
 import time
 
@@ -49,6 +50,20 @@ async def get_player_stats_qna_endpoint(
     # セッションIDがない場合は新規作成
     session_id = request.session_id or str(uuid4())
     start_time = time.time()
+
+    # ★ Guardrail チェック
+    from backend.app.services.security_guardrail import get_security_guardrail
+    guardrail = get_security_guardrail()
+    is_safe, reason = guardrail.validate_and_log(request.query)
+    if not is_safe:
+        return {
+            "answer": "申し訳ございませんが、このリクエストにはお応えできません。MLB統計に関する質問をお願いいたします。",
+            "isTable": False,
+            "isChart": False,
+            "session_id": session_id,
+            "blocked": True,
+        }
+    
     # LLM ログエントリを初期化
     log_entry = LLMLogEntry()
     log_entry.request_id = get_request_id()
@@ -292,7 +307,23 @@ async def get_agentic_stats_endpoint(
             "isMatchupCard": result_state.get("isMatchupCard", False),
             "matchupData": result_state.get("matchupData")
         }
-        
+    
+    except PromptInjectionError as e:
+        # Guardrailによるブロック → 400（クライアントエラー）として返す
+        logger.warning(f"🚨 Guardrail blocked: {e.detected_pattern}", extra={"query": request.query[:100]})
+        return {
+            "query": request.query,
+            "answer": e.message,  # 丁寧な拒否メッセージ
+            "steps": [],
+            "session_id": session_id,
+            "processing_time_ms": round((time.time() - start_time) * 1000, 2),
+            "is_agentic": True,
+            "isTable": False,
+            "isChart": False,
+            "blocked": True,  # フロントエンド側で判別するフラグ
+            "blocked_reason": e.detected_pattern,
+        }
+    
     except Exception as e:
         logger.error(f"❌ Agentic Error: {str(e)}", exc_info=True)
         # エラー発生時は詳細を返却

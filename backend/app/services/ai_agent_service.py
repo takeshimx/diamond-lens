@@ -19,6 +19,9 @@ from backend.app.core.exceptions import DataFetchError, AgentReasoningError, Dat
 from backend.app.utils.structured_logger import get_logger
 from .cache_service import StatsCache
 
+from backend.app.core.exceptions import PromptInjectionError
+from .security_guardrail import get_security_guardrail
+
 logger = get_logger("ai-agent")
 
 # ---- 1. Agent State ----
@@ -498,7 +501,17 @@ def run_mlb_agent(query: str) -> dict:
     Main entry point for MLB agent system.
     Uses Supervisor pattern to route queries to specialized agents.
     """
-
+    
+    # Step 0: Security Guardrail
+    guardrail = get_security_guardrail()
+    is_safe, reason = guardrail.validate_and_log(query)
+    if not is_safe:
+        logger.warning(f"🚨 Query blocked by guardrail: {reason}", query=query[:100])
+        raise PromptInjectionError(
+            message="申し訳ございませんが、このリクエストにはお応えできません。MLB統計に関する質問をお願いいたします。",
+            detected_pattern=reason
+        )
+    
     # Step 1: Import agents
     from .agents.supervisor_agent import SupervisorAgent
     from .agents.stats_agent import StatsAgent
