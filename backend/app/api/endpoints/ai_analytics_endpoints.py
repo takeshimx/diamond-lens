@@ -17,6 +17,7 @@ from backend.app.middleware.request_id import get_request_id
 from backend.app.core.exceptions import PromptInjectionError
 import logging
 import time
+from pydantic import BaseModel
 
 # ロガーの設定
 logging.basicConfig(level=logging.INFO)
@@ -333,6 +334,30 @@ async def get_agentic_stats_endpoint(
         logger.error(f"❌ Agentic Error: {str(e)}", exc_info=True)
         # エラー発生時は詳細を返却
         raise HTTPException(status_code=500, detail=f"Agent error: {str(e)}")
+
+
+class FeedbackRequest(BaseModel):
+    session_id: str
+    request_id: str
+    user_rating: str
+    category: Optional[str] = None
+    reason: Optional[str] = None
+
+@router.post("/qa/feedback")
+async def submit_llm_feedback(feedback: FeedbackRequest):
+    """ユーザーからのAI回答フィードバックを記録する"""
+    try:
+        llm_logger.update_feedback(
+            request_id=feedback.request_id,
+            session_id=feedback.session_id,
+            user_rating=feedback.user_rating,
+            category=feedback.category,
+            reason=feedback.reason
+        )
+        return {"status": "success", "message": "Feedback recorded"}
+    except Exception as e:
+        logger.error(f"Feedback error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to log feedback")
 
 
 # テスト用のエンドポイント

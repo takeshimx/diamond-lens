@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, TrendingUp, User, Bot, Activity, MessageCircle, Zap, Settings, Users, AlertTriangle, Brain, Target, Trash2, LogOut } from 'lucide-react';
+import { Send, TrendingUp, User, Bot, Activity, MessageCircle, Zap, Settings, Users, AlertTriangle, Brain, Target, Trash2, LogOut, ThumbsUp, ThumbsDown } from 'lucide-react';
 import SimpleChatChart from './components/ChatChart.jsx';
 import QuickQuestions from './components/QuickQuestions.jsx';
 import CustomQueryBuilder from './components/CustomQueryBuilder.jsx';
@@ -59,6 +59,12 @@ const MLBChatApp = () => {
 
   // エージェントモード（推論ループ）のON/OFF
   const [isAgentMode, setIsAgentMode] = useState(false);
+
+  // フィードバックの送信状態を管理（重複送信や連続送信の防止用）
+  const [feedbackState, setFeedbackState] = useState({});
+  // 指定されたメッセージIDに対する詳細フィードバック入力パネルを表示中かどうかを管理
+  const [activeFeedbackForm, setActiveFeedbackForm] = useState(null); // { messageId, requestId, rating }
+  const [feedbackFormData, setFeedbackFormData] = useState({ category: '', reason: '' });
 
   // ★ 会話履歴用のセッションID管理 ★
   const [sessionId, setSessionId] = useState(() => {
@@ -302,6 +308,57 @@ const MLBChatApp = () => {
         chartData: null,
         chartConfig: null
       };
+    }
+  };
+
+  // ===== フィードバック送信関数 =====
+  const handleFeedback = async (messageId, requestId, rating, details = null) => {
+    if (!requestId || !sessionId) {
+      console.warn("フィードバックを送信できません: request_id または session_id が不足しています", { requestId, sessionId });
+      return;
+    }
+
+    // 「Bad」評価かつ詳細がまだ入力されていない場合は、入力フォームを表示する
+    if (rating === 'bad' && !details) {
+      setActiveFeedbackForm({ messageId, requestId, rating });
+      setFeedbackFormData({ category: '', reason: '' });
+      return;
+    }
+
+    // すでにフィードバック送信中の場合はスキップ
+    if (feedbackState[messageId] === 'loading') return;
+
+    setFeedbackState(prev => ({ ...prev, [messageId]: 'loading' }));
+
+    try {
+      const baseURL = getBackendURL();
+      const endpoint = `${baseURL}/api/v1/qa/feedback`;
+
+      const requestBody = {
+        session_id: sessionId,
+        request_id: requestId,
+        user_rating: rating,
+        category: details?.category || null,
+        reason: details?.reason || null,
+      };
+
+      const headers = await getAuthHeaders();
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Feedback failed: ${response.status}`);
+      }
+
+      console.log('✅ デバッグ：フィードバック送信成功', rating, details);
+      setFeedbackState(prev => ({ ...prev, [messageId]: rating }));
+      setActiveFeedbackForm(null); // フォームを閉じる
+    } catch (error) {
+      console.error('❌ デバッグ：フィードバック送信エラー:', error);
+      setFeedbackState(prev => ({ ...prev, [messageId]: 'error' }));
     }
   };
 
@@ -1060,6 +1117,7 @@ const MLBChatApp = () => {
         id: Date.now() + 1, // ユーザーメッセージとの重複を避けるため+1
         type: 'bot',
         content: response.answer, // Gemini APIからの回答テキスト
+        requestId: response.requestId, // ★ 追加: フィードバック用リクエストID
         stats: response.stats, // BigQueryからの統計データ
         isTable: response.isTable, // テーブル表示フラグ
         isTransposed: response.isTransposed, // テーブル転置フラグ
@@ -2595,6 +2653,98 @@ const MLBChatApp = () => {
                         {/* 対戦分析カード (Phase 6 - Incremental) */}
                         {message.isMatchupCard && message.matchupData && (
                           <MatchupAnalysisCard matchupData={message.matchupData} />
+                        )}
+
+                        {/* ===== フィードバック UI ===== */}
+                        {message.type === 'bot' && message.requestId && (
+                          <>
+                            <div className="mt-3 flex items-center justify-end gap-2 border-t border-gray-100 dark:border-gray-600 pt-2">
+                              <span className="text-xs text-gray-400 dark:text-gray-500 mr-1">回答の評価:</span>
+                              <button
+                                onClick={() => handleFeedback(message.id, message.requestId, 'good')}
+                                disabled={feedbackState[message.id] === 'loading' || feedbackState[message.id] === 'good' || feedbackState[message.id] === 'bad'}
+                                className={`p-1.5 rounded-md transition-colors duration-200 ${feedbackState[message.id] === 'good'
+                                  ? 'text-green-600 bg-green-50 dark:bg-green-900/20'
+                                  : 'text-gray-400 hover:text-green-600 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-50'
+                                  }`}
+                                title="正確な回答"
+                              >
+                                <ThumbsUp className={`w-4 h-4 ${feedbackState[message.id] === 'good' ? 'fill-current' : ''}`} />
+                              </button>
+                              <button
+                                onClick={() => handleFeedback(message.id, message.requestId, 'bad')}
+                                disabled={feedbackState[message.id] === 'loading' || feedbackState[message.id] === 'good' || feedbackState[message.id] === 'bad'}
+                                className={`p-1.5 rounded-md transition-colors duration-200 ${feedbackState[message.id] === 'bad'
+                                  ? 'text-red-600 bg-red-50 dark:bg-red-900/20'
+                                  : 'text-gray-400 hover:text-red-600 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-50'
+                                  }`}
+                                title="不正確な回答/改善が必要"
+                              >
+                                <ThumbsDown className={`w-4 h-4 ${feedbackState[message.id] === 'bad' ? 'fill-current' : ''}`} />
+                              </button>
+                              {feedbackState[message.id] === 'error' && (
+                                <span className="text-xs text-red-500 ml-1">送信失敗</span>
+                              )}
+                            </div>
+
+                            {/* ===== 詳細フィードバック入力パネル (Bad評価時) ===== */}
+                            {activeFeedbackForm && String(activeFeedbackForm.messageId) === String(message.id) && (
+                              <div
+                                className="mt-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800"
+                                style={{ display: 'block', width: '100%', position: 'relative', zIndex: 10 }}
+                              >
+                                <h4 className="text-xs font-bold text-yellow-800 dark:text-yellow-200 mb-2">改善のための詳細</h4>
+
+                                {/* カテゴリ選択 */}
+                                <div className="flex flex-wrap gap-2 mb-3">
+                                  {[
+                                    { id: 'inaccurate', label: '不正確・誤り' },
+                                    { id: 'slow', label: '応答が遅い' },
+                                    { id: 'irrelevant', label: '無関係な回答' },
+                                    { id: 'wrong_player', label: '選手が違う' },
+                                    { id: 'wrong_stats', label: '統計が違う' }
+                                  ].map(cat => (
+                                    <button
+                                      key={cat.id}
+                                      onClick={() => setFeedbackFormData(prev => ({ ...prev, category: cat.id }))}
+                                      className={`px-2 py-1.5 text-xs rounded border transition-colors ${feedbackFormData.category === cat.id
+                                          ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
+                                          : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-600'
+                                        }`}
+                                    >
+                                      {cat.label}
+                                    </button>
+                                  ))}
+                                </div>
+
+                                {/* 理由入力 */}
+                                <textarea
+                                  value={feedbackFormData.reason}
+                                  onChange={(e) => setFeedbackFormData(prev => ({ ...prev, reason: e.target.value }))}
+                                  placeholder="具体的な問題点（任意）"
+                                  className="w-full p-2 text-xs bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md mb-3 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:text-white dark:placeholder-gray-500"
+                                  rows="2"
+                                />
+
+                                {/* アクションボタン */}
+                                <div className="flex justify-end gap-2 font-medium">
+                                  <button
+                                    onClick={() => setActiveFeedbackForm(null)}
+                                    className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                                  >
+                                    キャンセル
+                                  </button>
+                                  <button
+                                    onClick={() => handleFeedback(message.id, message.requestId, 'bad', feedbackFormData)}
+                                    disabled={!feedbackFormData.category}
+                                    className="px-4 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+                                  >
+                                    送信する
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                       {/* タイムスタンプ */}

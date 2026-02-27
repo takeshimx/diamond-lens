@@ -103,13 +103,50 @@
 - **📊 LLM I/Oロギング**: 全LLMインタラクション（クエリ、パース結果、レイテンシ、エラー）を`llm_logger_service.py`経由でBigQueryに非同期ロギング。可観測性とドリフト検出に活用
 - **🚦 LLM評価ゲート**: ゴールデンデータセット（`golden_dataset.json`）に対してLLMを実行し、精度が80%を下回った場合にデプロイを停止するCI/CD品質ゲート
 
+### 6. Human-in-the-Loop（HITL）フィードバックシステム
+**ステータス**: ✅ 本番環境対応
+
+**機能**:
+- **👍👎 ユーザーフィードバックUI**: 全AI回答にThumbs Up/Downボタンを配置し、Bad評価時は詳細フィードバックフォームを表示
+- **📋 フィードバックカテゴリ**: 構造化されたカテゴリ分類（`inaccurate`, `slow`, `irrelevant`, `wrong_player`, `wrong_stats`）と自由記述の理由欄
+- **🗄️ BigQueryロギング**: フィードバック（評価・カテゴリ・理由）をLLMインタラクションログと共にBigQueryに記録
+- **🔄 ゴールデンデータセットパイプライン**: ユーザーフィードバックからLLM精度を継続的に改善する3ステップワークフロー
+
+**HITLフィードバックループ**:
+```
+ユーザーが回答を 👎 評価 + カテゴリ選択 + 理由記入
+         │
+         ▼
+  BigQuery ログ（フィードバック記録）
+         │
+  ┌──────┴───────┐
+  │   抽出        │  python backend/scripts/extract_golden_dataset.py
+  │   bad クエリ  │  → pending_review.json（TODOプレースホルダー付き）
+  └──────┬───────┘
+         ▼
+  ┌──────┴───────┐
+  │  人間レビュー  │  開発者が正しい expected 値を記入
+  │  （手動）     │  → reviewed: true に変更
+  └──────┬───────┘
+         ▼
+  ┌──────┴───────┐
+  │   承認        │  python backend/scripts/approve_to_golden.py
+  │   → golden    │  → golden_dataset.json（テストケースが増加）
+  └──────┴───────┘
+         ▼
+  CI/CD 評価ゲートが拡張されたゴールデンデータセットで実行
+```
+
+**APIエンドポイント**:
+- `POST /api/v1/qa/feedback` - ユーザーフィードバック送信（評価・カテゴリ・理由）
+
 ### 技術機能
 - **AI搭載処理**: Gemini 2.5 Flashを使用したクエリ解析とレスポンス生成
 - **リアルタイムインターフェース**: ローディング状態とライブ更新付きのインタラクティブ体験
 - **MCPサーバー対応**: Model Context Protocol経由でClaude DesktopやCursorから直接MLB統計にアクセス
 - **大文字小文字非依存検索**: 柔軟な選手名マッチング
 - **ダークテーマUI**: 長時間使用に最適化されたモダンでレスポンシブなインターフェース
-- **セキュアアクセス**: 認証ユーザー向けパスワード保護インターフェース
+- **セキュアアクセス**: Firebase Authentication（Googleログイン）とサーバーサイドトークン検証
 - **SQLインジェクション対策**: 入力検証とパラメータ化クエリによる多層セキュリティ
 
 ## 🏗 アーキテクチャ
@@ -157,6 +194,7 @@
 ### フロントエンド
 - **React 19.1.1** - 最新機能を備えたモダンReact
 - **Vite 7.1.2** - 高速ビルドツールと開発サーバー
+- **Firebase SDK** - Googleログイン認証
 - **Tailwind CSS 4.1.11** - ダークモード対応のユーティリティファーストCSSフレームワーク
 - **Lucide React 0.539.0** - 美しいアイコンライブラリ
 - **ESLint** - コードリンティングとフォーマッティング
@@ -164,6 +202,7 @@
 ### バックエンド
 - **FastAPI** - モダンなPython Webフレームワーク
 - **Uvicorn** - 本番デプロイメント用ASGIサーバー
+- **Firebase Admin SDK** - サーバーサイド認証・トークン検証
 - **MCPサーバー** - Claude Desktop/Cursor統合用Model Context Protocolサーバー
 - **Google Cloud BigQuery** - MLB統計のデータウェアハウス
 - **Google Cloud Storage** - 追加データストレージ
@@ -196,7 +235,17 @@ BIGQUERY_BATTING_STATS_TABLE_ID=fact_batting_stats_with_risp
 BIGQUERY_PITCHING_STATS_TABLE_ID=fact_pitching_stats
 GEMINI_API_KEY=<your_gemini_api_key>
 GOOGLE_APPLICATION_CREDENTIALS=<path_to_service_account_json>
-VITE_APP_PASSWORD=<your_app_password>
+```
+
+frontendディレクトリに`.env`ファイルを作成：
+
+```env
+VITE_FIREBASE_API_KEY=<your_firebase_api_key>
+VITE_FIREBASE_AUTH_DOMAIN=<your_project>.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=<your_project_id>
+VITE_FIREBASE_STORAGE_BUCKET=<your_project>.firebasestorage.app
+VITE_FIREBASE_MESSAGING_SENDER_ID=<your_sender_id>
+VITE_FIREBASE_APP_ID=<your_app_id>
 ```
 
 ### 開発
@@ -333,7 +382,7 @@ LangGraphを活用した高度な複数ステップ分析。複雑な推論と�
 - **ダークテーマ**: 長時間の使用に最適化された永続ダークモード
 - **レスポンシブデザイン**: モバイルフレンドリーなインターフェース
 - **リアルタイム更新**: タイピングインジケーター付きのライブメッセージ更新
-- **パスワード保護**: セキュアなアクセス制御
+- **Firebase認証**: Googleログインによるサーバーサイドトークン検証
 - **自動スクロール**: 最新メッセージへの自動スクロール
 - **ローディング状態**: API呼び出し中の視覚的フィードバック
 - **エラーハンドリング**: 優雅なエラー表示と回復
@@ -451,9 +500,18 @@ git push → Cloud Buildトリガー → cloudbuild.yaml 実行
 
 ### セキュリティ
 
-アプリケーションはSQLインジェクションおよびその他の攻撃から保護するための複数層のセキュリティを実装しています：
+アプリケーションはSQLインジェクション、不正アクセス、およびその他の攻撃から保護するための複数層のセキュリティを実装しています：
 
 **セキュリティ対策:**
+
+0. **Firebase認証**:
+   - フロントエンド: Firebase SDKによるGoogleログイン（`signInWithPopup` + `GoogleAuthProvider`）
+   - バックエンド: Firebase Admin SDKによるサーバーサイドトークン検証（`firebase-admin`）
+   - Pure ASGIミドルウェア（`FirebaseAuthMiddleware`）が全APIリクエストの`Authorization: Bearer <token>`を検証
+   - 公開パス（`/health`, `/docs`等）は認証対象外
+   - ユーザーID・メールをエンドポイントに伝播し、LLMログにユーザー単位で記録
+   - Content Security Policy（CSP）でGoogle/Firebase認証ドメインを許可
+
 1. **入力検証** (`_validate_query_params`):
    - SQL生成前にLLMが生成したすべてのパラメータを検証
    - SQLキーワード（SELECT、UNION、DROPなど）をチェック
@@ -620,6 +678,8 @@ diamond-lens/
 ├── frontend/                 # Reactフロントエンドアプリケーション
 │   ├── src/
 │   │   ├── App.jsx          # メインアプリケーションコンポーネント
+│   │   ├── firebase.js      # Firebase SDK設定
+│   │   ├── hooks/useAuth.js # Googleログイン認証フック
 │   │   ├── main.jsx         # アプリケーションエントリーポイント
 │   │   └── index.css        # グローバルスタイル
 │   ├── tailwind.config.js   # Tailwind CSS設定
@@ -629,10 +689,14 @@ diamond-lens/
 │   ├── app/
 │   │   ├── main.py          # FastAPIアプリケーション
 │   │   ├── api/endpoints/   # APIルートハンドラー
+│   │   ├── middleware/       # ASGIミドルウェア
+│   │   │   ├── firebase_auth.py    # Firebaseトークン検証ミドルウェア
+│   │   │   └── request_id.py       # リクエストID追跡
 │   │   ├── services/        # ビジネスロジックサービス
 │   │   │   ├── ai_service.py       # AIクエリ処理
 │   │   │   ├── bigquery_service.py # BigQueryクライアント
-│   │   │   ├── llm_logger_service.py # LLM I/OロギングをBigQueryへ
+│   │   │   ├── firebase_service.py # Firebase Admin SDK初期化
+│   │   │   ├── llm_logger_service.py # LLM I/Oロギング（user_id対応）
 │   │   │   └── monitoring_service.py # カスタムメトリクス
 │   │   ├── prompts/         # バージョン管理されたLLMプロンプトテンプレート
 │   │   │   ├── parse_query_v1.txt  # クエリパースプロンプト
@@ -642,7 +706,12 @@ diamond-lens/
 │   │   └── config/          # 設定とマッピング
 │   │       └── prompt_registry.py  # プロンプトバージョン管理
 │   ├── tests/               # ユニットテスト + ゴールデンデータセット
+│   │   ├── golden_dataset.json    # LLM評価テストケース
+│   │   └── pending_review.json    # HITLフィードバック レビュー待ち
 │   ├── scripts/             # 検証・評価スクリプト
+│   │   ├── extract_golden_dataset.py  # BigQueryからbad評価クエリを抽出
+│   │   ├── approve_to_golden.py       # レビュー済みケースをゴールデンデータセットに昇格
+│   │   └── evaluate_llm_accuracy.py   # CI/CD LLM精度ゲート
 │   ├── requirements.txt     # Python依存関係
 │   └── Dockerfile           # バックエンドコンテナ
 ├── terraform/                # Infrastructure as Code
