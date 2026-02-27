@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, TrendingUp, User, Bot, Activity, MessageCircle, Zap, Settings, Users, AlertTriangle, Brain, Target, Trash2 } from 'lucide-react';
+import { Send, TrendingUp, User, Bot, Activity, MessageCircle, Zap, Settings, Users, AlertTriangle, Brain, Target, Trash2, LogOut } from 'lucide-react';
 import SimpleChatChart from './components/ChatChart.jsx';
 import QuickQuestions from './components/QuickQuestions.jsx';
 import CustomQueryBuilder from './components/CustomQueryBuilder.jsx';
@@ -9,6 +9,7 @@ import PitcherFatigue from './components/PitcherFatigue.jsx';
 import PitcherWhiffPredictor from './components/PitcherWhiffPredictor.jsx';
 import VoiceInput from './components/VoiceInput.jsx';
 import MatchupAnalysisCard from './components/MatchupAnalysisCard.jsx';
+import { useAuth } from './hooks/useAuth';
 
 // Force dark mode on app load
 const initializeDarkMode = () => {
@@ -43,10 +44,8 @@ const MLBChatApp = () => {
   // メッセージエリアの最下部への自動スクロール用のref
   const messagesEndRef = useRef(null);
 
-  // 認証関連のstate
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [password, setPassword] = useState('');
-  const [authError, setAuthError] = useState('');
+  // Firebase認証（Googleログイン）
+  const { user, loading: authLoading, error: authError, loginWithGoogle, logout, getIdToken } = useAuth();
   const [isCheckingAuth, setIsCheckingAuth] = useState(false);
 
   // UIモード管理のstate
@@ -74,8 +73,15 @@ const MLBChatApp = () => {
     }
   }, [sessionId]);
 
-  // 重要: 簡易的なパスワード認証用（本番では安全な方法を使用）
-  const CORRECT_PASSWORD = (import.meta.env.VITE_APP_PASSWORD || 'defaultpassword').trim();
+  // ===== 認証ヘッダー取得ヘルパー =====
+  const getAuthHeaders = async () => {
+    const idToken = await getIdToken();
+    return {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {}),
+    };
+  };
 
   // ===== ユーティリティ関数 =====
   // メッセージエリアの最下部に自動スクロールする関数
@@ -133,7 +139,8 @@ const MLBChatApp = () => {
     const endpoint = `${baseURL}/api/v1/players/search?q=${encodeURIComponent(searchTerm)}`;
 
     try {
-      const response = await fetch(endpoint);
+      const headers = await getAuthHeaders();
+      const response = await fetch(endpoint, { headers });
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -183,12 +190,10 @@ const MLBChatApp = () => {
         controller.abort();
       }, 120000);
 
+      const headers = await getAuthHeaders();
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        },
+        headers,
         body: JSON.stringify(requestBody),
         signal: controller.signal
       });
@@ -345,12 +350,10 @@ const MLBChatApp = () => {
         controller.abort();
       }, 120000);
 
+      const headers = await getAuthHeaders();
       const response = await fetch(endpoint, {
         method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        },
+        headers,
         signal: controller.signal
       });
 
@@ -953,30 +956,15 @@ const MLBChatApp = () => {
   };
 
 
-  // 認証関連の処理
-  const handleAuthentication = async () => {
-    if (!password.trim()) return;
-
+  // Googleログイン処理
+  const handleGoogleLogin = async () => {
     setIsCheckingAuth(true);
-    setAuthError('');
-
-    // パスワードをチェック
-    if (password === CORRECT_PASSWORD) {
-      setIsAuthenticated(true);
-      // 認証成功時はパスワードをクリア
-      setPassword('');
-    } else {
-      setAuthError('パスワードが正しくありません。もう一度お試しください。');
-    }
-
-    setIsCheckingAuth(false);
-  }
-
-  // Enterキーで認証処理
-  const handleAuthKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleAuthentication();
+    try {
+      await loginWithGoogle();
+    } catch (err) {
+      // エラーは useAuth 内で処理済み
+    } finally {
+      setIsCheckingAuth(false);
     }
   };
 
@@ -994,11 +982,10 @@ const MLBChatApp = () => {
       const backendURL = getBackendURL();
       const endpoint = `${backendURL}/api/v1/qa/history/${sessionId}`;
 
+      const headers = await getAuthHeaders();
       const response = await fetch(endpoint, {
         method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
       });
 
       if (!response.ok) {
@@ -1597,7 +1584,8 @@ const MLBChatApp = () => {
 
             endpoint += urlParams.toString();
 
-            const apiResponse = await fetch(endpoint);
+            const situationHeaders = await getAuthHeaders();
+            const apiResponse = await fetch(endpoint, { headers: situationHeaders });
             if (!apiResponse.ok) {
               throw new Error(`Custom situation API call failed: ${apiResponse.status}`);
             }
@@ -1880,7 +1868,8 @@ const MLBChatApp = () => {
 
         console.log('🔗 Leaderboard API URL:', fullUrl);
 
-        const apiResponse = await fetch(fullUrl);
+        const leaderboardHeaders = await getAuthHeaders();
+        const apiResponse = await fetch(fullUrl, { headers: leaderboardHeaders });
         if (!apiResponse.ok) {
           throw new Error(`Leaderboard API call failed: ${apiResponse.status} ${apiResponse.statusText}`);
         }
@@ -2308,8 +2297,13 @@ const MLBChatApp = () => {
   // ===== メインUIレンダリング =====
   return (
     <div className="flex flex-col h-screen bg-white dark:bg-gray-900 transition-colors duration-200" data-theme-test>
-      {!isAuthenticated ? (
-        // ===== 認証画面 =====
+      {authLoading ? (
+        // ===== 認証状態確認中 =====
+        <div className="flex items-center justify-center h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-black">
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      ) : !user ? (
+        // ===== ログイン画面 =====
         <div className="flex items-center justify-center h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-black transition-colors duration-200">
           <div className="bg-white dark:bg-gray-800 p-8 rounded-xl shadow-lg w-full max-w-md transition-colors duration-200">
             {/* ヘッダー */}
@@ -2317,48 +2311,39 @@ const MLBChatApp = () => {
               <div className="mx-auto w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mb-4">
                 <Activity className="w-8 h-8 text-white" />
               </div>
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2 transition-colors duration-200">Diamond Lens MLB Stats Assistant</h1>
-              <p className="text-gray-600 dark:text-gray-300 transition-colors duration-200">アクセスにはパスワードが必要です</p>
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Diamond Lens</h1>
+              <p className="text-gray-600 dark:text-gray-300">MLB Stats Assistant</p>
             </div>
 
-            {/* パスワード入力フォーム */}
             <div className="space-y-4">
-              <div>
-                <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 transition-colors duration-200">
-                  パスワード
-                </label>
-                <input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  onKeyDown={handleAuthKeyDown}
-                  placeholder="パスワードを入力してください"
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent text-gray-900 dark:text-white bg-white dark:bg-gray-700 transition-colors duration-200"
-                  disabled={isCheckingAuth}
-                />
-              </div>
-
               {/* エラーメッセージ */}
               {authError && (
-                <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg transition-colors duration-200">
-                  <p className="text-sm text-red-600 dark:text-red-400 transition-colors duration-200">{authError}</p>
+                <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                  <p className="text-sm text-red-600 dark:text-red-400">{authError}</p>
                 </div>
               )}
 
-              {/* ログインボタン */}
+              {/* Googleログインボタン */}
               <button
-                onClick={handleAuthentication}
-                disabled={!password.trim() || isCheckingAuth}
-                className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center justify-center gap-2 transition-colors duration-200"
+                onClick={handleGoogleLogin}
+                disabled={isCheckingAuth}
+                className="w-full px-4 py-3 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-700 dark:text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center justify-center gap-3 transition-colors duration-200"
               >
                 {isCheckingAuth ? (
                   <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    認証中...
+                    <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+                    ログイン中...
                   </>
                 ) : (
-                  'ログイン'
+                  <>
+                    <svg className="w-5 h-5" viewBox="0 0 24 24">
+                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" />
+                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                    </svg>
+                    Google でログイン
+                  </>
                 )}
               </button>
             </div>
@@ -2509,6 +2494,16 @@ const MLBChatApp = () => {
                 </button> */}
 
               </div>
+
+              {/* ログアウトボタン */}
+              <button
+                onClick={logout}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-200"
+                title="ログアウト"
+              >
+                <LogOut className="w-4 h-4" />
+                <span className="hidden sm:inline">ログアウト</span>
+              </button>
             </div>
           </div>
 

@@ -11,7 +11,21 @@ COPY . .
 
 # Instead of passing the password as an env var, a plceholder (dummy) is used
 # This is to prevent the actual password from being exposed in the build process in JS files
-ENV VITE_APP_PASSWORD=__VITE_APP_PASSWORD_PLACEHOLDER__
+# ENV VITE_APP_PASSWORD=__VITE_APP_PASSWORD_PLACEHOLDER__
+
+ARG VITE_FIREBASE_API_KEY
+ARG VITE_FIREBASE_AUTH_DOMAIN
+ARG VITE_FIREBASE_PROJECT_ID
+ARG VITE_FIREBASE_STORAGE_BUCKET
+ARG VITE_FIREBASE_MESSAGING_SENDER_ID
+ARG VITE_FIREBASE_APP_ID
+
+ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY
+ENV VITE_FIREBASE_AUTH_DOMAIN=$VITE_FIREBASE_AUTH_DOMAIN
+ENV VITE_FIREBASE_PROJECT_ID=$VITE_FIREBASE_PROJECT_ID
+ENV VITE_FIREBASE_STORAGE_BUCKET=$VITE_FIREBASE_STORAGE_BUCKET
+ENV VITE_FIREBASE_MESSAGING_SENDER_ID=$VITE_FIREBASE_MESSAGING_SENDER_ID
+ENV VITE_FIREBASE_APP_ID=$VITE_FIREBASE_APP_ID
 
 # Build the app
 RUN npm run build
@@ -29,8 +43,8 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # This is to replace the placeholder with the actual password at runtime
 # Nginxが起動する直前に、JSファイルの中にあるダミー文字を全部探し出して、本物のパスワード（環境変数）に一括置換（書き換え）する
-COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
+# COPY docker-entrypoint.sh /docker-entrypoint.sh
+# RUN chmod +x /docker-entrypoint.sh
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1
@@ -46,4 +60,4 @@ RUN chown -R nginx:nginx /usr/share/nginx/html && \
 
 USER nginx
 
-CMD ["/docker-entrypoint.sh"]
+CMD ["nginx", "-g", "daemon off;"]

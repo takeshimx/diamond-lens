@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Path, Query
+from fastapi import APIRouter, HTTPException, Request
 from typing import Optional, List, Any, Dict
 from uuid import uuid4
 # サービス層とスキーマをインポート
@@ -39,7 +39,8 @@ router = APIRouter()
     tags=["players"] # 選手に関連するため 'players' タグを使用
 )
 async def get_player_stats_qna_endpoint(
-    request: QnARequest # リクエストボディからQnARequestモデルを受け取る
+    request_body: QnARequest, # リクエストボディからQnARequestモデルを受け取る
+    request: Request,
     # query: str,
     # season: Optional[int] = None
 ) -> Dict[str, Any]:
@@ -48,13 +49,16 @@ async def get_player_stats_qna_endpoint(
     会話履歴機能: session_idを指定することで、過去の会話を参照して「彼」などの代名詞を自動解決します。
     """
     # セッションIDがない場合は新規作成
-    session_id = request.session_id or str(uuid4())
+    session_id = request_body.session_id or str(uuid4())
     start_time = time.time()
+
+    # ★ user_id をミドルウェアから取得
+    user_id = getattr(request.state, "user_id", "anonymous")
 
     # ★ Guardrail チェック
     from backend.app.services.security_guardrail import get_security_guardrail
     guardrail = get_security_guardrail()
-    is_safe, reason = guardrail.validate_and_log(request.query)
+    is_safe, reason = guardrail.validate_and_log(request_body.query)
     if not is_safe:
         return {
             "answer": "申し訳ございませんが、このリクエストにはお応えできません。MLB統計に関する質問をお願いいたします。",
@@ -67,8 +71,9 @@ async def get_player_stats_qna_endpoint(
     # LLM ログエントリを初期化
     log_entry = LLMLogEntry()
     log_entry.request_id = get_request_id()
+    log_entry.user_id = user_id
     log_entry.session_id = session_id
-    log_entry.user_query = request.query
+    log_entry.user_query = request_body.query
     log_entry.endpoint = "/qa/player-stats"
     log_entry.prompt_name = "parse_query"
     log_entry.prompt_version = get_prompt_version("parse_query")
@@ -76,8 +81,8 @@ async def get_player_stats_qna_endpoint(
     # Structured logging for query
     structured_logger.info(
         "Player stats query received",
-        query=request.query,
-        season=request.season
+        query=request_body.query,
+        season=request_body.season
     )
 
     try:
@@ -97,8 +102,8 @@ async def get_player_stats_qna_endpoint(
         # ai_response = get_ai_response_for_qna(request.query, request.season)
         # Use chart-enabled version for enhanced visualization (会話履歴対応)
         ai_response = get_ai_response_with_simple_chart(
-            request.query,
-            request.season,
+            request_body.query,
+            request_body.season,
             session_id=session_id  # ★ セッションIDを渡す ★
         )
 
