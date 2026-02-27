@@ -207,6 +207,7 @@ steps:
       - '--allow-unauthenticated' # 認証なしでアクセス可能にする (フロントエンドは一般公開)
       - '--port'
       - '8080' # nginxのポートを指定
+      - '--clear-secrets' # 旧リビジョンに残るSecret Manager参照（VITE_APP_PASSWORD_V2等）を除去
 
 
 # # Secret Manager から環境変数を取得
