@@ -243,8 +243,9 @@ subgraph "Application Layer - Cloud Run"
 | **Supervisor** | `SupervisorAgent` - Parses intent and routes to Stats or Matchup |
 | **Specialized Agents** | `StatsAgent` (Season/Trend), `MatchupAgent` (Head-to-Head) |
 | **State Management** | `AgentState` (TypedDict with message history, UI meta, and specialized analytics data) |
-| **Nodes per Agent** | Oracle (Planning), Action Tool, Synthesizer (Reporting) |
-| **Capabilities** | Intelligently handles complex vs specific queries, automated visualization, and professional analyst reports |
+| **Nodes per Agent** | Oracle (Planning), Executor (Tool Execution), Reflection (Self-Correction), Synthesizer (Reporting) |
+| **Reflection Loop** | Detects SQL errors and empty results in Executor, feeds diagnostic context to LLM for self-correction (max 2 retries). Classifies errors as retryable (syntax, empty result) vs non-retryable (permission, timeout, schema) |
+| **Capabilities** | Intelligently handles complex vs specific queries, automated visualization, professional analyst reports, and autonomous error recovery |
 | **Frontend Sync** | Structured `matchupData` or `chartData` triggers specialized UI components |
 | **Streaming Mode** | Server-Sent Events (SSE) with real-time token and state updates via `/api/v1/qa/agentic-stats-stream` |
 
@@ -256,9 +257,9 @@ subgraph "Application Layer - Cloud Run"
 | **Content-Type** | `text/event-stream` |
 | **Backend Engine** | FastAPI StreamingResponse + AsyncGenerator |
 | **LangGraph Integration** | `astream_events(version="v2")` for event streaming |
-| **Event Types** | `session_start`, `routing`, `state_update`, `tool_start`, `tool_end`, `token`, `final_answer`, `stream_end`, `error` |
+| **Event Types** | `session_start`, `routing`, `state_update` (oracle, executor, synthesizer, reflection), `tool_start`, `tool_end`, `token`, `final_answer`, `stream_end`, `error` |
 | **Frontend** | ReadableStream API with SSE parsing |
-| **UI Updates** | Real-time streaming status display: `準備中` → `質問を分析中 🤔` → `データ取得中 🔍` → `回答生成中 ✍️` |
+| **UI Updates** | Real-time streaming status display: `準備中` → `質問を分析中 🤔` → `データ取得中 🔍` → `🔄 エラーを分析し、修正を試みています` (reflection) → `回答生成中 ✍️` |
 | **Token Accumulation** | LLM tokens streamed incrementally and accumulated in frontend |
 
 **Streaming Data Flow:**
@@ -294,6 +295,17 @@ sequenceDiagram
     Frontend->>Frontend: streamingStatus: 'データ取得中 🔍'
 
     LangGraph->>LLM: BigQuery tool call
+
+    opt Reflection Loop (SQL error or empty result)
+        LangGraph->>LangGraph: reflection node start
+        LangGraph-->>Backend: on_chain_start (reflection)
+        Backend-->>Frontend: event: state_update<br/>data: {node: "reflection"}
+        Frontend->>Frontend: streamingStatus: '🔄 エラーを分析し、修正を試みています'
+        LangGraph->>LangGraph: oracle node (retry)
+        LangGraph->>LangGraph: executor node (retry)
+        LangGraph->>LLM: Corrected BigQuery tool call
+    end
+
     LangGraph->>LangGraph: synthesizer node start
     LangGraph-->>Backend: on_chain_start (synthesizer)
     Backend-->>Frontend: event: state_update<br/>data: {node: "synthesizer"}
@@ -330,6 +342,9 @@ sequenceDiagram
 | **Frontend Handler** | `App.jsx` Line 1167-1371 | `handleSendMessageStream()` with ReadableStream parsing |
 | **Event Routing** | `handleSendMessageStream()` switch cases | Maps event types to UI state updates |
 | **Token Accumulation** | Backend: `accumulated_answer` variable | Collects tokens during streaming, sends as `final_answer` |
+| **Reflection Loop** | `should_reflect()` + `reflection_node()` in each agent | Detects SQL errors/empty results, feeds diagnostic context to LLM, retries with corrected parameters (max 2 retries) |
+| **Reflection State** | `AgentState`: `retry_count`, `max_retries`, `last_error`, `last_query_result_count`, `original_user_intent` | Tracks reflection loop state across graph nodes |
+| **LLM Logging (Reflection)** | `llm_logger_service.py`: `is_retry`, `retry_count`, `retry_reason` | Logs reflection loop metadata to BigQuery for observability |
 
 ### 7. MLOps: Prompt Versioning, LLM I/O Logging & Evaluation Gate
 
@@ -338,7 +353,7 @@ sequenceDiagram
 | **Prompt Versioning** | Externalized prompts as versioned text files (`parse_query_v1.txt`, `routing_v1.txt`) |
 | **Prompt Registry** | `prompt_registry.py` manages prompt loading and version switching |
 | **LLM I/O Logging** | `llm_logger_service.py` logs all LLM interactions to BigQuery asynchronously |
-| **Logged Fields** | User query, parsed result, prompt version, latency, errors, routing result, user feedback |
+| **Logged Fields** | User query, parsed result, prompt version, latency, errors, routing result, user feedback, reflection loop metadata (is_retry, retry_count, retry_reason) |
 | **Evaluation Gate** | `evaluate_llm_accuracy.py` runs LLM against golden dataset in CI/CD |
 | **Golden Dataset** | `golden_dataset.json` with test cases covering batting, pitching, splits, career (expandable via HITL) |
 | **Pass Threshold** | 80% accuracy required to proceed with deployment |

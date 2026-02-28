@@ -52,6 +52,10 @@ class LLMLogEntry:
         self.user_rating: Optional[str] = None
         self.feedback_category: Optional[str] = None
         self.feedback_reason: Optional[str] = None
+        # Reflection Loop fields
+        self.is_retry: bool = False
+        self.retry_count: int = 0
+        self.retry_reason: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
         """BigQuery INSERT 用の辞書に変換"""
@@ -84,6 +88,10 @@ class LLMLogEntry:
             "user_rating": self.user_rating,
             "feedback_category": self.feedback_category,
             "feedback_reason": self.feedback_reason,
+            # Reflection Loop fields
+            "is_retry": self.is_retry,
+            "retry_count": self.retry_count,
+            "retry_reason": self.retry_reason,
         }
 
 
