@@ -66,6 +66,24 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY_V2")
 SERVICE_ACCOUNT_KEY_PATH = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
 
+def _load_prompt_template(template_name: str) -> str:
+    """
+    プロンプトテンプレートファイルを読み込みます。
+    """
+    prompt_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'prompts')
+    prompt_path = os.path.join(prompt_dir, f"{template_name}.txt")
+
+    try:
+        with open(prompt_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        logger.error(f"Prompt template not found: {prompt_path}")
+        raise
+    except Exception as e:
+        logger.error(f"Error loading prompt template: {e}")
+        raise
+
+
 def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[str, Any]]:
     """
     [ステップ1] LLMを使い、質問からパラメータを抽出します。この関数はLLMの役割を果たします。ユーザーの質問を解析し、「意図」を汲み取り、
@@ -75,80 +93,14 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
         logger.error("GEMINI_API_KEY_V2 is not set.")
         return None
 
-    prompt = f"""
-    あなたはMLBのデータアナリストです。ユーザーからの"打撃成績のランキング"、または"選手成績"に関する以下の質問を解析し、
-    データベースで検索するためのパラメータをJSON形式で抽出してください。
+    # プロンプトテンプレートを読み込み
+    prompt_template = _load_prompt_template("parse_query_v1")
 
-    # 指示
-    - 選手名は英語表記（フルネーム）に正規化してください。例：「大谷さん」 -> "Shohei Ohtani"
-    - **重要**: `season`と`query_type`の判定ルール:
-        1. 質問に「2024年」「2023年」など具体的な年が含まれている場合、必ず`season`にその年を設定し、`query_type`は"season_batting"にしてください。
-        2. 「キャリア」「通算」「全期間」などの表現がある場合のみ、`season`をnullにし、`query_type`を"career_batting"にしてください。
-        3. 年の記載がなく、特定の状況（RISP、満塁など）が指定されている場合は、`query_type`を"batting_splits"にしてください。
-    - `query_type`は "season_batting"、 "batting_splits"、または "career_batting" のいずれかを選択してください。
-    - `metrics`には、ユーザーが知りたい指標をリスト形式で格納してください。例えば、ホームラン数を知りたい場合は ["homerun"] とします。打率の場合は ["batting_average"] とし、単語と単語の間にアンダースコアを使用してください。
-    - `split_type`は、「得点圏（RISP）」「満塁」「ランナー1類」「イニング別」「投手が左投げか右投げか」「球種別」「ゲームスコア状況別」などの特定の状況を示します。該当しない場合はnullにしてください。
-    - `split_type`で、game_score_situation (ゲームスコア状況別) を選択した場合、`game_score`に具体的なスコア状況（例：1点リード、2点ビハインドなど）を示す必要があります。
-        例えば、「1点差ゲーム、1点リード、1点ビハインド」は、'one_run_game'、'one_run_lead'、'one_run_trail'のように表現します。4点以上の差は'four_plus_run_lead'や'four_plus_run_trail'としてください。該当しない場合はnullにしてください。
-    - `split_type`で、inning (イニング別) を選択した場合、`inning`に具体的なイニング数をリスト形式で示してください。レギュラーイニング数は1~9イニングまで。例：1イニング目なら [1]、7イニング目以降なら [7, 8, 9] とします。
-    - `strikes`は、特定のストライク数を指定します。該当しない場合はnullにしてください。`balls`は、特定のボール数を指定します。該当しない場合はnullにしてください。
-    - 例えば、「フルカウント」は、 `strikes`を2、`balls`を3としてください。「初球」は、`strikes`を0、`balls`を0とします。該当しない場合はnullにしてください。
-    - `pitcher_throws`は、投手の投げ方（右投げまたは左投げ）を示します。右投げはRHP、左投げはLHPとし、該当しない場合はnullにしてください。
-    - ユーザーが「主要スタッツ」や「主な成績」のような曖昧な表現を使った場合、metricsには ["main_stats"] というキーワードを一つだけ格納してください。
-    - `order_by`には、ランキングの基準となる指標を一つだけ設定してください。
-    - `output_format`では、デフォルトは "sentence" です。もしユーザーの質問に『表で』『一覧で』『まとめて』といったような言葉が含まれていたら、output_formatをtableに設定してください。そうでなければsentenceにしてください。
+    # seasonパラメータがある場合、ヒントとして追加
+    season_hint = f"\n    - **コンテキスト情報**: 会話履歴から、対象シーズンは {season} 年と推測されます。質問に年の記載がない場合でも、このシーズンを使用してください。" if season else ""
 
-    # JSONスキーマ
-    {{
-        "query_type": "season_batting" | "batting_splits" | "career_batting" | null,
-        "metrics": ["string"],
-        "split_type": "risp" | "bases_loaded" | "runner_on_1b" | "inning" | "pitcher_throws" | "pitch_type" | "game_score_situation" | "monthly" | null,
-        "inning": ["integer"] | null,
-        "strikes": "integer | null",
-        "balls": "integer | null",
-        "game_score": "string | null",
-        "pitcher_throws": "string | null",
-        "pitch_type": ["string"] | null,
-        "name": "string | null",
-        "season": "integer | null",
-        "order_by": "string",
-        "limit": "integer | null",
-        "output_format": "sentence" | "table"
-    }}
-
-    # 質問の例
-    質問: 「2023年のホームラン王は誰？」
-    JSON: {{ "query_type": "season_batting", "season": 2023, "metrics": ["homerun"],  "order_by": "homerun", "limit": 1 }}
-
-    質問: 「大谷さんの2024年のRISP時の主要スタッツは？」
-    JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["main_stats"], "split_type": "risp", "order_by": null, "limit": 1 }}
-
-    質問: 「大谷さんのの2024年の1イニング目のホームラン数とOPSを教えて」
-    JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["homerun", "on_base_plus_slugging"], "split_type": "inning", "inning": 1, "order_by": null, "limit": 1 }}
-
-    質問: 「大谷さんの2024年の左投手に対する主要スタッツを一覧で教えて？」
-    JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["main_stats"], "split_type": "pitcher_throws", "pitcher_throws": "LHP", "order_by": null, "limit": 1, "output_format": "table" }}
-
-    質問: 「大谷さんの2024年のスライダーに対する主要スタッツは？」
-    JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["main_stats"], "split_type": "pitch_type", "pitch_type": "Slider", "order_by": null }}
-
-    質問: 「大谷さんのキャリア主要打撃成績を一覧で教えて」
-    JSON: {{ "query_type": "career_batting", "name": "Shohei Ohtani", "metrics": ["main_stats"], "order_by": null, "limit": 1, "output_format": "table" }}
-
-    質問: 「大谷さんの2024年の、1点ビハインドでの主要スタッツは？」
-    JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["main_stats"], "split_type": "game_score_situation", "game_score": "one_run_trail", "order_by": null, "limit": 1 }}
-
-    質問: 「大谷さんの2024年の打率を月毎の推移をチャートで教えて」
-    JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["batting_average"], "split_type": "monthly", "order_by": null }}
-
-    # 複合質問の例
-    質問: 「大谷さんの2024年の7イニング目以降、フルカウントでの、RISP時の主要スタッツは？」
-    JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["main_stats"], "split_type": "risp", "inning": [7, 8, 9], "strikes": 2, "balls": 3, "order_by": null, "limit": 1 }}
-
-    # 本番
-    質問: 「{query}」
-    JSON:
-    """
+    # プレースホルダーを置換
+    prompt = prompt_template.format(season_hint=season_hint, query=query)
 
     GEMINI_API_URL=f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
     headers = {"Content-Type": "application/json"}
@@ -163,12 +115,16 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
         result = response.json()
         if result.get("candidates"):
             json_string = result["candidates"][0]["content"]["parts"][0]["text"]
-            params = json.loads(json_string)
+            logger.info(f"LLM raw response: {json_string}")
 
+            params = json.loads(json_string)
             logger.info(f"Parsed parameters: {params}")
 
-            if season and 'season' not in params:
+            # seasonパラメータが渡されており、かつLLMがseasonを設定していない場合、強制的に設定
+            if season and (not params.get('season') or params.get('season') is None):
+                logger.info(f"Overriding season from context: {season}")
                 params['season'] = season
+
             return params
         return None
     except (requests.exceptions.RequestException, json.JSONDecodeError) as e:

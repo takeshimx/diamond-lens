@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Annotated, TypedDict, List, Dict, Any, Union, Optional, AsyncGenerator
 from operator import add
 import pandas as pd
@@ -690,11 +691,19 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
                     "executor": "データを取得しています",
                     "synthesizer": "回答を生成しています"
                 }
+                node_details = {
+                    "oracle": "ユーザーの質問を理解し、必要なツールを選択",
+                    "executor": "BigQueryからMLBデータを取得",
+                    "synthesizer": "取得したデータを基に最終レポートを作成"
+                }
                 yield {
                     "type": "state_update",
                     "node": node_name,
                     "status": "started",
-                    "message": node_labels.get(node_name, f"{node_name} を実行中")
+                    "message": node_labels.get(node_name, f"{node_name} を実行中"),
+                    "node_details": node_details.get(node_name, ""),
+                    "timestamp": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+                    "step_type": "node_start"
                 }
         
         # ツール呼び出し開始
@@ -703,16 +712,33 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
             yield {
                 "type": "tool_start",
                 "tool_name": tool_name,
-                "message": f"🔧 {tool_name} を実行中..."
+                "message": f"🔧 {tool_name} を実行中...",
+                "timestamp": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+                "step_type": "tool_call"
             }
         
         # ツール呼び出し終了
         elif event_type == "on_tool_end":
             tool_name = event.get("name", "")
+            tool_output = event.get("data", {}).get("output", {})
+
+            # 出力サマリー生成
+            output_summary = ""
+            if isinstance(tool_output, str):
+                try:
+                    parsed = json.loads(tool_output)
+                    if isinstance(parsed, list):
+                        output_summary = f"{len(parsed)}件のデータを取得"
+                except:
+                    pass
+
             yield {
                 "type": "tool_end",
                 "tool_name": tool_name,
-                "message": f"✅ {tool_name} 完了"
+                "message": f"✅ {tool_name} 完了",
+                "output_summary": output_summary,
+                "timestamp": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+                "step_type": "tool_result"
             }
         
         # LLMトークンストリーミング
@@ -735,7 +761,9 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
                     "type": "state_update",
                     "node": node_name,
                     "status": "completed",
-                    "message": f"{node_name} 完了"
+                    "message": f"{node_name} 完了",
+                    "timestamp": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+                    "step_type": "node_end"
                 }
     
     # 最終状態を取得 (ストリーミング終了後)

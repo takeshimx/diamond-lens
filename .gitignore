@@ -72,3 +72,5 @@ backend/app/api/schemas_experimental
 mlb_parsing_practice.py
 
 linux_practice_test/*
+
+CLAUDE.md
