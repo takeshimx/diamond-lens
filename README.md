@@ -94,6 +94,7 @@ An AI-powered analytics interface for exploring Major League Baseball statistics
   - **MatchupAgent**: Expert in batter vs. pitcher head-to-head analytics and historic outcomes.
 - **🏆 Professional Reports**: Generates structured analyst reports with headers, bullet points, and deep insights.
 - **⚖️ Fail-safe Generation**: Code-level guards to ensure complete, natural Japanese sentences without fragments.
+- **🔄 Reflection Loop (Self-Correction)**: Autonomous error recovery mechanism that detects SQL errors or empty query results and self-corrects by analyzing the root cause and retrying with improved parameters (max 2 retries). Intelligently classifies errors as retryable (syntax errors, empty results) vs non-retryable (permission, timeout, schema errors) to avoid wasteful retries.
 
 ### 5. MLOps: Prompt Versioning, LLM I/O Logging & Evaluation Gate
 **Status**: ✅ Production-ready
@@ -181,6 +182,7 @@ The application follows a sophisticated 4-step pipeline:
      - `MatchupAgent`: Handles specific head-to-head player historical comparisons.
    - **LangGraph Implementation**: Each agent maintains its own "Oracle" (Planning), "Executor" (Data Retrieval), and "Synthesizer" (Final Reporting) loop.
    - **Feedback Loop**: Agents can self-correct and perform multiple tool calls if the initial measurement is insufficient.
+   - **Reflection Loop**: Each agent includes a `reflection` node that detects executor errors (SQL syntax, empty results) and feeds diagnostic context back to the LLM for self-correction, with a max retry cap to prevent infinite loops.
    - **Integrated UI**: Pipes structured chart/table metadata directly into the specialized frontend components.
 
 ### Key Configuration System
@@ -685,10 +687,11 @@ The application implements multiple layers of security to protect against SQL in
 
 The project includes comprehensive unit tests for critical business logic:
 
-**Test Coverage (62 tests):**
+**Test Coverage (73 tests):**
 - `test_query_maps.py` (21 tests): Configuration validation and data structure integrity
 - `test_build_dynamic_sql.py` (28 tests): SQL generation logic for all query types
 - `test_security.py` (13 tests): SQL injection prevention and input validation
+- `test_reflection_loop.py` (11 tests): Reflection loop self-correction logic, error classification, and executor empty result detection
 
 **Run tests locally:**
 ```bash

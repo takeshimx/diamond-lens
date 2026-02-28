@@ -253,16 +253,25 @@ async def clear_chat_history(session_id: str):
     tags=["agentic"]
 )
 async def get_agentic_stats_endpoint(
-    request: QnARequest
+    request: QnARequest,
+    http_request: Request
 ) -> Dict[str, Any]:
     """
     自律型エージェント（LangGraph）を起動して回答を得るエンドポイント。
     """
     session_id = request.session_id or str(uuid4())
     start_time = time.time()
-    
+
+    # LLM ログエントリを初期化
+    log_entry = LLMLogEntry()
+    log_entry.request_id = get_request_id()
+    log_entry.user_id = getattr(http_request.state, "user_id", "anonymous")
+    log_entry.session_id = session_id
+    log_entry.user_query = request.query
+    log_entry.endpoint = "/qa/agentic-stats"
+
     logger.info(f"🤖 Agentic Request: query='{request.query}', session_id={session_id}")
-    
+
     try:
         # 自律型エージェントの実行
         result_state = run_mlb_agent(request.query)
@@ -296,7 +305,29 @@ async def get_agentic_stats_endpoint(
 
         elapsed_time = time.time() - start_time
         logger.info(f"✅ Agentic request completed in {elapsed_time:.2f} seconds. Answer length: {len(answer)}, Steps: {len(steps)}")
-        
+
+        # ログエントリに結果を記録
+        log_entry.total_latency_ms = elapsed_time * 1000
+        log_entry.response_answer = answer
+        log_entry.response_has_table = result_state.get("isTable", False)
+        log_entry.response_has_chart = result_state.get("isChart", False)
+        log_entry.routing_result = "agentic"  # エージェント経由であることを記録
+        log_entry.success = True
+
+        # Reflection Loop情報が含まれている場合は記録
+        if "retry_count" in result_state and result_state["retry_count"] > 0:
+            log_entry.is_retry = True
+            log_entry.retry_count = result_state["retry_count"]
+            # retry_reasonの判定
+            if result_state.get("last_error"):
+                log_entry.retry_reason = "sql_error"
+            elif result_state.get("last_query_result_count") == 0:
+                log_entry.retry_reason = "empty_result"
+            else:
+                log_entry.retry_reason = "unknown"
+
+        llm_logger.log(log_entry)
+
         return {
             "query": request.query,
             "answer": answer or "回答を生成できませんでした。プロンプトまたはデータ取得に問題があります。",
@@ -319,6 +350,14 @@ async def get_agentic_stats_endpoint(
     except PromptInjectionError as e:
         # Guardrailによるブロック → 400（クライアントエラー）として返す
         logger.warning(f"🚨 Guardrail blocked: {e.detected_pattern}", extra={"query": request.query[:100]})
+
+        # ログに記録
+        log_entry.success = False
+        log_entry.error_type = "prompt_injection"
+        log_entry.error_message = e.detected_pattern
+        log_entry.total_latency_ms = (time.time() - start_time) * 1000
+        llm_logger.log(log_entry)
+
         return {
             "query": request.query,
             "answer": e.message,  # 丁寧な拒否メッセージ
@@ -334,6 +373,14 @@ async def get_agentic_stats_endpoint(
     
     except Exception as e:
         logger.error(f"❌ Agentic Error: {str(e)}", exc_info=True)
+
+        # ログに記録
+        log_entry.success = False
+        log_entry.error_type = "agent_error"
+        log_entry.error_message = str(e)
+        log_entry.total_latency_ms = (time.time() - start_time) * 1000
+        llm_logger.log(log_entry)
+
         # エラー発生時は詳細を返却
         raise HTTPException(status_code=500, detail=f"Agent error: {str(e)}")
 

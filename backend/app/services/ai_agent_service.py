@@ -36,6 +36,14 @@ class AgentState(TypedDict):
     next_step: str
     # 最終的な日本語の回答文
     final_answer: str
+
+    # ====== For Reflection Loop ======
+    retry_count: int # current retry count
+    max_retries: int # max retry count for preventing infinite loop
+    last_error: Optional[str] # last error message
+    last_query_result_count: int # last query result count for detecting empty result
+    original_user_intent: str # original user intent
+    # =================================
     
     # UI表示用メタデータ
     isTable: bool
@@ -275,6 +283,7 @@ class MLBStatsAgent:
         # 1. 各工程（ノード）を登録
         workflow.add_node("oracle", self.oracle_node) # 判断
         workflow.add_node("executor", self.executor_node) # 実行（ツールを呼び出し）
+        workflow.add_node("reflection", self.reflection_node) # 自己修正
         workflow.add_node("synthesizer", self.synthesizer_node) # 分析（回答を生成）
 
         # 2. 工程を線（エッジ）でつなぐ
@@ -291,8 +300,19 @@ class MLBStatsAgent:
             }
         )
 
+        # ========== executorからの条件分岐 ==========
+        # executor実行後、エラー/空結果があればreflectionへ、なければoracleへ
+        workflow.add_conditional_edges(
+            "executor",
+            self.should_reflect,
+            {
+                "reflection": "reflection",
+                "oracle": "oracle"
+            }
+        )
+
         # ツール実行後は、再び oracle に戻って「次にするべきこと」を考えさせます
-        workflow.add_edge("executor", "oracle") # executor -> oracle
+        workflow.add_edge("reflection", "oracle") # reflection -> oracle
         workflow.add_edge("synthesizer", END) # synthesizer -> END
 
         return workflow
@@ -304,6 +324,73 @@ class MLBStatsAgent:
         if last_message.tool_calls:
             return "continue"
         return "end"
+    
+
+        # Helper function: executorの結果を判定
+    def should_reflect(self, state: AgentState):
+        """
+        executor実行後、Reflectionが必要かどうかを判定します。
+        
+        Reflectionが必要な条件:
+        1. BigQueryエラーが発生した（SQLシンタックスエラー、カラム名誤認識等）
+        2. クエリ結果が0行だった（フィルタ条件が厳しすぎる等）
+        3. まだ最大リトライ回数に達していない
+        
+        Reflectionが不要な条件（Do NOT retry）:
+        - パーミッション/認証エラー
+        - タイムアウトエラー
+        - データセット/スキーマレベルの構造エラー
+        - 最大リトライ回数に達した
+        """
+        retry_count = state.get("retry_count", 0)
+        max_retries = state.get("max_retries", 2)
+        last_error = state.get("last_error")
+        result_count = state.get("last_query_result_count", -1)
+        
+        # 最大リトライ回数に達している場合は、Reflectionしない
+        if retry_count >= max_retries:
+            logger.info("Max retries reached, skipping reflection", 
+                        retry_count=retry_count, 
+                        max_retries=max_retries)
+            return "oracle"  # 通常フローに戻る
+        
+        # Do NOT retry: 認証・パーミッションエラー
+        if last_error and any(keyword in last_error.lower() for keyword in [
+            "permission", "access denied", "unauthorized", "forbidden"
+        ]):
+            logger.info("Non-retryable error detected (permission)", error=last_error)
+            return "oracle"
+        
+        # Do NOT retry: タイムアウトエラー
+        if last_error and "timeout" in last_error.lower():
+            logger.info("Non-retryable error detected (timeout)", error=last_error)
+            return "oracle"
+        
+        # Do NOT retry: データセット/スキーマエラー
+        if last_error and any(keyword in last_error.lower() for keyword in [
+            "dataset", "schema", "not found", "does not exist"
+        ]):
+            logger.info("Non-retryable error detected (schema/dataset)", error=last_error)
+            return "oracle"
+        
+        # Retry: SQLシンタックスエラー、カラム名誤認識
+        if last_error and any(keyword in last_error.lower() for keyword in [
+            "syntax", "unrecognized", "invalid", "column", "table"
+        ]):
+            logger.info("Retryable error detected (SQL syntax/column)", 
+                        error=last_error, 
+                        retry_count=retry_count)
+            return "reflection"
+        
+        # Retry: 空結果（0行）
+        if result_count == 0:
+            logger.info("Empty result detected, triggering reflection", 
+                        retry_count=retry_count)
+            return "reflection"
+        
+        # デフォルト: 通常フロー（oracleに戻る）
+        return "oracle"
+
     
     # Oracle node (判断)
     def oracle_node(self, state: AgentState):
@@ -333,6 +420,10 @@ class MLBStatsAgent:
         last_message = state["messages"][-1]
 
         tool_outputs = []
+        has_error = False
+        result_count = -1
+        error_message = ""
+
         # 要求されたすべてのツール呼び出しを処理
         for tool_call in last_message.tool_calls:
             tool_name = tool_call["name"]
@@ -342,8 +433,45 @@ class MLBStatsAgent:
 
             if selected_tool:
                 result = selected_tool.invoke(tool_call["args"])
+
+                # ===== エラー/空結果の検出 =====
+                # デバッグ: 実際のresultの型と内容をログ出力
+                logger.info(f"Tool result type: {type(result).__name__}, preview: {str(result)[:200]}")
+
+                # 1. BigQuery error
+                if isinstance(result, dict) and "error" in result:
+                    has_error = True
+                    error_message = result.get("error", "Unknown error")
+                    logger.warning("Tool execution error detected",
+                                   tool_name=tool_name,
+                                   error=error_message)
+
+                # 2. Empty result
+                # ツールは通常 list を返す（df.to_dict(orient='records')）
+                if isinstance(result, list):
+                    result_count = len(result)
+                    if result_count == 0:
+                        logger.warning("Empty result detected (0 rows from list)",
+                                       tool_name=tool_name,
+                                       result_count=result_count)
+                elif isinstance(result, dict):
+                    if "data" in result and isinstance(result["data"], list):
+                        result_count = len(result["data"])
+                        if result_count == 0:
+                            logger.warning("Empty result detected (0 rows from dict)",
+                                           tool_name=tool_name,
+                                           result_count=result_count)
+                    # mlb_stats_toolの場合は`answer`フィールドもチェック
+                    elif result.get("answer") and "データが見つかりませんでした" in result.get("answer", ""):
+                        result_count = 0
+                        logger.warning("Empty result detected (no data message)",
+                                       tool_name=tool_name,
+                                       answer_preview=result.get("answer", "")[:100])
+                #==============================
             else:
                 result = {"error": f"Tool {tool_name} not found in injected tools"}
+                has_error = True
+                error_message = result["error"]
 
             # Gemini API は NaN や Infinity を許容しないため、それらを None (null) に置換します。
             def sanitize_data(obj):
@@ -366,7 +494,11 @@ class MLBStatsAgent:
                 content=json.dumps(sanitized_result, ensure_ascii=False, default=str)
             ))
         
-        return {"messages": tool_outputs}
+        return {
+            "messages": tool_outputs,
+            "last_error": error_message if has_error else None,
+            "last_query_result_count": result_count
+        }
     
     # Synthesizer node (分析と応答)
     def synthesizer_node(self, state: AgentState):
@@ -494,6 +626,75 @@ class MLBStatsAgent:
             "final_answer": final_answer,
             **ui_metadata
             }
+    
+    # 3. Reflection node
+    def reflection_node(self, state: AgentState):
+        """
+        In case of error or empty result, provide feedback to LLM and retry
+        """
+        logger.info("Reflection node started",
+                    node="reflection_node",
+                    status="analyzing_error",
+                    retry_count=state.get("retry_count", 0))
+        
+        # Build error context
+        error_context = ""
+        if state.get("last_error"):
+            error_context = f"""
+            **発生したエラー**:
+{state['last_error']}
+
+
+
+**エラーの原因として考えられること**:
+- カラム名の誤認識（例: `player_name` ではなく `name_display_first_last` が正しい可能性）
+- テーブル名の誤認識
+- SQLシンタックスエラー（JOIN句、WHERE句の記述ミス等）
+            """
+        elif state.get("last_query_result_count") == 0:
+            error_context = f"""
+            **問題**:
+クエリは成功しましたが、結果が0行でした。
+
+**改善の方向性**:
+- フィルタ条件が厳しすぎる可能性があります（例: 年度指定、選手名のスペルミス）
+- WHERE句の条件を緩和するか、LIKEクエリを使用してください
+- 元のユーザー意図: "{state.get('original_user_intent', '')}"
+            """
+        else:
+            error_context = "不明なエラーが発生しました。"
+        
+        # Reflection Prompt
+        reflection_prompt = f"""
+        あなたはMLBデータ分析の専門家です。以下のエラーを分析し、改善策を提案してください。
+
+{error_context}
+
+**あなたのタスク**:
+1. エラーの根本原因を特定してください
+2. 修正した条件で再度データ取得を試みてください
+3. それでも失敗する場合は、別のアプローチ（別のツール、別のテーブル等）を検討してください
+
+**重要**: ユーザーの元の質問「{state.get('original_user_intent', '')}」に答えるため、適切なツールを選択して実行してください。
+        """
+
+        # Let LLM think
+        prompt = [SystemMessage(content=reflection_prompt)] + state["messages"]
+
+        try:
+            response = self.model.invoke(prompt)
+            logger.info("Reflection completed",
+                        has_tool_calls=bool(response.tool_calls),
+                        retry_count=state.get("retry_count", 0))
+
+            # Increment retry count
+            return {
+                "messages": [response],
+                "retry_count": state.get("retry_count", 0) + 1
+            }
+        except Exception as e:
+            logger.error("Reflection node error", error=str(e))
+            raise AgentReasoningError("自己修正プロセス中にエラーが発生しました", original_error=e) from e
 
 
 # Main function from external API
@@ -637,6 +838,11 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
         "raw_data_store": {},
         "next_step": "",
         "final_answer": "",
+        "retry_count": 0,
+        "max_retries": 2,
+        "last_error": None,
+        "last_query_result_count": -1,
+        "original_user_intent": query,
         "isTable": False,
         "isChart": False,
         "tableData": None,
@@ -684,19 +890,23 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
         # ノード開始イベント
         if event_type == "on_chain_start":
             node_name = event.get("name", "")
-            if node_name in ["oracle", "executor", "synthesizer"]:
+            if node_name in ["oracle", "executor", "synthesizer", "reflection"]:
                 current_node = node_name
                 node_labels = {
                     "oracle": "質問を分析しています",
                     "executor": "データを取得しています",
-                    "synthesizer": "回答を生成しています"
+                    "synthesizer": "回答を生成しています",
+                    "reflection": "🔄 エラーを分析し、修正を試みています"
                 }
                 node_details = {
                     "oracle": "ユーザーの質問を理解し、必要なツールを選択",
                     "executor": "BigQueryからMLBデータを取得",
-                    "synthesizer": "取得したデータを基に最終レポートを作成"
+                    "synthesizer": "取得したデータを基に最終レポートを作成",
+                    "reflection": "エラー原因を特定し、クエリを修正して再試行"
                 }
-                yield {
+
+                # Reflectionノードの場合、リトライ回数も送信
+                event_data = {
                     "type": "state_update",
                     "node": node_name,
                     "status": "started",
@@ -705,6 +915,15 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
                     "timestamp": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
                     "step_type": "node_start"
                 }
+
+                # Reflectionノードの場合のみ、リトライ情報を追加
+                if node_name == "reflection":
+                    # 現在のstateからretry_countを取得する必要があるが、
+                    # astream_eventsではstateに直接アクセスできないため、
+                    # イベントのメタデータから推測するか、グローバルカウンターを使用
+                    event_data["retry_attempt"] = "リトライ中"
+
+                yield event_data
         
         # ツール呼び出し開始
         elif event_type == "on_tool_start":
@@ -756,7 +975,7 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
         # ノード終了イベント
         elif event_type == "on_chain_end":
             node_name = event.get("name", "")
-            if node_name in ["oracle", "executor", "synthesizer"]:
+            if node_name in ["oracle", "executor", "synthesizer", "reflection"]:
                 yield {
                     "type": "state_update",
                     "node": node_name,

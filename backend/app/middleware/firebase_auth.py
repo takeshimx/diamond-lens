@@ -1,8 +1,12 @@
+import os
 import json
 from backend.app.services.firebase_service import verify_firebase_token
 from backend.app.utils.structured_logger import get_logger
 
 logger = get_logger("auth")
+
+# 開発環境での認証スキップ（環境変数で制御）
+DISABLE_AUTH = os.getenv("DISABLE_AUTH", "false").lower() == "true"
 
 # 認証不要のパス
 PUBLIC_PATHS = {
@@ -29,6 +33,15 @@ class FirebaseAuthMiddleware:
             return
 
         path = scope.get("path", "")
+
+        # 開発環境での認証スキップ
+        if DISABLE_AUTH:
+            logger.warning("⚠️ Authentication disabled (DISABLE_AUTH=true)")
+            scope["state"] = scope.get("state", {})
+            scope["state"]["user_id"] = "dev_user"
+            scope["state"]["user_email"] = "dev@localhost"
+            await self.app(scope, receive, send)
+            return
 
         # 公開パスはスキップ
         if path in PUBLIC_PATHS:
