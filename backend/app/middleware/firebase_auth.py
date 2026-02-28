@@ -5,7 +5,16 @@ from backend.app.utils.structured_logger import get_logger
 logger = get_logger("auth")
 
 # 認証不要のパス
-PUBLIC_PATHS = {"/", "/health", "/debug/routes", "/docs", "/openapi.json", "/redoc"}
+PUBLIC_PATHS = {
+    "/",
+    "/health",
+    "/debug/routes",
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+    "/api/v1/test",  # テスト用エンドポイント
+    "/api/v1/test-post",  # テスト用POSTエンドポイント
+}
 
 
 class FirebaseAuthMiddleware:

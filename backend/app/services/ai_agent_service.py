@@ -1,7 +1,7 @@
 import os
 import json
 import logging
-from typing import Annotated, TypedDict, List, Dict, Any, Union, Optional
+from typing import Annotated, TypedDict, List, Dict, Any, Union, Optional, AsyncGenerator
 from operator import add
 import pandas as pd
 from .simple_chart_service import enhance_response_with_simple_chart
@@ -553,3 +553,228 @@ def run_mlb_agent(query: str) -> dict:
     logger.info(f" Agent execution completed", agent_type=agent_type)
 
     return result
+
+
+async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], None]:
+    """
+    MLB エージェントをストリーミングモードで実行します。
+
+    LangGraphの astream_events() を使用して、エージェントの実行過程を
+    リアルタイムでイベントとして送信します。
+
+    Args:
+        query: ユーザーからの質問
+
+    Yields:
+        イベント辞書:
+            - type: イベントタイプ ("thinking", "tool_start", "tool_end", "token", "final_answer")
+            - その他のメタデータ
+    """
+    import asyncio
+
+    # ロガーを取得
+    stream_logger = get_logger("ai-agent-stream")
+
+    # Step 0: Security Guardrail
+    guardrail = get_security_guardrail()
+    is_safe, reason = guardrail.validate_and_log(query)
+    if not is_safe:
+        stream_logger.warning(f"🚨 Query blocked by guardrail: {reason}", query=query[:100])
+        yield {
+            "type": "error",
+            "error_type": "blocked",
+            "message": "申し訳ございませんが、このリクエストにはお応えできません。MLB統計に関する質問をお願いいたします。",
+            "detected_pattern": reason
+        }
+        return
+    
+    # Step 1: Import agents
+    from .agents.supervisor_agent import SupervisorAgent
+    from .agents.stats_agent import StatsAgent
+    from .agents.batter_agents import BatterAgent
+    from .agents.pitcher_agents import PitcherAgent
+    from .agents.matchup_agent import MatchupAgent
+
+    # Step 2: Route query
+    supervisor = SupervisorAgent()
+    agent_type = supervisor.route_query(query)
+
+    stream_logger.info(f"Supervisor routed to: {agent_type}", query=query, agent_type=agent_type)
+
+    yield {
+        "type": "routing",
+        "agent_type": agent_type,
+        "message": f"{agent_type}エージェントにルーティングしました"
+    }
+    
+    # Step 3: Initialize model
+    model = ChatGoogleGenerativeAI(
+        model="gemini-2.0-flash",
+        google_api_key=os.getenv("GEMINI_API_KEY_V2"),
+        temperature=0
+    )
+
+    # Step 4: Select and initialize agent
+    if agent_type == "matchup":
+        agent = MatchupAgent(model=model)
+    elif agent_type == "batter":
+        agent = BatterAgent(model=model)
+    elif agent_type == "pitcher":
+        agent = PitcherAgent(model=model)
+    elif agent_type == "stats":
+        agent = StatsAgent(model=model)
+    else:
+        stream_logger.warning(f"Unknown agent type: '{agent_type}', falling back to StatsAgent")
+        agent = StatsAgent(model=model)
+
+    # Step 5: ストリーミング実行
+    # LangGraphの app.astream_events() を使ってイベントをキャプチャ
+    from langchain_core.messages import HumanMessage
+    
+    initial_state = {
+        "messages": [HumanMessage(content=query)],
+        "raw_data_store": {},
+        "next_step": "",
+        "final_answer": "",
+        "isTable": False,
+        "isChart": False,
+        "tableData": None,
+        "chartData": None,
+        "columns": None,
+        "isTransposed": False,
+        "chartType": "",
+        "chartConfig": None,
+        "isMatchupCard": False,
+        "matchupData": None
+    }
+    
+    # astream_events は async なので、ループで await する
+    current_node = ""
+    accumulated_answer = ""  # トークンを蓄積するための変数
+
+    # エージェントタイプに応じて適切なアプリを取得
+    if hasattr(agent, 'app'):
+        agent_app = agent.app
+    elif hasattr(agent, 'graph'):
+        agent_app = agent.graph
+    else:
+        # LangGraphを使わないエージェント（StatsAgent）の場合は、通常の実行
+        stream_logger.info("Agent does not support streaming, falling back to regular execution")
+        final_result = agent.run(query)
+        yield {
+            "type": "final_answer",
+            "answer": final_result.get("final_answer", ""),
+            "isTable": final_result.get("isTable", False),
+            "tableData": final_result.get("tableData"),
+            "columns": final_result.get("columns"),
+            "isTransposed": final_result.get("isTransposed", False),
+            "isChart": final_result.get("isChart", False),
+            "chartType": final_result.get("chartType"),
+            "chartData": final_result.get("chartData"),
+            "chartConfig": final_result.get("chartConfig"),
+            "isMatchupCard": final_result.get("isMatchupCard", False),
+            "matchupData": final_result.get("matchupData")
+        }
+        return
+
+    async for event in agent_app.astream_events(initial_state, version="v2"):
+        event_type = event.get("event")
+        
+        # ノード開始イベント
+        if event_type == "on_chain_start":
+            node_name = event.get("name", "")
+            if node_name in ["oracle", "executor", "synthesizer"]:
+                current_node = node_name
+                node_labels = {
+                    "oracle": "質問を分析しています",
+                    "executor": "データを取得しています",
+                    "synthesizer": "回答を生成しています"
+                }
+                yield {
+                    "type": "state_update",
+                    "node": node_name,
+                    "status": "started",
+                    "message": node_labels.get(node_name, f"{node_name} を実行中")
+                }
+        
+        # ツール呼び出し開始
+        elif event_type == "on_tool_start":
+            tool_name = event.get("name", "")
+            yield {
+                "type": "tool_start",
+                "tool_name": tool_name,
+                "message": f"🔧 {tool_name} を実行中..."
+            }
+        
+        # ツール呼び出し終了
+        elif event_type == "on_tool_end":
+            tool_name = event.get("name", "")
+            yield {
+                "type": "tool_end",
+                "tool_name": tool_name,
+                "message": f"✅ {tool_name} 完了"
+            }
+        
+        # LLMトークンストリーミング
+        elif event_type == "on_chat_model_stream":
+            chunk = event.get("data", {}).get("chunk", {})
+            content = getattr(chunk, "content", "")
+            if content and isinstance(content, str):
+                accumulated_answer += content  # トークンを蓄積
+                yield {
+                    "type": "token",
+                    "content": content,
+                    "node": current_node
+                }
+        
+        # ノード終了イベント
+        elif event_type == "on_chain_end":
+            node_name = event.get("name", "")
+            if node_name in ["oracle", "executor", "synthesizer"]:
+                yield {
+                    "type": "state_update",
+                    "node": node_name,
+                    "status": "completed",
+                    "message": f"{node_name} 完了"
+                }
+    
+    # 最終状態を取得 (ストリーミング終了後)
+    # ストリーミング中に蓄積した答えを使用
+    if accumulated_answer:
+        # トークンが蓄積されている場合は、すぐに final_answer を送信
+        stream_logger.info("Accumulated answer available, sending final_answer immediately")
+        yield {
+            "type": "final_answer",
+            "answer": accumulated_answer,
+            "isTable": False,
+            "tableData": None,
+            "columns": None,
+            "isTransposed": False,
+            "isChart": False,
+            "chartType": None,
+            "chartData": None,
+            "chartConfig": None,
+            "isMatchupCard": False,
+            "matchupData": None
+        }
+    else:
+        # 蓄積された答えがない場合は agent.run() を実行
+        stream_logger.info("No accumulated answer, running agent.run() to get final result")
+        final_result = agent.run(query)
+        yield {
+            "type": "final_answer",
+            "answer": final_result.get("final_answer", ""),
+            "isTable": final_result.get("isTable", False),
+            "tableData": final_result.get("tableData"),
+            "columns": final_result.get("columns"),
+            "isTransposed": final_result.get("isTransposed", False),
+            "isChart": final_result.get("isChart", False),
+            "chartType": final_result.get("chartType"),
+            "chartData": final_result.get("chartData"),
+            "chartConfig": final_result.get("chartConfig"),
+            "isMatchupCard": final_result.get("isMatchupCard", False),
+            "matchupData": final_result.get("matchupData")
+        }
+
+    stream_logger.info(f"✅ Stream execution completed", agent_type=agent_type)
+

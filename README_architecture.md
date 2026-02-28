@@ -246,6 +246,90 @@ subgraph "Application Layer - Cloud Run"
 | **Nodes per Agent** | Oracle (Planning), Action Tool, Synthesizer (Reporting) |
 | **Capabilities** | Intelligently handles complex vs specific queries, automated visualization, and professional analyst reports |
 | **Frontend Sync** | Structured `matchupData` or `chartData` triggers specialized UI components |
+| **Streaming Mode** | Server-Sent Events (SSE) with real-time token and state updates via `/api/v1/qa/agentic-stats-stream` |
+
+### 6.1. Real-Time Streaming Architecture (SSE)
+
+| Property | Value |
+|----------|-------|
+| **Protocol** | Server-Sent Events (SSE) |
+| **Content-Type** | `text/event-stream` |
+| **Backend Engine** | FastAPI StreamingResponse + AsyncGenerator |
+| **LangGraph Integration** | `astream_events(version="v2")` for event streaming |
+| **Event Types** | `session_start`, `routing`, `state_update`, `tool_start`, `tool_end`, `token`, `final_answer`, `stream_end`, `error` |
+| **Frontend** | ReadableStream API with SSE parsing |
+| **UI Updates** | Real-time streaming status display: `準備中` → `質問を分析中 🤔` → `データ取得中 🔍` → `回答生成中 ✍️` |
+| **Token Accumulation** | LLM tokens streamed incrementally and accumulated in frontend |
+
+**Streaming Data Flow:**
+
+```mermaid
+sequenceDiagram
+    participant User as ユーザー
+    participant Frontend as React Frontend
+    participant Backend as FastAPI Backend
+    participant LangGraph as LangGraph Agent
+    participant LLM as Gemini 2.5 Flash
+
+    User->>Frontend: クエリ入力 & Enter
+    Frontend->>Frontend: handleSendMessageStream()
+    Frontend->>Frontend: isStreaming: true<br/>streamingStatus: '準備中...'
+
+    Frontend->>Backend: POST /agentic-stats-stream
+    activate Backend
+    Backend->>Backend: SupervisorAgent.route_query()
+    Backend-->>Frontend: event: routing<br/>data: {agent_type: "batter"}
+    Frontend->>Frontend: streamingStatus: 'batterエージェントで処理中'
+
+    Backend->>LangGraph: agent.app.astream_events()
+    activate LangGraph
+    LangGraph->>LangGraph: oracle node start
+    LangGraph-->>Backend: on_chain_start (oracle)
+    Backend-->>Frontend: event: state_update<br/>data: {node: "oracle"}
+    Frontend->>Frontend: streamingStatus: '質問を分析中 🤔'
+
+    LangGraph->>LangGraph: executor node start
+    LangGraph-->>Backend: on_chain_start (executor)
+    Backend-->>Frontend: event: state_update<br/>data: {node: "executor"}
+    Frontend->>Frontend: streamingStatus: 'データ取得中 🔍'
+
+    LangGraph->>LLM: BigQuery tool call
+    LangGraph->>LangGraph: synthesizer node start
+    LangGraph-->>Backend: on_chain_start (synthesizer)
+    Backend-->>Frontend: event: state_update<br/>data: {node: "synthesizer"}
+    Frontend->>Frontend: streamingStatus: '回答生成中 ✍️'
+
+    LLM-->>LangGraph: token stream
+    loop トークンストリーミング
+        LangGraph-->>Backend: on_chat_model_stream
+        Backend->>Backend: accumulated_answer += token
+        Backend-->>Frontend: event: token<br/>data: {content: "大"}
+        Frontend->>Frontend: content += "大"
+        LangGraph-->>Backend: on_chat_model_stream
+        Backend-->>Frontend: event: token<br/>data: {content: "谷"}
+        Frontend->>Frontend: content += "谷"
+    end
+
+    deactivate LangGraph
+    Backend->>Backend: ストリーミング完了
+    Backend-->>Frontend: event: final_answer<br/>data: {answer: "...", isTable: false}
+    Frontend->>Frontend: isStreaming: false<br/>streamingStatus: undefined
+
+    Backend-->>Frontend: event: stream_end
+    deactivate Backend
+    Frontend->>User: 完全な応答を表示
+```
+
+**Key Implementation Details:**
+
+| Component | Implementation | Purpose |
+|-----------|---------------|---------|
+| **Backend Endpoint** | `ai_analytics_endpoints.py` Line 372-432 | SSE streaming endpoint `/qa/agentic-stats-stream` |
+| **Streaming Service** | `ai_agent_service.py` Line 558-780 | `run_mlb_agent_stream()` with LangGraph `astream_events()` |
+| **SSE Formatter** | `utils/streaming.py` | `format_sse()` converts dict to SSE format |
+| **Frontend Handler** | `App.jsx` Line 1167-1371 | `handleSendMessageStream()` with ReadableStream parsing |
+| **Event Routing** | `handleSendMessageStream()` switch cases | Maps event types to UI state updates |
+| **Token Accumulation** | Backend: `accumulated_answer` variable | Collects tokens during streaming, sends as `final_answer` |
 
 ### 7. MLOps: Prompt Versioning, LLM I/O Logging & Evaluation Gate
 

@@ -2,6 +2,9 @@ import os
 from langchain_google_genai import ChatGoogleGenerativeAI
 from typing import Literal
 from backend.app.config.prompt_registry import get_prompt, get_prompt_version
+from backend.app.utils.structured_logger import get_logger
+
+logger = get_logger("supervisor-agent")
 
 
 class SupervisorAgent:

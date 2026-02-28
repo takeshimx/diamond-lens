@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Request
-from typing import Optional, List, Any, Dict
+from typing import Optional, List, Any, Dict, AsyncGenerator
 from uuid import uuid4
 # サービス層とスキーマをインポート
 from backend.app.services.ai_service import get_ai_response_with_simple_chart # For Development, add backend. path
@@ -15,6 +15,8 @@ from backend.app.services.llm_logger_service import get_llm_logger, LLMLogEntry
 from backend.app.config.prompt_registry import get_prompt_version
 from backend.app.middleware.request_id import get_request_id
 from backend.app.core.exceptions import PromptInjectionError
+from fastapi.responses import StreamingResponse
+from backend.app.utils.streaming import stream_json_events, format_sse
 import logging
 import time
 from pydantic import BaseModel
@@ -358,6 +360,78 @@ async def submit_llm_feedback(feedback: FeedbackRequest):
     except Exception as e:
         logger.error(f"Feedback error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to log feedback")
+
+
+@router.post(
+    "/qa/agentic-stats-stream",
+    summary="自律型エージェントによる高度な分析・Q&A (ストリーミング版)",
+    description="LangGraphを用いた自律型エージェントが、複雑な質問に対してリアルタイムでストリーミング回答を生成します。",
+    tags=["agentic"],
+    response_class=StreamingResponse
+)
+async def get_agentic_stats_stream_endpoint(
+    request: QnARequest
+) -> StreamingResponse:
+    """
+    自律型エージェント（LangGraph）をストリーミングモードで起動するエンドポイント。
+    Server-Sent Events (SSE) を使用して、リアルタイムで結果を送信します。
+    """
+    session_id = request.session_id or str(uuid4())
+
+    logger.info(f"🌊 Stream Request: query='{request.query}', session_id={session_id}")
+
+    async def event_generator() -> AsyncGenerator[Dict[str, Any], None]:
+        """SSEイベントを生成する非同期ジェネレーター"""
+        try:
+            # Session start event
+            yield {
+                "type": "session_start",
+                "session_id": session_id,
+                "query": request.query
+            }
+
+            # Agent start event
+            yield {
+                "type": "agent_start",
+                "message": "エージェントが質問を分析しています..."
+            }
+
+            # Execute LangGraph streaming
+            from backend.app.services.ai_agent_service import run_mlb_agent_stream
+
+            async for event in run_mlb_agent_stream(request.query):
+                yield event
+
+            # Session end event
+            yield {
+                "type": "stream_end",
+                "message": "処理が完了しました"
+            }
+        
+        except PromptInjectionError as e:
+            yield {
+                "type": "error",
+                "error_type": "blocked",
+                "message": e.message,
+                "detected_pattern": e.detected_pattern
+            }
+        except Exception as e:
+            logger.error(f"❌ Stream Error: {str(e)}", exc_info=True)
+            yield {
+                "type": "error",
+                "error_type": "internal_error",
+                "message": str(e)
+            }
+    
+    return StreamingResponse(
+        stream_json_events(event_generator()),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Nginxのバッファリングを無効化
+        }
+    )
 
 
 # テスト用のエンドポイント

@@ -351,6 +351,73 @@ LangGraphを活用した高度な複数ステップ分析。複雑な推論と�
 
 ---
 
+### 自律型エージェントストリーミングAPI (Server-Sent Events)
+
+**POST** `/api/v1/qa/agentic-stats-stream`
+
+エージェントAPIのリアルタイムストリーミング版。Server-Sent Events (SSE)を使用して、エージェントの推論ステップとLLMトークンを生成時にリアルタイム配信します。
+
+#### リクエスト形式
+```json
+{
+  "query": "大谷翔平の2024年の打率は？",
+  "session_id": "optional-uuid"
+}
+```
+
+#### レスポンス形式 (SSEストリーム)
+```
+event: session_start
+data: {"type":"session_start","session_id":"...","query":"..."}
+
+event: routing
+data: {"type":"routing","agent_type":"batter","message":"batterエージェントにルーティングしました"}
+
+event: state_update
+data: {"type":"state_update","node":"oracle","status":"started","message":"質問を分析しています"}
+
+event: token
+data: {"type":"token","content":"大谷","node":"synthesizer"}
+
+event: final_answer
+data: {"type":"final_answer","answer":"大谷翔平選手は2024年シーズンに打率.310を記録しました。","isTable":false,...}
+
+event: stream_end
+data: {"type":"stream_end","message":"処理が完了しました"}
+```
+
+#### イベントタイプ
+- `session_start`: セッション初期化
+- `routing`: エージェントルーティング決定
+- `state_update`: エージェントノード状態変化 (oracle, executor, synthesizer)
+- `tool_start/tool_end`: ツール実行イベント
+- `token`: LLMトークンストリーミング（リアルタイム応答生成）
+- `final_answer`: メタデータ付き完全な応答
+- `stream_end`: ストリーム完了
+- `error`: 処理中にエラー発生
+
+#### フロントエンド統合例
+```javascript
+const response = await fetch('/api/v1/qa/agentic-stats-stream', {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({query: "..."})
+});
+
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+
+while (true) {
+  const {done, value} = await reader.read();
+  if (done) break;
+
+  const text = decoder.decode(value);
+  // SSE形式をパース: "event: <type>\ndata: <json>\n\n"
+}
+```
+
+---
+
 #### その他のエンドポイント
 - **GET** `/health` - ヘルスチェックエンドポイント
 - **GET** `/debug/routes` - デバッグルート一覧

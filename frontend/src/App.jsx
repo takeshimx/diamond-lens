@@ -1163,6 +1163,213 @@ const MLBChatApp = () => {
     setIsLoading(false);
   };
 
+  // ===== ストリーミングメッセージ送信 =====
+  const handleSendMessageStream = async () => {
+    if (!inputMessage.trim() || isLoading) return;
+
+    const userMessage = {
+      id: Date.now(),
+      type: 'user',
+      content: inputMessage,
+      timestamp: new Date()
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    const currentQuery = inputMessage;
+    setInputMessage('');
+    setIsLoading(true);
+
+    // ボットメッセージのプレースホルダーを作成
+    const botMessageId = Date.now() + 1;
+    const botMessage = {
+      id: botMessageId,
+      type: 'bot',
+      content: '',
+      isStreaming: true,
+      streamingStatus: '準備中...',
+      steps: [],
+      timestamp: new Date()
+    };
+
+    setMessages(prev => [...prev, botMessage]);
+
+    try {
+      const baseURL = getBackendURL();
+      const endpoint = `${baseURL}/api/v1/qa/agentic-stats-stream`;
+      const headers = await getAuthHeaders();
+
+      const requestBody = {
+        query: currentQuery,
+        season: 2024,
+        session_id: sessionId
+      };
+
+      console.log('🌊 Starting SSE connection to:', endpoint);
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) {
+          console.log('✅ Stream complete');
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        console.log('🔍 Raw buffer:', buffer.substring(0, 200)); // デバッグログ
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+
+          console.log('🔍 Processing line:', line); // デバッグログ
+
+          // SSEフォーマット: "event: <type>\ndata: <json>"
+          const eventLines = line.split('\n');
+          let eventType = 'message';
+          let dataStr = '';
+
+          for (const eventLine of eventLines) {
+            if (eventLine.startsWith('event: ')) {
+              eventType = eventLine.substring(7).trim();
+            } else if (eventLine.startsWith('data: ')) {
+              dataStr = eventLine.substring(6).trim();
+            }
+          }
+
+          console.log('🔍 Parsed - eventType:', eventType, 'dataStr:', dataStr.substring(0, 100)); // デバッグログ
+
+          if (dataStr) {
+            try {
+              const data = JSON.parse(dataStr);
+              console.log(`📨 SSE Event [${eventType}]:`, data);
+
+              // メッセージを更新
+              setMessages(prev => prev.map(msg => {
+                if (msg.id === botMessageId) {
+                  switch (eventType) {
+                    case 'session_start':
+                      return {
+                        ...msg,
+                        streamingStatus: '接続確立...'
+                      };
+
+                    case 'routing':
+                      return {
+                        ...msg,
+                        streamingStatus: data.message || `${data.agent_type}エージェントで処理中...`
+                      };
+
+                    case 'state_update':
+                      const statusLabels = {
+                        oracle: '質問を分析中 🤔',
+                        executor: 'データ取得中 🔍',
+                        synthesizer: '回答生成中 ✍️'
+                      };
+                      return {
+                        ...msg,
+                        streamingStatus: statusLabels[data.node] || data.message
+                      };
+
+                    case 'tool_start':
+                      return {
+                        ...msg,
+                        streamingStatus: data.message || `🔧 ${data.tool_name} 実行中...`
+                      };
+
+                    case 'tool_end':
+                      return {
+                        ...msg,
+                        streamingStatus: data.message || `✅ ${data.tool_name} 完了`
+                      };
+
+                    case 'token':
+                      return {
+                        ...msg,
+                        content: msg.content + data.content
+                      };
+
+                    case 'final_answer':
+                      return {
+                        ...msg,
+                        content: data.answer || msg.content,
+                        isStreaming: false,
+                        streamingStatus: undefined,
+                        isTable: data.isTable,
+                        tableData: data.tableData,
+                        columns: data.columns,
+                        isTransposed: data.isTransposed,
+                        isChart: data.isChart,
+                        chartType: data.chartType,
+                        chartData: data.chartData,
+                        chartConfig: data.chartConfig,
+                        isMatchupCard: data.isMatchupCard,
+                        matchupData: data.matchupData,
+                        isAgentic: true
+                      };
+
+                    case 'stream_end':
+                      return {
+                        ...msg,
+                        isStreaming: false,
+                        streamingStatus: undefined
+                      };
+
+                    case 'error':
+                      return {
+                        ...msg,
+                        content: `エラー: ${data.message}`,
+                        isStreaming: false,
+                        streamingStatus: undefined,
+                        isError: true
+                      };
+
+                    default:
+                      return msg;
+                  }
+                }
+                return msg;
+              }));
+            } catch (parseError) {
+              console.error('Failed to parse SSE data:', parseError, dataStr);
+            }
+          }
+        }
+      }
+
+    } catch (error) {
+      console.error('❌ Stream Error:', error);
+      setMessages(prev => prev.map(msg => {
+        if (msg.id === botMessageId) {
+          return {
+            ...msg,
+            content: `エラーが発生しました: ${error.message}`,
+            isStreaming: false,
+            streamingStatus: undefined,
+            isError: true
+          };
+        }
+        return msg;
+      }));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // ===== クイック質問処理 =====
   const handleQuickQuestion = async (question) => {
     console.log('🚀 Quick Question clicked:', question);
@@ -2152,7 +2359,7 @@ const MLBChatApp = () => {
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSendMessage();
+      handleSendMessageStream();
     }
   };
 
@@ -2592,9 +2799,29 @@ const MLBChatApp = () => {
                           : 'bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white' // ボットメッセージは白背景
                           }`}
                       >
+                        {/* ストリーミングステータス表示 (ストリーミング中のみ) */}
+                        {message.isStreaming && message.streamingStatus && (
+                          <div className="mb-3 flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 italic">
+                            <div className="flex gap-1">
+                              <span className="w-2 h-2 bg-blue-600 dark:bg-blue-400 rounded-full animate-bounce"></span>
+                              <span className="w-2 h-2 bg-blue-600 dark:bg-blue-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></span>
+                              <span className="w-2 h-2 bg-blue-600 dark:bg-blue-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></span>
+                            </div>
+                            <span>{message.streamingStatus}</span>
+                          </div>
+                        )}
+
                         {/* メッセージテキスト */}
                         <div className="mb-2">
                           <p className="whitespace-pre-wrap">{message.content}</p>
+                          {/* ストリーミング中で内容がまだない場合のプレースホルダー */}
+                          {message.isStreaming && !message.content && (
+                            <div className="flex gap-1 text-gray-400">
+                              <span className="animate-pulse">●</span>
+                              <span className="animate-pulse" style={{animationDelay: '0.15s'}}>●</span>
+                              <span className="animate-pulse" style={{animationDelay: '0.3s'}}>●</span>
+                            </div>
+                          )}
                         </div>
 
                         {/* 思考プロセス（エージェントモード時のみ表示） */}
@@ -2764,22 +2991,7 @@ const MLBChatApp = () => {
                 ))}
 
                 {/* ===== ローディングアニメーション ===== */}
-                {/* API呼び出し中に表示される点滅アニメーション */}
-                {isLoading && (
-                  <div className="flex gap-3 justify-start">
-                    <div className="w-8 h-8 rounded-full bg-blue-600 dark:bg-blue-500 flex items-center justify-center flex-shrink-0 transition-colors duration-200">
-                      <Bot className="w-5 h-5 text-white" />
-                    </div>
-                    <div className="bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-4 py-3 transition-colors duration-200">
-                      <div className="flex gap-1">
-                        {/* 3つの点が順番に点滅するアニメーション */}
-                        <div className="w-2 h-2 bg-gray-400 dark:bg-gray-300 rounded-full animate-bounce transition-colors duration-200"></div>
-                        <div className="w-2 h-2 bg-gray-400 dark:bg-gray-300 rounded-full animate-bounce transition-colors duration-200" style={{ animationDelay: '0.1s' }}></div>
-                        <div className="w-2 h-2 bg-gray-400 dark:bg-gray-300 rounded-full animate-bounce transition-colors duration-200" style={{ animationDelay: '0.2s' }}></div>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                {/* ストリーミング中は個別メッセージのステータス表示を使用するため、グローバルなローディング表示は削除 */}
 
                 {/* 自動スクロール用の要素 */}
                 <div ref={messagesEndRef} />
@@ -2861,12 +3073,12 @@ const MLBChatApp = () => {
                 </div>
                 {/* 送信ボタン */}
                 <button
-                  onClick={handleSendMessage}
+                  onClick={handleSendMessageStream}
                   disabled={!inputMessage.trim() || isLoading} // 入力が空またはローディング中は無効化
                   className="px-4 sm:px-6 py-3 bg-blue-600 dark:bg-blue-500 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-medium transition-colors duration-200 w-full sm:w-auto"
                 >
                   <Send className="w-4 h-4" />
-                  送信
+                  🌊 送信
                 </button>
               </div>
 
