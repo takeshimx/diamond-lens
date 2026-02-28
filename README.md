@@ -352,6 +352,73 @@ Advanced multi-step analysis powered by LangGraph. Supports complex reasoning an
 
 ---
 
+### Autonomous Agent Streaming API (Server-Sent Events)
+
+**POST** `/api/v1/qa/agentic-stats-stream`
+
+Real-time streaming version of the agent API. Uses Server-Sent Events (SSE) to stream agent reasoning steps and LLM tokens as they are generated.
+
+#### Request Format
+```json
+{
+  "query": "大谷翔平の2024年の打率は？",
+  "session_id": "optional-uuid"
+}
+```
+
+#### Response Format (SSE Stream)
+```
+event: session_start
+data: {"type":"session_start","session_id":"...","query":"..."}
+
+event: routing
+data: {"type":"routing","agent_type":"batter","message":"batterエージェントにルーティングしました"}
+
+event: state_update
+data: {"type":"state_update","node":"oracle","status":"started","message":"質問を分析しています"}
+
+event: token
+data: {"type":"token","content":"大谷","node":"synthesizer"}
+
+event: final_answer
+data: {"type":"final_answer","answer":"大谷翔平選手は2024年シーズンに打率.310を記録しました。","isTable":false,...}
+
+event: stream_end
+data: {"type":"stream_end","message":"処理が完了しました"}
+```
+
+#### Event Types
+- `session_start`: Session initialization
+- `routing`: Agent routing decision
+- `state_update`: Agent node state changes (oracle, executor, synthesizer)
+- `tool_start/tool_end`: Tool execution events
+- `token`: LLM token streaming (real-time response generation)
+- `final_answer`: Complete response with metadata
+- `stream_end`: Stream completion
+- `error`: Error occurred during processing
+
+#### Frontend Integration
+```javascript
+const response = await fetch('/api/v1/qa/agentic-stats-stream', {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({query: "..."})
+});
+
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+
+while (true) {
+  const {done, value} = await reader.read();
+  if (done) break;
+
+  const text = decoder.decode(value);
+  // Parse SSE format: "event: <type>\ndata: <json>\n\n"
+}
+```
+
+---
+
 ### Statistical Analysis API
 
 **GET** `/api/v1/statistics/predict-winrate`
