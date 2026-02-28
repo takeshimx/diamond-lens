@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import AgentReasoningTracker from './components/AgentReasoningTracker.jsx';
 import { Send, TrendingUp, User, Bot, Activity, MessageCircle, Zap, Settings, Users, AlertTriangle, Brain, Target, Trash2, LogOut, ThumbsUp, ThumbsDown } from 'lucide-react';
 import SimpleChatChart from './components/ChatChart.jsx';
 import QuickQuestions from './components/QuickQuestions.jsx';
@@ -1280,21 +1281,45 @@ const MLBChatApp = () => {
                         executor: 'データ取得中 🔍',
                         synthesizer: '回答生成中 ✍️'
                       };
+                      const newStep = {
+                        node: data.node,
+                        status: data.status,
+                        message: data.message,
+                        detail: data.detail,
+                        timestamp: data.timestamp,
+                        step_type: data.step_type
+                      };
                       return {
                         ...msg,
-                        streamingStatus: statusLabels[data.node] || data.message
+                        streamingStatus: statusLabels[data.node] || data.message,
+                        steps: [...(msg.steps || []), newStep]
                       };
 
                     case 'tool_start':
+                      const toolStartStep = {
+                        tool_name: data.tool_name,
+                        message: data.message,
+                        timestamp: data.timestamp,
+                        step_type: data.step_type
+                      };
                       return {
                         ...msg,
-                        streamingStatus: data.message || `🔧 ${data.tool_name} 実行中...`
+                        streamingStatus: data.message || `🔧 ${data.tool_name} 実行中...`,
+                        steps: [...(msg.steps || []), toolStartStep]
                       };
 
                     case 'tool_end':
+                      const toolEndStep = {
+                        tool_name: data.tool_name,
+                        message: data.message,
+                        timestamp: data.timestamp,
+                        step_type: data.step_type,
+                        output_summary: data.output_summary
+                      };
                       return {
                         ...msg,
-                        streamingStatus: data.message || `✅ ${data.tool_name} 完了`
+                        streamingStatus: data.message || `✅ ${data.tool_name} 完了`,
+                        steps: [...(msg.steps || []), toolEndStep]
                       };
 
                     case 'token':
@@ -1355,12 +1380,21 @@ const MLBChatApp = () => {
       console.error('❌ Stream Error:', error);
       setMessages(prev => prev.map(msg => {
         if (msg.id === botMessageId) {
+          // エラーステップを追加
+          const errorStep = {
+            message: `接続エラー: ${error.message}`,
+            timestamp: new Date().toISOString(),
+            step_type: 'error',
+            status: 'error'
+          };
+
           return {
             ...msg,
-            content: `エラーが発生しました: ${error.message}`,
+            content: msg.content || 'エラーが発生しました。再度お試しください。',
             isStreaming: false,
             streamingStatus: undefined,
-            isError: true
+            isError: true,
+            steps: [...(msg.steps || []), errorStep]
           };
         }
         return msg;
@@ -2804,8 +2838,8 @@ const MLBChatApp = () => {
                           <div className="mb-3 flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 italic">
                             <div className="flex gap-1">
                               <span className="w-2 h-2 bg-blue-600 dark:bg-blue-400 rounded-full animate-bounce"></span>
-                              <span className="w-2 h-2 bg-blue-600 dark:bg-blue-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></span>
-                              <span className="w-2 h-2 bg-blue-600 dark:bg-blue-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></span>
+                              <span className="w-2 h-2 bg-blue-600 dark:bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></span>
+                              <span className="w-2 h-2 bg-blue-600 dark:bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></span>
                             </div>
                             <span>{message.streamingStatus}</span>
                           </div>
@@ -2818,28 +2852,19 @@ const MLBChatApp = () => {
                           {message.isStreaming && !message.content && (
                             <div className="flex gap-1 text-gray-400">
                               <span className="animate-pulse">●</span>
-                              <span className="animate-pulse" style={{animationDelay: '0.15s'}}>●</span>
-                              <span className="animate-pulse" style={{animationDelay: '0.3s'}}>●</span>
+                              <span className="animate-pulse" style={{ animationDelay: '0.15s' }}>●</span>
+                              <span className="animate-pulse" style={{ animationDelay: '0.3s' }}>●</span>
                             </div>
                           )}
                         </div>
 
                         {/* 思考プロセス（エージェントモード時のみ表示） */}
-                        {message.isAgentic && message.steps && message.steps.length > 0 && (
-                          <div className="mt-4 mb-4 p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-100 dark:border-gray-600">
-                            <div className="flex items-center gap-2 mb-2 text-purple-600 dark:text-purple-400">
-                              <Brain className="w-4 h-4 animate-pulse" />
-                              <span className="text-xs font-bold uppercase tracking-wider">Reasoning Steps</span>
-                            </div>
-                            <div className="space-y-2">
-                              {message.steps.map((step, idx) => (
-                                <div key={idx} className="flex items-start gap-2 text-xs text-gray-600 dark:text-gray-300">
-                                  <div className={`mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0 ${step.type === 'thought' ? 'bg-purple-400' : 'bg-green-400'}`}></div>
-                                  <span>{step.content}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
+                        {message.steps && message.steps.length > 0 && (
+                          <AgentReasoningTracker
+                            steps={message.steps}
+                            isStreaming={message.isStreaming}
+                            isCollapsible={!message.isStreaming}
+                          />
                         )}
                         {/* テーブル表示（テーブルデータがある場合のみ表示） */}
                         {message.isTable && message.tableData && message.columns && (
@@ -2935,8 +2960,8 @@ const MLBChatApp = () => {
                                       key={cat.id}
                                       onClick={() => setFeedbackFormData(prev => ({ ...prev, category: cat.id }))}
                                       className={`px-2 py-1.5 text-xs rounded border transition-colors ${feedbackFormData.category === cat.id
-                                          ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
-                                          : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-600'
+                                        ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
+                                        : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-600'
                                         }`}
                                     >
                                       {cat.label}
