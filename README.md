@@ -141,6 +141,34 @@ User rates response 👎 + selects category + writes reason
 **API Endpoint**:
 - `POST /api/v1/qa/feedback` - Submit user feedback (rating, category, reason)
 
+### 7. Rate Limiting & Quota Management
+**Status**: ✅ Production-ready
+
+**Capabilities**:
+- **🌐 Global Rate Limit**: 100 requests/minute across all users via custom ASGI middleware
+- **👤 Per-Session Rate Limit**: 20 requests/minute per user (Firebase user_id > Session ID > IP address)
+- **🎯 Per-Endpoint Rate Limit**: Configurable limits per endpoint via slowapi decorators (e.g., AI chat: 5/min, player stats: 10/min, statistics: 10/min)
+- **💰 LLM Token Budget**: Daily token usage cap (default: 1,000,000 tokens/day) with automatic reset at UTC midnight
+- **📊 Monitoring Integration**: All rate limit rejections are logged to Cloud Monitoring custom metrics and BigQuery `llm_interaction_logs`
+- **⚙️ Configurable via `.env`**: All limits are adjustable without code changes
+
+**Architecture**:
+- **In-memory storage**: No Redis dependency — uses Python `dict` + `threading.Lock` for thread-safe counters. Suitable for Cloud Run single-container deployment.
+- **Fixed-window algorithm**: 1-minute sliding windows for rate counting
+- **Middleware stack**: `RequestID → RateLimitMiddleware (Global/Session) → FirebaseAuth → Per-Endpoint (slowapi)`
+- **Graceful 429 responses**: Returns `Retry-After` header with seconds until next window
+
+**Configuration** (`.env`):
+```env
+RATE_LIMIT_GLOBAL_PER_MINUTE=100
+RATE_LIMIT_SESSION_PER_MINUTE=20
+RATE_LIMIT_PLAYER_STATS_PER_MINUTE=10
+RATE_LIMIT_AGENT_CHAT_PER_MINUTE=5
+RATE_LIMIT_STATISTICS_PER_MINUTE=10
+LLM_DAILY_TOKEN_BUDGET=1000000
+RATE_LIMIT_ENABLED=true
+```
+
 ### Technical Features
 - **AI-Powered Processing**: Uses Gemini 2.5 Flash for query parsing and response generation
 - **Real-time Interface**: Interactive experience with loading states and live updates
@@ -149,6 +177,7 @@ User rates response 👎 + selects category + writes reason
 - **Dark Theme UI**: Modern, responsive interface optimized for extended use
 - **Secure Access**: Firebase Authentication with Google Sign-In and server-side token verification
 - **SQL Injection Protection**: Multi-layered security with input validation and parameterized queries
+- **Rate Limiting**: Multi-tier rate limiting (Global, Per-Session, Per-Endpoint) with LLM token budget tracking
 
 ## 🏗 Architecture
 
@@ -679,6 +708,14 @@ The application implements multiple layers of security to protect against SQL in
    - ORDER BY clauses use only pre-defined columns from `METRIC_MAP`
    - Direct user input never used in ORDER BY clauses
 
+4. **Rate Limiting** (`RateLimitMiddleware` + `slowapi`):
+   - Global rate limit (100 req/min) via custom ASGI middleware
+   - Per-session rate limit (20 req/min) keyed by Firebase user_id, session ID, or IP
+   - Per-endpoint rate limits via slowapi decorators with dynamic `.env` configuration
+   - LLM token budget (daily cap) to prevent runaway API costs
+   - All rejections logged to Cloud Monitoring and BigQuery `llm_interaction_logs`
+   - In-memory storage (no Redis) — suitable for Cloud Run single-container deployment
+
 **Test Coverage:**
 - `test_security.py`: SQL injection attack patterns and input validation
 - Tests validate both blocking malicious inputs and allowing legitimate ones
@@ -791,6 +828,7 @@ terraform apply -var="notification_email=your-email@example.com"
 - `api/errors`: Error count by endpoint and error type
 - `query/processing_time`: Query processing duration by query type (ms)
 - `bigquery/latency`: BigQuery execution time by query type (ms)
+- `rate_limit/rejections`: Rate limit rejection count by endpoint and limit type (global, session, endpoint)
 
 **Structured Logging:**
 - JSON-formatted logs compatible with Google Cloud Logging
@@ -842,20 +880,25 @@ diamond-lens/
 │   │   ├── api/endpoints/   # API route handlers
 │   │   ├── middleware/       # ASGI middleware
 │   │   │   ├── firebase_auth.py    # Firebase token verification middleware
+│   │   │   ├── rate_limit.py       # Global/Per-session rate limiting (in-memory)
 │   │   │   └── request_id.py       # Request ID tracking
 │   │   ├── services/        # Business logic services
 │   │   │   ├── ai_service.py       # AI query processing
 │   │   │   ├── bigquery_service.py # BigQuery client
 │   │   │   ├── firebase_service.py # Firebase Admin SDK initialization
 │   │   │   ├── llm_logger_service.py # LLM I/O logging to BigQuery (with user_id)
-│   │   │   └── monitoring_service.py # Custom metrics
+│   │   │   ├── monitoring_service.py # Custom metrics
+│   │   │   └── token_budget_service.py # Daily LLM token budget (in-memory)
 │   │   ├── prompts/         # Versioned LLM prompt templates
 │   │   │   ├── parse_query_v1.txt  # Query parsing prompt
 │   │   │   └── routing_v1.txt      # Agent routing prompt
 │   │   ├── utils/           # Utility functions
 │   │   │   └── structured_logger.py # JSON logging
-│   │   └── config/          # Configuration and mappings
-│   │       └── prompt_registry.py  # Prompt version management
+│   │   ├── config/          # Configuration and mappings
+│   │   │   ├── prompt_registry.py  # Prompt version management
+│   │   │   └── settings.py        # App settings (rate limits, budgets, etc.)
+│   │   └── api/
+│   │       └── rate_limit.py      # slowapi per-endpoint rate limiter
 │   ├── tests/               # Unit tests + golden dataset
 │   │   ├── golden_dataset.json    # LLM evaluation test cases
 │   │   └── pending_review.json    # HITL feedback pending human review

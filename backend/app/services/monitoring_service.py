@@ -138,6 +138,23 @@ class MonitoringService:
             labels={"query_type": query_type},
         )
 
+    def record_rate_limit_rejection(self, endpoint: str, limit_type: str):
+        """
+        Record rate limit rejection (429 returned)
+
+        Args:
+            endpoint: API endpoint path
+            limit_type: "global", "session", or "endpoint"
+        """
+        self._write_time_series(
+            metric_type="rate_limit/rejections",
+            value=1.0,
+            labels={
+                "endpoint": endpoint,
+                "limit_type": limit_type,
+            },
+        )
+
 
 # Singleton instance
 _monitoring_instance: Optional[MonitoringService] = None

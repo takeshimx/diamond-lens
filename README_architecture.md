@@ -141,6 +141,7 @@ subgraph "Application Layer - Cloud Run"
 | **AI Agent** | LangGraph, Gemini 2.5 Flash | Multi-step reasoning & Tool use |
 | **MLOps** | Prompt Registry, Golden Dataset, BigQuery Logging | Prompt versioning, LLM evaluation gate, I/O observability |
 | **HITL Feedback** | Feedback UI, BigQuery, pending_review.json | User feedback collection, golden dataset expansion pipeline |
+| **Rate Limiting** | Custom ASGI Middleware, slowapi, In-Memory Counters | Multi-tier rate limiting (Global/Session/Endpoint) + LLM token budget |
 | **Orchestration** | Cloud Workflows, Cloud Scheduler | Pipeline automation |
 | **Monitoring** | Cloud Monitoring, Discord Webhooks | Custom metrics, alerts, dashboards, pipeline notifications |
 
@@ -359,7 +360,37 @@ sequenceDiagram
 | **Pass Threshold** | 80% accuracy required to proceed with deployment |
 | **Critical Fields** | `query_type` mismatch causes immediate failure regardless of overall accuracy |
 
-### 8. Human-in-the-Loop (HITL) Feedback System
+### 8a. Rate Limiting & Quota Management
+
+| Property | Value |
+|----------|-------|
+| **Global Rate Limit** | 100 requests/minute (all users combined) via custom ASGI middleware (`RateLimitMiddleware`) |
+| **Per-Session Rate Limit** | 20 requests/minute per user (keyed by Firebase user_id > Session ID > IP) |
+| **Per-Endpoint Rate Limit** | Configurable via slowapi decorators: AI chat (5/min), Player stats (10/min), Statistics (10/min) |
+| **LLM Token Budget** | 1,000,000 tokens/day (in-memory counter, auto-resets at UTC midnight) |
+| **Storage** | In-memory (`dict` + `threading.Lock`) — no Redis dependency |
+| **Algorithm** | Fixed-window (1-minute windows, UNIX timestamp // 60) |
+| **429 Response** | Returns `Retry-After` header with seconds until next window |
+| **Monitoring** | Rejections logged to Cloud Monitoring (`rate_limit/rejections`) and BigQuery (`llm_interaction_logs`) |
+| **Configuration** | All limits configurable via `.env` / `settings.py` without code changes |
+| **Exempt Paths** | `/`, `/health`, `/debug/routes`, `/docs`, `/openapi.json`, `/redoc` |
+
+**Middleware Execution Order:**
+```
+Request → RequestIDMiddleware → RateLimitMiddleware (Global/Session check) → FirebaseAuthMiddleware → Per-Endpoint slowapi → Endpoint Handler
+```
+
+**Key Files:**
+
+| File | Purpose |
+|------|---------|
+| `middleware/rate_limit.py` | Custom ASGI middleware for Global/Per-Session rate limiting |
+| `api/rate_limit.py` | slowapi `Limiter` instance with session/IP key function |
+| `services/token_budget_service.py` | Daily LLM token budget tracking (in-memory singleton) |
+| `config/settings.py` | All rate limit configuration values |
+| `main.py` | Middleware registration, slowapi exception handler, 429 logging |
+
+### 8b. Human-in-the-Loop (HITL) Feedback System
 
 | Property | Value |
 |----------|-------|
@@ -693,6 +724,7 @@ The Diamond Lens application has comprehensive monitoring and alerting implement
 - `custom.googleapis.com/diamond-lens/api/errors` - Error count by type (validation, bigquery, llm, null_response)
 - `custom.googleapis.com/diamond-lens/query/processing_time` - Query processing time by query type
 - `custom.googleapis.com/diamond-lens/bigquery/latency` - BigQuery query latency
+- `custom.googleapis.com/diamond-lens/rate_limit/rejections` - Rate limit rejection count by endpoint and limit type (global, session, endpoint)
 
 **Monitoring Dashboard**:
 - Uptime metrics (backend/frontend availability)

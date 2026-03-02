@@ -73,6 +73,22 @@ class Settings(BaseSettings):
     enable_debug_mode: bool = False
 
     # ============================================================
+    # Rate Limiting 設定
+    # ============================================================
+    # Global: 全リクエスト共通
+    rate_limit_global_per_minute: int = 100
+    # Per-Session: session_id ごと
+    rate_limit_session_per_minute: int = 20
+    # Per-Endpoint: 高コストエンドポイント
+    rate_limit_player_stats_per_minute: int = 10
+    rate_limit_agent_chat_per_minute: int = 5
+    rate_limit_statistics_per_minute: int = 10
+    # LLM Token Budget: 日次トークン上限
+    llm_daily_token_budget: int = 1_000_000  # 1M tokens/day
+    # Rate Limit有効/無効（開発時にOFFにする用）
+    rate_limit_enabled: bool = True
+
+    # ============================================================
     # LLM設定
     # ============================================================
     gemini_model: str = "gemini-2.5-flash"

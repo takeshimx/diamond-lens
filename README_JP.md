@@ -141,6 +141,34 @@
 **APIエンドポイント**:
 - `POST /api/v1/qa/feedback` - ユーザーフィードバック送信（評価・カテゴリ・理由）
 
+### 7. レートリミット & クォータ管理
+**ステータス**: ✅ 本番環境対応
+
+**機能**:
+- **🌐 グローバルレートリミット**: カスタムASGIミドルウェアによる全ユーザー合計100リクエスト/分
+- **👤 セッション別レートリミット**: ユーザーごとに20リクエスト/分（Firebase user_id > セッションID > IPアドレスの優先順位）
+- **🎯 エンドポイント別レートリミット**: slowapiデコレータによるエンドポイントごとの設定可能な制限（例: AIチャット: 5回/分、選手成績: 10回/分、統計: 10回/分）
+- **💰 LLMトークンバジェット**: 日次トークン使用上限（デフォルト: 1,000,000トークン/日）、UTC深夜0時に自動リセット
+- **📊 モニタリング統合**: レートリミット拒否を全てCloud MonitoringカスタムメトリクスとBigQuery `llm_interaction_logs` に記録
+- **⚙️ `.env`で設定可能**: コード変更なしで全制限値を調整可能
+
+**アーキテクチャ**:
+- **インメモリストレージ**: Redis不要 — Python `dict` + `threading.Lock`によるスレッドセーフなカウンター。Cloud Run単一コンテナデプロイに最適。
+- **固定ウィンドウアルゴリズム**: 1分間ウィンドウでのリクエスト数カウント
+- **ミドルウェアスタック**: `RequestID → RateLimitMiddleware (Global/Session) → FirebaseAuth → Per-Endpoint (slowapi)`
+- **429レスポンス**: 次のウィンドウまでの秒数を `Retry-After` ヘッダーで返却
+
+**設定** (`.env`):
+```env
+RATE_LIMIT_GLOBAL_PER_MINUTE=100
+RATE_LIMIT_SESSION_PER_MINUTE=20
+RATE_LIMIT_PLAYER_STATS_PER_MINUTE=10
+RATE_LIMIT_AGENT_CHAT_PER_MINUTE=5
+RATE_LIMIT_STATISTICS_PER_MINUTE=10
+LLM_DAILY_TOKEN_BUDGET=1000000
+RATE_LIMIT_ENABLED=true
+```
+
 ### 技術機能
 - **AI搭載処理**: Gemini 2.5 Flashを使用したクエリ解析とレスポンス生成
 - **リアルタイムインターフェース**: ローディング状態とライブ更新付きのインタラクティブ体験
@@ -149,6 +177,7 @@
 - **ダークテーマUI**: 長時間使用に最適化されたモダンでレスポンシブなインターフェース
 - **セキュアアクセス**: Firebase Authentication（Googleログイン）とサーバーサイドトークン検証
 - **SQLインジェクション対策**: 入力検証とパラメータ化クエリによる多層セキュリティ
+- **レートリミット**: 多層レートリミット（グローバル、セッション別、エンドポイント別）とLLMトークンバジェット追跡
 
 ## 🏗 アーキテクチャ
 
@@ -598,6 +627,14 @@ git push → Cloud Buildトリガー → cloudbuild.yaml 実行
    - ORDER BY句は`METRIC_MAP`から事前定義されたカラムのみを使用
    - ユーザー入力を直接ORDER BY句に使用しない
 
+4. **レートリミット** (`RateLimitMiddleware` + `slowapi`):
+   - グローバルレートリミット（100リクエスト/分）カスタムASGIミドルウェア経由
+   - セッション別レートリミット（20リクエスト/分）Firebase user_id、セッションID、またはIPをキーに使用
+   - エンドポイント別レートリミット（slowapiデコレータ）`.env`で動的設定可能
+   - LLMトークンバジェット（日次上限）でAPIコスト暴走を防止
+   - 全拒否をCloud MonitoringとBigQuery `llm_interaction_logs` に記録
+   - インメモリストレージ（Redis不要）— Cloud Run単一コンテナデプロイに最適
+
 **テストカバレッジ:**
 - `test_security.py`: SQLインジェクション攻撃パターンと入力検証
 - 悪意のある入力をブロックし、正当な入力を許可することをテストで検証
@@ -710,6 +747,7 @@ terraform apply -var="notification_email=your-email@example.com"
 - `api/errors`: エンドポイントとエラータイプ別エラーカウント
 - `query/processing_time`: クエリタイプ別クエリ処理時間（ms）
 - `bigquery/latency`: クエリタイプ別BigQuery実行時間（ms）
+- `rate_limit/rejections`: エンドポイント別・制限タイプ別（global, session, endpoint）のレートリミット拒否カウント
 
 **構造化ログ:**
 - Google Cloud Loggingと互換性のあるJSON形式ログ
@@ -761,20 +799,25 @@ diamond-lens/
 │   │   ├── api/endpoints/   # APIルートハンドラー
 │   │   ├── middleware/       # ASGIミドルウェア
 │   │   │   ├── firebase_auth.py    # Firebaseトークン検証ミドルウェア
+│   │   │   ├── rate_limit.py       # グローバル/セッション別レートリミット（インメモリ）
 │   │   │   └── request_id.py       # リクエストID追跡
 │   │   ├── services/        # ビジネスロジックサービス
 │   │   │   ├── ai_service.py       # AIクエリ処理
 │   │   │   ├── bigquery_service.py # BigQueryクライアント
 │   │   │   ├── firebase_service.py # Firebase Admin SDK初期化
 │   │   │   ├── llm_logger_service.py # LLM I/Oロギング（user_id対応）
-│   │   │   └── monitoring_service.py # カスタムメトリクス
+│   │   │   ├── monitoring_service.py # カスタムメトリクス
+│   │   │   └── token_budget_service.py # 日次LLMトークンバジェット（インメモリ）
 │   │   ├── prompts/         # バージョン管理されたLLMプロンプトテンプレート
 │   │   │   ├── parse_query_v1.txt  # クエリパースプロンプト
 │   │   │   └── routing_v1.txt      # エージェントルーティングプロンプト
 │   │   ├── utils/           # ユーティリティ関数
 │   │   │   └── structured_logger.py # JSONログ
-│   │   └── config/          # 設定とマッピング
-│   │       └── prompt_registry.py  # プロンプトバージョン管理
+│   │   ├── config/          # 設定とマッピング
+│   │   │   ├── prompt_registry.py  # プロンプトバージョン管理
+│   │   │   └── settings.py        # アプリ設定（レートリミット、バジェット等）
+│   │   └── api/
+│   │       └── rate_limit.py      # slowapiエンドポイント別レートリミッター
 │   ├── tests/               # ユニットテスト + ゴールデンデータセット
 │   │   ├── golden_dataset.json    # LLM評価テストケース
 │   │   └── pending_review.json    # HITLフィードバック レビュー待ち
