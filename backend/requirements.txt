@@ -37,3 +37,4 @@ firebase-admin
 # llama-index-core>=0.10.0
 # python-jose[cryptography]>=3.3.0
 
+slowapi

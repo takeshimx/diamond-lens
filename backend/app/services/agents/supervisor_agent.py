@@ -20,15 +20,15 @@ class SupervisorAgent:
         )
     
 
-    def route_query(self, query: str) -> Literal["batter", "pitcher", "stats", "matchup", "prediction"]:
+    def route_query(self, query: str) -> Literal["batter", "pitcher", "stats", "matchup"]:
         """
         Analyze query and route to appropriate agent.
-        
+
         Args:
             query: User's natural language question
-            
+
         Returns:
-            Agent type: "stats", "matchup", or "prediction"
+            Agent type: "batter", "pitcher", "stats", or "matchup"
         """
 
         routing_prompt = get_prompt("routing", query=query)
@@ -38,9 +38,8 @@ class SupervisorAgent:
         agent_type = response.content.strip().lower()
 
         # Validation
-        if agent_type not in ["batter", "pitcher", "stats", "matchup", "prediction"]:
-            # Default to stats if unclear
+        if agent_type not in ["batter", "pitcher", "stats", "matchup"]:
             return "stats"
-        
+
         return agent_type
 

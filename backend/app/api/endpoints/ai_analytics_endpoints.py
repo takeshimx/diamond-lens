@@ -17,6 +17,9 @@ from backend.app.middleware.request_id import get_request_id
 from backend.app.core.exceptions import PromptInjectionError
 from fastapi.responses import StreamingResponse
 from backend.app.utils.streaming import stream_json_events, format_sse
+from backend.app.api.rate_limit import limiter
+from backend.app.config.settings import get_settings
+from backend.app.services.token_budget_service import get_token_budget_service
 import logging
 import time
 from pydantic import BaseModel
@@ -32,8 +35,14 @@ llm_logger = get_llm_logger()
 # このルーターは、FastAPIアプリケーションの他の部分とは独立してエンドポイントを定義できます。
 router = APIRouter()
 
+# 動的リミット関数: リクエストごとに settings から値を取得
+def _player_stats_limit() -> str:
+    return f"{get_settings().rate_limit_player_stats_per_minute}/minute"
 
- 
+def _agent_chat_limit() -> str:
+    return f"{get_settings().rate_limit_agent_chat_per_minute}/minute"
+
+
 @router.post(
     "/qa/player-stats",
     response_model=Dict[str, Any],
@@ -41,6 +50,7 @@ router = APIRouter()
     description="ユーザーの自然言語クエリに基づいて、AIが選手/チームの統計情報に関する回答を生成します。会話履歴を考慮して代名詞や省略を自動解決します。",
     tags=["players"] # 選手に関連するため 'players' タグを使用
 )
+@limiter.limit(_player_stats_limit)
 async def get_player_stats_qna_endpoint(
     request_body: QnARequest, # リクエストボディからQnARequestモデルを受け取る
     request: Request,
@@ -53,6 +63,17 @@ async def get_player_stats_qna_endpoint(
     """
     # セッションIDがない場合は新規作成
     session_id = request_body.session_id or str(uuid4())
+
+    # トークンバジェットチェック
+    token_budget = get_token_budget_service()
+    if token_budget.is_budget_exceeded():
+        return {
+            "answer": "本日のAI分析サービスの利用上限に達しました。明日以降に再度お試しください。",
+            "isTable": False,
+            "isChart": False,
+            "session_id": session_id,
+            "service_at_capacity": True,
+        }
     start_time = time.time()
 
     # ★ user_id をミドルウェアから取得
@@ -252,29 +273,45 @@ async def clear_chat_history(session_id: str):
     description="LangGraphを用いた自律型エージェントが、複雑な質問に対して複数ステップの推論を行い、回答を生成します。",
     tags=["agentic"]
 )
+@limiter.limit(_agent_chat_limit)
 async def get_agentic_stats_endpoint(
-    request: QnARequest,
-    http_request: Request
+    request: Request,
+    body: QnARequest,
 ) -> Dict[str, Any]:
     """
     自律型エージェント（LangGraph）を起動して回答を得るエンドポイント。
     """
-    session_id = request.session_id or str(uuid4())
+    session_id = body.session_id or str(uuid4())
+
+    # トークンバジェットチェック
+    token_budget = get_token_budget_service()
+    if token_budget.is_budget_exceeded():
+        return {
+            "query": body.query,
+            "answer": "本日のAI分析サービスの利用上限に達しました。明日以降に再度お試しください。",
+            "steps": [],
+            "session_id": session_id,
+            "is_agentic": True,
+            "isTable": False,
+            "isChart": False,
+            "service_at_capacity": True,
+        }
+
     start_time = time.time()
 
     # LLM ログエントリを初期化
     log_entry = LLMLogEntry()
     log_entry.request_id = get_request_id()
-    log_entry.user_id = getattr(http_request.state, "user_id", "anonymous")
+    log_entry.user_id = getattr(request.state, "user_id", "anonymous")
     log_entry.session_id = session_id
-    log_entry.user_query = request.query
+    log_entry.user_query = body.query
     log_entry.endpoint = "/qa/agentic-stats"
 
-    logger.info(f"🤖 Agentic Request: query='{request.query}', session_id={session_id}")
+    logger.info(f"🤖 Agentic Request: query='{body.query}', session_id={session_id}")
 
     try:
         # 自律型エージェントの実行
-        result_state = run_mlb_agent(request.query)
+        result_state = run_mlb_agent(body.query)
         
         # 1. 回答の取得（final_answer または 最後のメッセージから）
         answer = result_state.get("final_answer", "")
@@ -329,7 +366,7 @@ async def get_agentic_stats_endpoint(
         llm_logger.log(log_entry)
 
         return {
-            "query": request.query,
+            "query": body.query,
             "answer": answer or "回答を生成できませんでした。プロンプトまたはデータ取得に問題があります。",
             "steps": steps,
             "session_id": session_id,
@@ -349,7 +386,7 @@ async def get_agentic_stats_endpoint(
     
     except PromptInjectionError as e:
         # Guardrailによるブロック → 400（クライアントエラー）として返す
-        logger.warning(f"🚨 Guardrail blocked: {e.detected_pattern}", extra={"query": request.query[:100]})
+        logger.warning(f"🚨 Guardrail blocked: {e.detected_pattern}", extra={"query": body.query[:100]})
 
         # ログに記録
         log_entry.success = False
@@ -359,7 +396,7 @@ async def get_agentic_stats_endpoint(
         llm_logger.log(log_entry)
 
         return {
-            "query": request.query,
+            "query": body.query,
             "answer": e.message,  # 丁寧な拒否メッセージ
             "steps": [],
             "session_id": session_id,
@@ -416,16 +453,32 @@ async def submit_llm_feedback(feedback: FeedbackRequest):
     tags=["agentic"],
     response_class=StreamingResponse
 )
+@limiter.limit(_agent_chat_limit)
 async def get_agentic_stats_stream_endpoint(
-    request: QnARequest
+    request: Request,
+    body: QnARequest,
 ) -> StreamingResponse:
     """
     自律型エージェント（LangGraph）をストリーミングモードで起動するエンドポイント。
     Server-Sent Events (SSE) を使用して、リアルタイムで結果を送信します。
     """
-    session_id = request.session_id or str(uuid4())
+    session_id = body.session_id or str(uuid4())
 
-    logger.info(f"🌊 Stream Request: query='{request.query}', session_id={session_id}")
+    # トークンバジェットチェック
+    token_budget = get_token_budget_service()
+    if token_budget.is_budget_exceeded():
+        from starlette.responses import JSONResponse
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "Service at capacity",
+                "detail": "本日のAI分析サービスの利用上限に達しました。明日以降に再度お試しください。",
+                "session_id": session_id,
+                "service_at_capacity": True,
+            },
+        )
+
+    logger.info(f"🌊 Stream Request: query='{body.query}', session_id={session_id}")
 
     async def event_generator() -> AsyncGenerator[Dict[str, Any], None]:
         """SSEイベントを生成する非同期ジェネレーター"""
@@ -434,7 +487,7 @@ async def get_agentic_stats_stream_endpoint(
             yield {
                 "type": "session_start",
                 "session_id": session_id,
-                "query": request.query
+                "query": body.query
             }
 
             # Agent start event
@@ -446,7 +499,7 @@ async def get_agentic_stats_stream_endpoint(
             # Execute LangGraph streaming
             from backend.app.services.ai_agent_service import run_mlb_agent_stream
 
-            async for event in run_mlb_agent_stream(request.query):
+            async for event in run_mlb_agent_stream(body.query):
                 yield event
 
             # Session end event

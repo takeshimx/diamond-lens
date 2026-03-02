@@ -1,11 +1,19 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional
 from backend.app.services.statistical_analysis import StatisticalAnalysisService
+from backend.app.api.rate_limit import limiter
+from backend.app.config.settings import get_settings
 
 router = APIRouter(prefix="/statistics", tags=["Statistics"])
 
+def _statistics_limit() -> str:
+    return f"{get_settings().rate_limit_statistics_per_minute}/minute"
+
+
 @router.get("/predict-winrate")
+@limiter.limit(_statistics_limit)
 async def predict_winrate(
+    request: Request,
     team_ops: float = Query(..., ge=0.0, le=2.000, description="The OPS (On-base Plus Slugging) value for the team."),
     team_era: float = Query(..., ge=0.0, le=10.000, description="The ERA (Earned Run Average) value for the team."),
     team_hrs_allowed: int = Query(..., ge=0, le=300, description="The number of home runs allowed by the team.")
@@ -31,7 +39,9 @@ async def predict_winrate(
 
 
 @router.get("/ops-sensitivity")
+@limiter.limit(_statistics_limit)
 async def ops_sensitivity_analysis(
+    request: Request,
     fixed_era: float = Query(4.00, ge=0.0, le=10.0, description="固定するERA値（デフォルト: 4.00）"),
     fixed_hrs_allowed: int = Query(180, ge=0, le=300, description="固定する被本塁打数（デフォルト: 180）")
 ):
@@ -51,7 +61,10 @@ async def ops_sensitivity_analysis(
 
 
 @router.get("/model-summary")
-async def get_model_summary():
+@limiter.limit(_statistics_limit)
+async def get_model_summary(
+    request: Request,
+):
     """
     回帰モデルの評価指標とメタ情報を取得
     
