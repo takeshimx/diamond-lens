@@ -101,6 +101,14 @@ class Settings(BaseSettings):
     bigquery_timeout: int = 60  # seconds
     bigquery_max_results: int = 10000
 
+    # ============================================================
+    # ML Monitoring 設定
+    # ============================================================
+    ml_drift_monitoring_table_id: str = "ml_drift_monitoring_logs"
+    ml_drift_psi_warning_threshold: float = 0.1
+    ml_drift_psi_critical_threshold: float = 0.2
+    ml_drift_ks_alpha: float = 0.05
+
     class Config:
         """Pydantic設定"""
         # env_file = ".env"
