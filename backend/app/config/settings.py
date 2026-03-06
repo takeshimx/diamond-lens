@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     # ============================================================
     # API Keys
     # ============================================================
-    gemini_api_key: str = Field(validation_alias='GEMINI_API_KEY_V2')
+    gemini_api_key: Optional[str] = Field(default=None, validation_alias='GEMINI_API_KEY_V2')
 
     # ============================================================
     # Redis設定（会話履歴管理用）
