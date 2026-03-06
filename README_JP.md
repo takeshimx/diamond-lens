@@ -169,6 +169,49 @@ LLM_DAILY_TOKEN_BUDGET=1000000
 RATE_LIMIT_ENABLED=true
 ```
 
+### 8. MLモデルモニタリング & データドリフト検知
+**ステータス**: ✅ 本番環境対応
+
+**機能**:
+- **📊 データドリフト検知**: KS検定、PSI（Population Stability Index）、平均シフト分析を用いたMLモデル入力データの分布変化の統計的監視
+- **🗄️ モデルレジストリ & バージョニング**: 学習済みMLモデル（KMeans + StandardScaler）をGCSに永続化し、バージョン管理。メタデータはBigQueryに記録しモデルリネージを追跡
+- **🔄 自動ベースライン**: ドリフト検知がアクティブモデルの学習シーズンを自動参照 — 手動でのベースライン指定不要
+- **🚦 CI/CDドリフトゲート**: クリティカルなデータドリフト検出時にデプロイをブロックし、モデル再学習を促す
+
+**アーキテクチャ**:
+```
+モデル学習 → GCS (model.joblib) + BigQuery (ml_model_registry)
+       ↓
+Active昇格 → player_segmentation が GCS からロード
+       ↓
+CI/CD ドリフトチェック → アクティブモデルの学習データ vs 最新シーズンを比較
+       ↓
+   ├── none/warning → デプロイ続行
+   └── critical     → デプロイ停止 🚫（再学習が必要）
+```
+
+**ドリフト検知手法**:
+- **KS検定**: Kolmogorov-Smirnov検定による分布形状の変化検出
+- **PSI**: Population Stability Indexによる全体的な分布シフト（Warning ≥ 0.1、Critical ≥ 0.2）
+- **平均シフト**: シーズン間の特徴量平均値の変化率
+
+**モデルレジストリ機能**:
+- **GCSストレージ**: バージョン管理されたモデルアーティファクト（`models/{model_type}/{version}/model.joblib`）
+- **BigQueryメタデータ**: `algorithm`カラム（KMeans、LightGBM等対応）と`model_params` JSONによるバージョン追跡
+- **バージョン昇格**: `promote_version()`によるアクティブバージョン管理
+- **フォールバック**: `player_segmentation.py`がレジストリから読み込み可能、失敗時はオンザフライでフィッティング
+
+**APIエンドポイント**:
+- `POST /api/v1/ml-monitoring/detect-drift` - データドリフト検知（レジストリから自動ベースライン）
+- `GET /api/v1/ml-monitoring/drift-history` - 過去のドリフトレポート
+- `GET /api/v1/ml-monitoring/drift-summary` - 最新ドリフトサマリー
+- `POST /api/v1/model-registry/train` - 新しいモデルバージョンを学習・登録
+- `GET /api/v1/model-registry/versions` - 登録バージョン一覧
+- `POST /api/v1/model-registry/promote` - バージョンをアクティブに昇格
+- `GET /api/v1/model-registry/active` - 現在のアクティブバージョン取得
+
+**技術**: scikit-learn、scipy、joblib、Google Cloud Storage、BigQuery
+
 ### 技術機能
 - **AI搭載処理**: Gemini 2.5 Flashを使用したクエリ解析とレスポンス生成
 - **リアルタイムインターフェース**: ローディング状態とライブ更新付きのインタラクティブ体験
@@ -542,6 +585,14 @@ git push → Cloud Buildトリガー → cloudbuild.yaml 実行
 └─────────────────────────────────────┘
   ↓
 ┌─────────────────────────────────────┐
+│ STEP 1.6: MLデータドリフトチェックGATE│
+│  - Model Registryのactiveバージョン  │
+│    からbaselineを自動検出           │
+│  - PSI/KS検定でモデル特徴量を検証   │
+│  ⚠️  クリティカルドリフト → ビルド停止 │
+└─────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────┐
 │ STEP 2: Terraform (インフラ管理)      │
 │  - terraform init                   │
 │  - terraform plan                   │
@@ -589,6 +640,7 @@ git push → Cloud Buildトリガー → cloudbuild.yaml 実行
 - **自動テスト:** 全デプロイ前にユニットテストを実行
 - **スキーマ検証ゲート:** `query_maps.py`が本番BigQueryスキーマと一致することを保証
 - **LLM評価ゲート:** ゴールデンデータセットに対するLLMパース精度をデプロイ前に検証
+- **MLドリフトチェックゲート:** Model Registryの自動ベースラインを使用してMLモデル入力データのクリティカルドリフトを検出
 - **セキュリティスキャン:** TrivyでDockerイメージのHIGH/CRITICAL脆弱性をスキャン
 - **Fail-fastアプローチ:** テスト、スキーマ、LLM精度、またはセキュリティ失敗時は本番デプロイを防止
 - インフラ変更はアプリケーションデプロイメントの前に適用されます
@@ -643,11 +695,13 @@ git push → Cloud Buildトリガー → cloudbuild.yaml 実行
 
 プロジェクトには重要なビジネスロジックの包括的なユニットテストが含まれています：
 
-**テストカバレッジ (73テスト):**
+**テストカバレッジ (95+テスト):**
 - `test_query_maps.py` (21テスト): 設定検証とデータ構造の整合性
 - `test_build_dynamic_sql.py` (28テスト): 全クエリタイプのSQL生成ロジック
 - `test_security.py` (13テスト): SQLインジェクション防止と入力検証
 - `test_reflection_loop.py` (11テスト): Reflection Loop自己修正ロジック、エラー分類、Executor空結果検出
+- `test_data_drift.py` (17テスト): データドリフト検知ロジック（PSI、KS検定、重要度判定）
+- `test_model_registry.py` (5+テスト): モデルレジストリサービス（学習、登録、ロード、昇格 — GCS/BigQueryモック使用）
 
 **ローカルでテスト実行:**
 ```bash
@@ -806,6 +860,9 @@ diamond-lens/
 │   │   │   ├── bigquery_service.py # BigQueryクライアント
 │   │   │   ├── firebase_service.py # Firebase Admin SDK初期化
 │   │   │   ├── llm_logger_service.py # LLM I/Oロギング（user_id対応）
+│   │   │   ├── data_drift_service.py  # データドリフト検知（PSI、KS検定）
+│   │   │   ├── ml_monitoring_logger.py # MLモニタリングログ
+│   │   │   ├── model_registry_service.py # モデルレジストリ & バージョニング（GCS + BQ）
 │   │   │   ├── monitoring_service.py # カスタムメトリクス
 │   │   │   └── token_budget_service.py # 日次LLMトークンバジェット（インメモリ）
 │   │   ├── prompts/         # バージョン管理されたLLMプロンプトテンプレート
@@ -824,7 +881,9 @@ diamond-lens/
 │   ├── scripts/             # 検証・評価スクリプト
 │   │   ├── extract_golden_dataset.py  # BigQueryからbad評価クエリを抽出
 │   │   ├── approve_to_golden.py       # レビュー済みケースをゴールデンデータセットに昇格
-│   │   └── evaluate_llm_accuracy.py   # CI/CD LLM精度ゲート
+│   │   ├── evaluate_llm_accuracy.py   # CI/CD LLM精度ゲート
+│   │   ├── check_data_drift.py        # CI/CD MLドリフトチェックゲート
+│   │   └── create_drift_monitoring_table.py # BigQueryテーブルセットアップ
 │   ├── requirements.txt     # Python依存関係
 │   └── Dockerfile           # バックエンドコンテナ
 ├── terraform/                # Infrastructure as Code

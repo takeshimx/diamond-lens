@@ -8,6 +8,7 @@ from .statistics_endpoints import router as statistics_router
 from .segmentation_endpoints import router as segmentation_router
 from .pitcher_fatigue_endpoints import router as pitcher_fatigue_router
 from .pitcher_substition_ml_endpoints import router as pitcher_substitution_ml_router
+from .model_registry_endpoints import router as model_registry_router
 # Whiff予測機能は一時無効化（LightGBM依存関係のため）
 # from .pitcher_prediction_endpoints import router as pitcher_prediction_router
 from .speech_endpoints import router as speech_router
@@ -30,5 +31,6 @@ api_router.include_router(pitcher_fatigue_router)
 api_router.include_router(pitcher_substitution_ml_router)
 api_router.include_router(speech_router)
 api_router.include_router(drift_monitoring_router)
+api_router.include_router(model_registry_router)
 # api_router.include_router(rag_router)
 # api_router.include_router(pitcher_prediction_router)

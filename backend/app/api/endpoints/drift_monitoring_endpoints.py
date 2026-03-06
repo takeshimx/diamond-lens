@@ -3,17 +3,28 @@ Drift Monitoring API Endpoints
 MLモデル入力データのドリフト検知・監視エンドポイント
 """
 
+import logging
+
 from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 
 from backend.app.services.data_drift_service import DataDriftService
 from backend.app.services.ml_monitoring_logger import get_ml_monitoring_logger
+from backend.app.services.model_registry_service import ModelRegistryService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ml-monitoring", tags=["ML Monitoring"])
 
 service = DataDriftService()
 monitoring_logger = get_ml_monitoring_logger()
+
+# Registry for auto-baseline (fallback gracefully if unavailable)
+try:
+    registry = ModelRegistryService()
+except Exception:
+    registry = None
 
 
 # ============================================================
@@ -53,29 +64,42 @@ class DriftDetectRequest(BaseModel):
 # エンドポイント
 # ============================================================
 
-@router.post("/detect-drift", response_model=DriftReportResponse)
-async def detect_drift(request: DriftDetectRequest):
+@router.post("/detect-drift")
+async def detect_drift(
+    model_type: str,
+    target_season: int,
+    baseline_season: Optional[int] = Query(None),
+):
     """
-    指定された2シーズン間のデータドリフトを検知する。
-
-    結果は BigQuery にも自動的に記録される。
+    MLモデル入力データのドリフト検知を実行。
+    baseline_season が未指定の場合、Registry の active モデルから学習シーズンを自動取得する。
     """
-    try:
-        report = service.detect_drift(
-            baseline_season=request.baseline_season,
-            target_season=request.target_season,
-            model_type=request.model_type,
-        )
+    if baseline_season is None:
+        if registry is None:
+            raise HTTPException(
+                status_code=400,
+                detail="baseline_season is required (Model Registry unavailable)."
+            )
+        active = registry.get_active_version(model_type)
+        if not active:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"baseline_season is required because no active model version was found for {model_type}."
+            )
+        baseline_season = active.training_season
+        logger.info(f"Auto-selected baseline_season {baseline_season} for model {model_type} from registry")
+    
+    # 指定されたシーズンでドリフト検知実行
+    report = service.detect_drift(
+        baseline_season=baseline_season,
+        target_season=target_season,
+        model_type=model_type,
+    )
+    
+    # Save log to BigQuery
+    monitoring_logger.log_drift_report(report)
 
-        # BigQuery にログを記録
-        monitoring_logger.log_drift_report(report)
-
-        return report.to_dict()
-
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return report
 
 
 @router.get("/drift-history")

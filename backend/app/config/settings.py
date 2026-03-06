@@ -109,6 +109,13 @@ class Settings(BaseSettings):
     ml_drift_psi_critical_threshold: float = 0.2
     ml_drift_ks_alpha: float = 0.05
 
+    # ============================================================
+    # Model Registry 設定
+    # ============================================================
+    gcs_bucket_name: str = "diamond-lens-models"
+    model_registry_table_id: str = "ml_model_registry"
+
+
     class Config:
         """Pydantic設定"""
         # env_file = ".env"
