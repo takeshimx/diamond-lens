@@ -169,6 +169,49 @@ LLM_DAILY_TOKEN_BUDGET=1000000
 RATE_LIMIT_ENABLED=true
 ```
 
+### 8. ML Model Monitoring & Data Drift Detection
+**Status**: ✅ Production-ready
+
+**Capabilities**:
+- **📊 Data Drift Detection**: Statistical monitoring of ML model input data distribution changes between seasons using KS test, PSI (Population Stability Index), and mean shift analysis
+- **🗄️ Model Registry & Versioning**: Persist trained ML models (KMeans + StandardScaler) to GCS with version tracking. Metadata logged to BigQuery for model lineage
+- **🔄 Auto-Baseline**: Drift detection automatically references the active model's training season — no manual baseline specification needed
+- **🚦 CI/CD Drift Gate**: Pre-deployment check blocks releases when critical data drift is detected, prompting model retraining
+
+**Architecture**:
+```
+Model Training → GCS (model.joblib) + BigQuery (ml_model_registry)
+       ↓
+Promote to Active → player_segmentation loads from GCS
+       ↓
+CI/CD Drift Check → Compare active model's training data vs latest season
+       ↓
+   ├── none/warning → Deploy proceeds
+   └── critical     → Deploy blocked 🚫 (retrain required)
+```
+
+**Drift Detection Methods**:
+- **KS Test**: Kolmogorov-Smirnov test for distribution shape changes
+- **PSI**: Population Stability Index for overall distribution shift (Warning ≥ 0.1, Critical ≥ 0.2)
+- **Mean Shift**: Percentage change in feature means between seasons
+
+**Model Registry Features**:
+- **GCS Storage**: Versioned model artifacts (`models/{model_type}/{version}/model.joblib`)
+- **BigQuery Metadata**: Version tracking with `algorithm` column (supports KMeans, LightGBM, etc.) and `model_params` JSON for algorithm-specific parameters
+- **Version Promotion**: Active version management with `promote_version()`
+- **Fallback**: `player_segmentation.py` loads from registry if available, falls back to on-the-fly fitting
+
+**API Endpoints**:
+- `POST /api/v1/ml-monitoring/detect-drift` - Detect data drift (auto-baseline from registry)
+- `GET /api/v1/ml-monitoring/drift-history` - Historical drift reports
+- `GET /api/v1/ml-monitoring/drift-summary` - Latest drift status summary
+- `POST /api/v1/model-registry/train` - Train and register a new model version
+- `GET /api/v1/model-registry/versions` - List registered versions
+- `POST /api/v1/model-registry/promote` - Promote a version to active
+- `GET /api/v1/model-registry/active` - Get current active version
+
+**Technologies**: scikit-learn, scipy, joblib, Google Cloud Storage, BigQuery
+
 ### Technical Features
 - **AI-Powered Processing**: Uses Gemini 2.5 Flash for query parsing and response generation
 - **Real-time Interface**: Interactive experience with loading states and live updates
@@ -623,6 +666,14 @@ git push → Cloud Build Trigger → cloudbuild.yaml execution
 └─────────────────────────────────────┘
   ↓
 ┌─────────────────────────────────────┐
+│ STEP 1.6: ML Data Drift Check GATE │
+│  - Auto-detect baseline from        │
+│    Model Registry active version    │
+│  - PSI/KS test on model features    │
+│  ⚠️  If critical drift → Build stops │
+└─────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────┐
 │ STEP 2: Terraform (Infrastructure)  │
 │  - terraform init                   │
 │  - terraform plan                   │
@@ -670,6 +721,7 @@ git push → Cloud Build Trigger → cloudbuild.yaml execution
 - **Automated testing:** Unit tests run before every deployment
 - **Schema validation gate:** Ensures `query_maps.py` matches live BigQuery schema
 - **LLM evaluation gate:** Validates LLM parse accuracy against golden dataset before deployment
+- **ML drift check gate:** Detects critical data drift in ML model inputs using Model Registry auto-baseline
 - **Security scanning:** Trivy scans Docker images for HIGH/CRITICAL vulnerabilities
 - **Fail-fast approach:** Test, schema, LLM accuracy, or security failures prevent deployment
 - Infrastructure changes are applied before application deployment
@@ -724,11 +776,13 @@ The application implements multiple layers of security to protect against SQL in
 
 The project includes comprehensive unit tests for critical business logic:
 
-**Test Coverage (73 tests):**
+**Test Coverage (95+ tests):**
 - `test_query_maps.py` (21 tests): Configuration validation and data structure integrity
 - `test_build_dynamic_sql.py` (28 tests): SQL generation logic for all query types
 - `test_security.py` (13 tests): SQL injection prevention and input validation
 - `test_reflection_loop.py` (11 tests): Reflection loop self-correction logic, error classification, and executor empty result detection
+- `test_data_drift.py` (17 tests): Data drift detection logic (PSI, KS test, severity determination)
+- `test_model_registry.py` (5+ tests): Model registry service (train, register, load, promote with mocked GCS/BigQuery)
 
 **Run tests locally:**
 ```bash
@@ -887,6 +941,9 @@ diamond-lens/
 │   │   │   ├── bigquery_service.py # BigQuery client
 │   │   │   ├── firebase_service.py # Firebase Admin SDK initialization
 │   │   │   ├── llm_logger_service.py # LLM I/O logging to BigQuery (with user_id)
+│   │   │   ├── data_drift_service.py  # Data drift detection (PSI, KS test)
+│   │   │   ├── ml_monitoring_logger.py # ML monitoring logs to BigQuery
+│   │   │   ├── model_registry_service.py # Model Registry & Versioning (GCS + BQ)
 │   │   │   ├── monitoring_service.py # Custom metrics
 │   │   │   └── token_budget_service.py # Daily LLM token budget (in-memory)
 │   │   ├── prompts/         # Versioned LLM prompt templates
@@ -905,7 +962,9 @@ diamond-lens/
 │   ├── scripts/             # Validation and evaluation scripts
 │   │   ├── extract_golden_dataset.py  # Extract bad-rated queries from BigQuery
 │   │   ├── approve_to_golden.py       # Promote reviewed cases to golden dataset
-│   │   └── evaluate_llm_accuracy.py   # CI/CD LLM accuracy gate
+│   │   ├── evaluate_llm_accuracy.py   # CI/CD LLM accuracy gate
+│   │   ├── check_data_drift.py        # CI/CD ML drift check gate
+│   │   └── create_drift_monitoring_table.py # BigQuery table setup
 │   ├── requirements.txt     # Python dependencies
 │   └── Dockerfile           # Backend container
 ├── terraform/                # Infrastructure as Code

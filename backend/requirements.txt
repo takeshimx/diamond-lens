@@ -39,3 +39,4 @@ firebase-admin
 
 slowapi
 scipy
+joblib

@@ -49,21 +49,21 @@ steps:
   #       python scripts/evaluate_llm_accuracy.py
   #   secretEnv: ['GEMINI_API_KEY_V2']
 
-  # # ----------------------------------------------------------------------
-  # # STEP 1.2: ML Data Drift Check GATE (Criticalドリフト検出時はデプロイ停止)
-  # # ----------------------------------------------------------------------
-  # - id: 'ml-drift-check-gate'
-  #   name: 'python:3.11'
-  #   entrypoint: 'bash'
-  #   args:
-  #     - '-c'
-  #     - |
-  #       cd backend
-  #       pip install -q google-cloud-bigquery scipy numpy pandas pydantic-settings
-  #       export PYTHONPATH=/workspace
-  #       export GCP_PROJECT_ID=${PROJECT_ID}
-  #       export BIGQUERY_DATASET_ID=mlb_analytics_dash_25
-  #       python scripts/check_data_drift.py
+  # ----------------------------------------------------------------------
+  # STEP 1.2: ML Data Drift Check GATE (Criticalドリフト検出時はデプロイ停止)
+  # ----------------------------------------------------------------------
+  - id: 'ml-drift-check-gate'
+    name: 'python:3.11'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        cd backend
+        pip install -q google-cloud-bigquery google-cloud-storage scipy numpy pandas scikit-learn joblib pydantic-settings
+        export PYTHONPATH=/workspace
+        export GCP_PROJECT_ID=${PROJECT_ID}
+        export BIGQUERY_DATASET_ID=mlb_analytics_dash_25
+        python scripts/check_data_drift.py
 
   # # ----------------------------------------------------------------------
   # # STEP 2: Terraform Apply (インフラストラクチャ更新)

@@ -140,6 +140,7 @@ subgraph "Application Layer - Cloud Run"
 | **MCP Server** | Model Context Protocol | Claude Desktop/Cursor integration |
 | **AI Agent** | LangGraph, Gemini 2.5 Flash | Multi-step reasoning & Tool use |
 | **MLOps** | Prompt Registry, Golden Dataset, BigQuery Logging | Prompt versioning, LLM evaluation gate, I/O observability |
+| **ML Monitoring** | Data Drift Service, Model Registry, GCS, BigQuery | Data drift detection (PSI/KS), model versioning & auto-baseline CI/CD gate |
 | **HITL Feedback** | Feedback UI, BigQuery, pending_review.json | User feedback collection, golden dataset expansion pipeline |
 | **Rate Limiting** | Custom ASGI Middleware, slowapi, In-Memory Counters | Multi-tier rate limiting (Global/Session/Endpoint) + LLM token budget |
 | **Orchestration** | Cloud Workflows, Cloud Scheduler | Pipeline automation |
@@ -417,6 +418,42 @@ graph TD
     H -->|Accuracy < 80%| J[Block: Fix prompts]
     J --> H
 ```
+
+### 8c. ML Model Monitoring & Data Drift Detection
+
+| Property | Value |
+|----------|-------|
+| **Data Drift Service** | `data_drift_service.py` — KS test, PSI, mean shift analysis |
+| **Model Registry** | `model_registry_service.py` — train, register, load, promote model versions |
+| **Model Storage** | GCS: `gs://diamond-lens-models/models/{model_type}/{version}/model.joblib` |
+| **Metadata Storage** | BigQuery: `ml_model_registry` table (version, algorithm, training_season, gcs_path, model_params, is_active) |
+| **Supported Algorithms** | `algorithm` column: KMeans, LightGBM, etc. with generic `model_params` JSON |
+| **Drift Detection** | PSI (Warning ≥ 0.1, Critical ≥ 0.2), KS test (p-value < 0.05), mean shift % |
+| **Auto-Baseline** | `detect-drift` endpoint auto-detects `baseline_season` from active model's `training_season` |
+| **CI/CD Gate** | `check_data_drift.py` blocks deployment on critical drift (exit code 1) |
+| **Monitoring Logger** | `ml_monitoring_logger.py` logs drift reports to BigQuery |
+| **Segmentation Integration** | `player_segmentation.py` loads active model from registry, falls back to on-the-fly fitting |
+
+**API Endpoints:**
+- `POST /api/v1/ml-monitoring/detect-drift` — Data drift detection (auto-baseline from registry)
+- `GET /api/v1/ml-monitoring/drift-history` — Historical drift reports
+- `GET /api/v1/ml-monitoring/drift-summary` — Latest drift status
+- `POST /api/v1/model-registry/train` — Train & register new model version
+- `GET /api/v1/model-registry/versions` — List registered versions
+- `POST /api/v1/model-registry/promote` — Promote version to active
+- `GET /api/v1/model-registry/active` — Get current active version
+
+**Key Files:**
+
+| File | Purpose |
+|------|---------|
+| `services/data_drift_service.py` | Core drift detection logic (PSI, KS test, mean shift) |
+| `services/model_registry_service.py` | Model Registry: train, GCS upload, BigQuery metadata, load, promote |
+| `services/ml_monitoring_logger.py` | Drift report logging to BigQuery |
+| `services/player_segmentation.py` | Loads active model from registry or fits new |
+| `endpoints/drift_monitoring_endpoints.py` | Drift detection API endpoints with auto-baseline |
+| `endpoints/model_registry_endpoints.py` | Model registry API endpoints |
+| `scripts/check_data_drift.py` | CI/CD drift check gate script |
 
 ### 8. Orchestration
 

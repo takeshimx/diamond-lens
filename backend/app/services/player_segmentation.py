@@ -4,9 +4,11 @@ import pandas as pd
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 from backend.app.config.settings import get_settings
-
+from backend.app.services.model_registry_service import ModelRegistryService
+import logging
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 class PlayerSegmentationService:
@@ -14,6 +16,12 @@ class PlayerSegmentationService:
 
     def __init__(self):
         self.client = bigquery.Client()
+
+        # Model Registry Service（ロード失敗時は None → fallback to fit）
+        try:    
+            self.model_registry = ModelRegistryService()
+        except Exception:
+            self.model_registry = None
 
         # Batter cluster labels
         self.batter_cluster_labels = {
@@ -30,6 +38,40 @@ class PlayerSegmentationService:
             2: "Strikeout Dominant Aces",
             3: "Reliable Mid-Tier Starters"
         }
+    
+    def _load_or_fit(
+        self, model_type: str, X: pd.DataFrame, n_clusters: int = 4
+    ):
+        """
+        Registry に active モデルがあればロード、なければ従来通り fit。
+        Returns:
+            (kmeans, scaler, X_scaled)
+        """
+        # Registry からロード
+        if self.model_registry:
+            try:
+                kmeans, scaler, meta = self.model_registry.load_model(model_type)
+                X_scaled = scaler.transform(X)
+                logger.info(
+                    f"Loaded model from registry: {model_type} "
+                    f"{meta.version} (season {meta.training_season})"
+                )
+                return kmeans, scaler, X_scaled
+            except FileNotFoundError:
+                logger.info(f"No active model for {model_type}, fitting new")
+            except Exception as e:
+                logger.warning(f"Registry load failed, fallback to fit: {e}")
+        
+        # Fallback: fit new model
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        kmeans = KMeans(
+            n_clusters=n_clusters,
+            random_state=42,
+        )
+        kmeans.fit(X_scaled)
+        return kmeans, scaler, X_scaled
+
     
     def get_batter_segmentation(self, season: int = 2025, min_pa: int = 300) -> Dict:
         """
@@ -69,13 +111,10 @@ class PlayerSegmentationService:
             features = ['ops', 'iso', 'k_rate', 'bb_rate']
             X = df[features]
 
-            # Standardize features
-            scaler = StandardScaler()
-            X_scaled = scaler.fit_transform(X)
-
-            # K-means clustering
-            kmeans = KMeans(n_clusters=4, random_state=42)
-            df['cluster'] = kmeans.fit_predict(X_scaled)
+            # Standardize features and K-means clustering
+            # Load or fit
+            kmeans, scaler, X_scaled = self._load_or_fit("batter_segmentation", X)
+            df['cluster'] = kmeans.predict(X_scaled)
             df['cluster_name'] = df['cluster'].map(self.batter_cluster_labels)
 
             # Cluster statistics
@@ -150,13 +189,10 @@ class PlayerSegmentationService:
             features = ['era', 'k_9', 'gbpct']
             X = df[features]
 
-            # Standardize features
-            scaler = StandardScaler()
-            X_scaled = scaler.fit_transform(X)
-
-            # K-means clustering
-            kmeans = KMeans(n_clusters=4, random_state=42)
-            df['cluster'] = kmeans.fit_predict(X_scaled)
+            # Standardize features and K-means clustering
+            # Load or fit
+            kmeans, scaler, X_scaled = self._load_or_fit("pitcher_segmentation", X)
+            df['cluster'] = kmeans.predict(X_scaled)
             df['cluster_name'] = df['cluster'].map(self.pitcher_cluster_labels)
 
             # Cluster statistics
