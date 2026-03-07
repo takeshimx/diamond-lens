@@ -136,7 +136,7 @@ class DataDriftService:
         self,
         baseline_season: int,
         target_season: int,
-        model_type: str
+        model_type: str,
     ) -> DriftReport:
         """
         ベースラインシーズンとターゲットシーズン間の
