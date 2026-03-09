@@ -5,11 +5,6 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 from backend.app.config.settings import get_settings
 from backend.app.services.model_registry_service import ModelRegistryService
-from backend.app.services.ft_transformer import (
-    FTTransformerEncoder,
-    train_ft_transformer,
-)
-import torch
 import numpy as np
 import logging
 
@@ -84,19 +79,33 @@ class PlayerSegmentationService:
     def _load_or_fit_ft(self, model_type: str, X: pd.DataFrame):
         """
         FT-Transformer ベースのエンベディング生成。
-        Registry に active な FTTransformer モデルがあればロード、なければ学習。
+        Registry に active な FTTransformer モデルがあればロード、なければエラー。
+
+        NOTE: torch は本番環境 (Cloud Run) にはインストールされていないため、
+        ローカルで学習 → GCS に登録済みのモデルをロードする運用を想定。
+        torch が未インストールの場合はエラーを返す。
 
         Returns:
             (model, scaler, embeddings)
-            - model: FTTransformerEncoder
-            - scaler: StandardScaler
-            - embeddings: np.ndarray (n_samples, embedding_dim)
         """
+        try:
+            import torch
+            from backend.app.services.ft_transformer import (
+                FTTransformerEncoder,
+                train_ft_transformer,
+            )
+        except ImportError:
+            raise RuntimeError(
+                "FT-Transformer requires PyTorch. "
+                "Install torch locally and train via model registry, "
+                "then register the model to GCS."
+            )
+
         # Load from registry
         if self.model_registry:
             try:
                 artifact, meta = self.model_registry.load_model(model_type)
-                # FTTransformer の場合、artifact_dict に model_state_dict が入っている
+                # FTTransformer の場合、artifact に model_state_dict が入っている
                 if meta.algorithm == "ft_transformer" and "model_state_dict" in artifact:
                     model = FTTransformerEncoder(
                         n_features=len(meta.features),
@@ -105,7 +114,6 @@ class PlayerSegmentationService:
                     model.load_state_dict(artifact["model_state_dict"])
                     model.eval()
 
-                    # scaler は artifact["scaler"] にある
                     scaler = artifact["scaler"]
                     X_scaled = scaler.transform(X)
                     X_tensor = torch.FloatTensor(X_scaled)
@@ -121,8 +129,8 @@ class PlayerSegmentationService:
                 logger.info(f"No active FT model for {model_type}, training new")
             except Exception as e:
                 logger.warning(f"FT Registry load failed, fallback to train: {e}")
-        
-        # Fallback: train new model
+
+        # Fallback: train new model (ローカル環境のみ)
         n_features = X.shape[1]
         model, scaler, embeddings = train_ft_transformer(X, n_features=n_features)
         return model, scaler, embeddings
