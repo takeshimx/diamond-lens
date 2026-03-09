@@ -8,12 +8,16 @@ service = PlayerSegmentationService()
 
 @router.get("/batter-segmentation")
 async def batter_segmentation(
-    season: int = Query(2025, ge=2000, le=2025), 
-    min_pa: int = Query(300, ge=100, le=750)
+    season: int = Query(2025, ge=2000, le=2026), 
+    min_pa: int = Query(300, ge=100, le=750),
+    use_ft_transformer: bool = Query(default=False),
 ):
     """Get batter segmentation using K-means clustering."""
 
-    result = service.get_batter_segmentation(season=season, min_pa=min_pa)
+    result = service.get_batter_segmentation(
+        season=season, min_pa=min_pa,
+        use_ft_transformer=use_ft_transformer,
+    )
 
     if result.get("error"):
         raise HTTPException(status_code=400, detail=result.get("message"))
@@ -23,12 +27,16 @@ async def batter_segmentation(
 
 @router.get("/pitcher-segmentation")
 async def pitcher_segmentation(
-    season: int = Query(2025, ge=2000, le=2025), 
-    min_ip: int = Query(90, ge=0, le=200)
+    season: int = Query(2025, ge=2000, le=2026), 
+    min_ip: int = Query(90, ge=0, le=200),
+    use_ft_transformer: bool = Query(default=False),
 ):
     """Get pitcher segmentation using K-means clustering."""
 
-    result = service.get_pitcher_segmentation(season=season, min_ip=min_ip)
+    result = service.get_pitcher_segmentation(
+        season=season, min_ip=min_ip,
+        use_ft_transformer=use_ft_transformer,
+    )
 
     if result.get("error"):
         raise HTTPException(status_code=400, detail=result.get("message"))

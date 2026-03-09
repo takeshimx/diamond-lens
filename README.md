@@ -52,6 +52,7 @@ An AI-powered analytics interface for exploring Major League Baseball statistics
 
 **Capabilities**:
 - **🎯 K-means Clustering**: Automated player type classification using unsupervised learning
+- **🧠 FT-Transformer + K-means (Experimental)**: Self-supervised FT-Transformer encoder learns feature interactions via Self-Attention, then K-means clusters the learned embeddings for more nuanced player grouping
 - **Multi-dimensional Analysis**: Segment players based on 4-6 performance metrics
 - **Interactive Visualization**: Scatter plots with cluster-based color coding
 - **Cluster Profiling**: Statistical summaries for each player segment
@@ -74,7 +75,7 @@ An AI-powered analytics interface for exploring Major League Baseball statistics
 - `GET /api/v1/segmentation/batters` - Get batter segmentation with K-means clustering
 - `GET /api/v1/segmentation/pitchers` - Get pitcher segmentation with K-means clustering
 
-**Technologies**: React, Recharts, scikit-learn, pandas, FastAPI
+**Technologies**: React, Recharts, scikit-learn, PyTorch, pandas, FastAPI
 
 **Analysis Notebooks**:
 - `analysis/player_segmentation.ipynb` - K-means clustering analysis with visualizations
@@ -174,7 +175,7 @@ RATE_LIMIT_ENABLED=true
 
 **Capabilities**:
 - **📊 Data Drift Detection**: Statistical monitoring of ML model input data distribution changes between seasons using KS test, PSI (Population Stability Index), and mean shift analysis
-- **🗄️ Model Registry & Versioning**: Persist trained ML models (KMeans + StandardScaler) to GCS with version tracking. Metadata logged to BigQuery for model lineage
+- **🗄️ Model Registry & Versioning**: Persist trained ML models (KMeans, FT-Transformer + StandardScaler) to GCS with version tracking. Metadata logged to BigQuery for model lineage
 - **🔄 Auto-Baseline**: Drift detection automatically references the active model's training season — no manual baseline specification needed
 - **🚦 CI/CD Drift Gate**: Pre-deployment check blocks releases when critical data drift is detected, prompting model retraining
 
@@ -197,7 +198,7 @@ CI/CD Drift Check → Compare active model's training data vs latest season
 
 **Model Registry Features**:
 - **GCS Storage**: Versioned model artifacts (`models/{model_type}/{version}/model.joblib`)
-- **BigQuery Metadata**: Version tracking with `algorithm` column (supports KMeans, LightGBM, etc.) and `model_params` JSON for algorithm-specific parameters
+- **BigQuery Metadata**: Version tracking with `algorithm` column (supports KMeans, FT-Transformer, LightGBM, etc.) and `model_params` JSON for algorithm-specific parameters
 - **Version Promotion**: Active version management with `promote_version()`
 - **Fallback**: `player_segmentation.py` loads from registry if available, falls back to on-the-fly fitting
 
@@ -210,7 +211,7 @@ CI/CD Drift Check → Compare active model's training data vs latest season
 - `POST /api/v1/model-registry/promote` - Promote a version to active
 - `GET /api/v1/model-registry/active` - Get current active version
 
-**Technologies**: scikit-learn, scipy, joblib, Google Cloud Storage, BigQuery
+**Technologies**: scikit-learn, PyTorch, scipy, joblib, Google Cloud Storage, BigQuery
 
 ### Technical Features
 - **AI-Powered Processing**: Uses Gemini 2.5 Flash for query parsing and response generation
@@ -782,6 +783,7 @@ The project includes comprehensive unit tests for critical business logic:
 - `test_security.py` (13 tests): SQL injection prevention and input validation
 - `test_reflection_loop.py` (11 tests): Reflection loop self-correction logic, error classification, and executor empty result detection
 - `test_data_drift.py` (17 tests): Data drift detection logic (PSI, KS test, severity determination)
+- `test_ft_transformer.py` (5 tests): FT-Transformer encoder architecture and self-supervised training
 - `test_model_registry.py` (5+ tests): Model registry service (train, register, load, promote with mocked GCS/BigQuery)
 
 **Run tests locally:**
@@ -943,6 +945,7 @@ diamond-lens/
 │   │   │   ├── llm_logger_service.py # LLM I/O logging to BigQuery (with user_id)
 │   │   │   ├── data_drift_service.py  # Data drift detection (PSI, KS test)
 │   │   │   ├── ml_monitoring_logger.py # ML monitoring logs to BigQuery
+│   │   │   ├── ft_transformer.py          # FT-Transformer encoder for player segmentation
 │   │   │   ├── model_registry_service.py # Model Registry & Versioning (GCS + BQ)
 │   │   │   ├── monitoring_service.py # Custom metrics
 │   │   │   └── token_budget_service.py # Daily LLM token budget (in-memory)

@@ -5,6 +5,12 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 from backend.app.config.settings import get_settings
 from backend.app.services.model_registry_service import ModelRegistryService
+from backend.app.services.ft_transformer import (
+    FTTransformerEncoder,
+    train_ft_transformer,
+)
+import torch
+import numpy as np
 import logging
 
 settings = get_settings()
@@ -50,7 +56,9 @@ class PlayerSegmentationService:
         # Registry からロード
         if self.model_registry:
             try:
-                kmeans, scaler, meta = self.model_registry.load_model(model_type)
+                artifact, meta = self.model_registry.load_model(model_type)
+                kmeans = artifact["kmeans"]
+                scaler = artifact["scaler"]
                 X_scaled = scaler.transform(X)
                 logger.info(
                     f"Loaded model from registry: {model_type} "
@@ -71,9 +79,59 @@ class PlayerSegmentationService:
         )
         kmeans.fit(X_scaled)
         return kmeans, scaler, X_scaled
+    
+    
+    def _load_or_fit_ft(self, model_type: str, X: pd.DataFrame):
+        """
+        FT-Transformer ベースのエンベディング生成。
+        Registry に active な FTTransformer モデルがあればロード、なければ学習。
+
+        Returns:
+            (model, scaler, embeddings)
+            - model: FTTransformerEncoder
+            - scaler: StandardScaler
+            - embeddings: np.ndarray (n_samples, embedding_dim)
+        """
+        # Load from registry
+        if self.model_registry:
+            try:
+                artifact, meta = self.model_registry.load_model(model_type)
+                # FTTransformer の場合、artifact_dict に model_state_dict が入っている
+                if meta.algorithm == "ft_transformer" and "model_state_dict" in artifact:
+                    model = FTTransformerEncoder(
+                        n_features=len(meta.features),
+                        **meta.model_params.get("architecture", {})
+                    )
+                    model.load_state_dict(artifact["model_state_dict"])
+                    model.eval()
+
+                    # scaler は artifact["scaler"] にある
+                    scaler = artifact["scaler"]
+                    X_scaled = scaler.transform(X)
+                    X_tensor = torch.FloatTensor(X_scaled)
+                    with torch.no_grad():
+                        embeddings = model.encode(X_tensor).numpy()
+
+                    logger.info(
+                        f"Loaded FT-Transformer from registry: {model_type} "
+                        f"{meta.version} (season {meta.training_season})"
+                    )
+                    return model, scaler, embeddings
+            except FileNotFoundError:
+                logger.info(f"No active FT model for {model_type}, training new")
+            except Exception as e:
+                logger.warning(f"FT Registry load failed, fallback to train: {e}")
+        
+        # Fallback: train new model
+        n_features = X.shape[1]
+        model, scaler, embeddings = train_ft_transformer(X, n_features=n_features)
+        return model, scaler, embeddings
 
     
-    def get_batter_segmentation(self, season: int = 2025, min_pa: int = 300) -> Dict:
+    def get_batter_segmentation(
+        self, season: int = 2025, min_pa: int = 300,
+        use_ft_transformer: bool = False
+    ) -> Dict:
         """
         Perform K-means clustering on batters.
 
@@ -111,10 +169,18 @@ class PlayerSegmentationService:
             features = ['ops', 'iso', 'k_rate', 'bb_rate']
             X = df[features]
 
-            # Standardize features and K-means clustering
-            # Load or fit
-            kmeans, scaler, X_scaled = self._load_or_fit("batter_segmentation", X)
-            df['cluster'] = kmeans.predict(X_scaled)
+            if use_ft_transformer:
+                # ---- FT-Transformer モード ----
+                model, scaler, embeddings = self._load_or_fit_ft("batter_segmentation_ft", X)
+                # 埋め込みベクトルに対して K-means
+                kmeans = KMeans(n_clusters=4, random_state=42)
+                df["cluster"] = kmeans.fit_predict(embeddings)
+            else:
+                # Standardize features and K-means clustering
+                # Load or fit
+                kmeans, scaler, X_scaled = self._load_or_fit("batter_segmentation", X)
+                df['cluster'] = kmeans.predict(X_scaled)
+            
             df['cluster_name'] = df['cluster'].map(self.batter_cluster_labels)
 
             # Cluster statistics
@@ -147,7 +213,7 @@ class PlayerSegmentationService:
         except Exception as e:
             return {"error": True, "message": str(e)}
 
-    def get_pitcher_segmentation(self, season: int = 2025, min_ip: int = 90) -> Dict:
+    def get_pitcher_segmentation(self, season: int = 2025, min_ip: int = 90, use_ft_transformer: bool = False) -> Dict:
         """
         Perform K-means clustering on pitchers.
 
@@ -189,10 +255,18 @@ class PlayerSegmentationService:
             features = ['era', 'k_9', 'gbpct']
             X = df[features]
 
-            # Standardize features and K-means clustering
-            # Load or fit
-            kmeans, scaler, X_scaled = self._load_or_fit("pitcher_segmentation", X)
-            df['cluster'] = kmeans.predict(X_scaled)
+            if use_ft_transformer:
+                # ---- FT-Transformer モード ----
+                model, scaler, embeddings = self._load_or_fit_ft("pitcher_segmentation_ft", X)
+                # 埋め込みベクトルに対して K-means
+                kmeans = KMeans(n_clusters=4, random_state=42)
+                df["cluster"] = kmeans.fit_predict(embeddings)
+            else:
+                # Standardize features and K-means clustering
+                # Load or fit
+                kmeans, scaler, X_scaled = self._load_or_fit("pitcher_segmentation", X)
+                df['cluster'] = kmeans.predict(X_scaled)
+            
             df['cluster_name'] = df['cluster'].map(self.pitcher_cluster_labels)
 
             # Cluster statistics

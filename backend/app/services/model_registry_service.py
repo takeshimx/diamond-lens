@@ -102,6 +102,53 @@ MODEL_TRAINING_CONFIG = {
         "n_clusters": 4,
         "random_state": 42,
     },
+    "batter_segmentation_ft": {
+        "algorithm": "ft_transformer",
+        "table": "fact_batting_stats_with_risp",
+        "features": ["ops", "iso", "k_rate", "bb_rate"],
+        "query_template": """
+            SELECT
+                ops,
+                iso,
+                (100.0 * so / pa) AS k_rate,
+                (100.0 * bb / pa) AS bb_rate
+            FROM `{table_full_name}`
+            WHERE season = {season}
+                AND pa >= {min_sample}
+        """,
+        "min_sample": 300,
+        "n_clusters": 4,
+        "random_state": 42,
+        "architecture": {
+            "d_model": 32,
+            "n_heads": 4,
+            "n_layers": 2,
+            "embedding_dim": 16,
+        },
+    },
+    "pitcher_segmentation_ft": {
+        "algorithm": "ft_transformer",
+        "table": "fact_pitching_stats_master",
+        "features": ["era", "k_9", "gbpct"],
+        "query_template": """
+            SELECT
+                era,
+                k_9,
+                gbpct
+            FROM `{table_full_name}`
+            WHERE season = {season}
+                AND gs > 0 AND ip > {min_sample}
+        """,
+        "min_sample": 90,
+        "n_clusters": 4,
+        "random_state": 42,
+        "architecture": {
+            "d_model": 32,
+            "n_heads": 4,     # pitcher は3特徴量なので n_heads=4 でも OK
+            "n_layers": 2,
+            "embedding_dim": 16,
+        },
+    },
 }
 
 
@@ -147,26 +194,57 @@ class ModelRegistryService:
         
         # Step 2: Train Model
         X = df[config["features"]]
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
 
-        kmeans = KMeans(
-            n_clusters=config["n_clusters"],
-            random_state=config["random_state"],
-        )
-        kmeans.fit(X_scaled)
+        if config["algorithm"] == "ft_transformer":
+            # ---- FT-Transformer 学習 ----
+            from backend.app.services.ft_transformer import FTTransformerEncoder, train_ft_transformer
+            arch = config.get("architecture", {})
+            ft_model, scaler, embeddings = train_ft_transformer(
+                X, n_features=len(config["features"]), **arch
+            )
+            # K-means はembeddingsに対して実行
+            kmeans = KMeans(
+                n_clusters=config["n_clusters"],
+                random_state=config["random_state"],
+            )
+            kmeans.fit(embeddings)
+
+            model_params = {
+                "n_clusters": config["n_clusters"],
+                "random_state": config["random_state"],
+                "inertia": round(float(kmeans.inertia_), 4),
+                "architecture": arch,
+                "embedding_dim": arch.get("embedding_dim", 16),
+            }
+
+            # GCS に保存する artifact
+            model_artifact = {
+                "model_state_dict": ft_model.state_dict(),  # PyTorch weights
+                "scaler": scaler,
+                "kmeans": kmeans,
+            }
+        else:
+            scaler = StandardScaler()
+            X_scaled = scaler.fit_transform(X)
+
+            kmeans = KMeans(
+                n_clusters=config["n_clusters"],
+                random_state=config["random_state"],
+            )
+            kmeans.fit(X_scaled)
+
+            model_params = {
+                "n_clusters": config["n_clusters"],
+                "random_state": config["random_state"],
+                "inertia": round(float(kmeans.inertia_), 4),
+                "cluster_centers": kmeans.cluster_centers_.tolist(),
+            }
+            model_artifact = {"kmeans": kmeans, "scaler": scaler}
 
         # Step 3: Generate Version
         now = datetime.now(timezone.utc)
         version_str = f"v{now.strftime('%Y%m%d_%H%M%S')}_s{season}"
         gcs_path = f"models/{model_type}/{version_str}/model.joblib"
-
-        model_params = {
-            "n_clusters": config["n_clusters"],
-            "random_state": config["random_state"],
-            "inertia": round(float(kmeans.inertia_), 4),
-            "cluster_centers": kmeans.cluster_centers_.tolist(),
-        }
 
         version = ModelVersion(
             version=version_str,
@@ -183,7 +261,6 @@ class ModelRegistryService:
         )
 
         # Step 4: Save Model to GCS
-        model_artifact = {"kmeans": kmeans, "scaler": scaler} # scalerは推論時に必要のため、セットで一つのモデルと考える
         self._upload_model(gcs_path, model_artifact)
 
         # Save metadata to GCS
@@ -206,11 +283,13 @@ class ModelRegistryService:
 
     def load_model(
         self, model_type: str
-    ) -> Tuple[KMeans, StandardScaler, ModelVersion]:
+    ) -> Tuple[Dict, ModelVersion]:
         """
         Active バージョンのモデルを GCS からロードする。
         Returns:
-            (kmeans, scaler, version_metadata)
+            (artifact_dict, version_metadata)
+            - KMeans の場合:        {"kmeans": KMeans, "scaler": StandardScaler}
+            - FTTransformer の場合: {"model_state_dict": OrderedDict, "scaler": StandardScaler, "kmeans": KMeans}
         Raises:
             FileNotFoundError: active バージョンが存在しない場合
         """
@@ -229,7 +308,7 @@ class ModelRegistryService:
             f"Model loaded: {model_type} {active.version} "
             f"(trained on season {active.training_season})"
         )
-        return artifact["kmeans"], artifact["scaler"], active
+        return artifact, active
     
     # ----------------------------------------------------------
     # Public: バージョン昇格
