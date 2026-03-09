@@ -158,6 +158,8 @@ steps:
       - '--platform'
       - 'managed' # マネージドCloud Runを使用
       - '--allow-unauthenticated' # 認証なしでアクセス可能にする (APIサービス)
+      - '--memory'
+      - '1Gi'
       - '--port'
       - '8080' # FastAPIのデフォルトポートを指定
 
