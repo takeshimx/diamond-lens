@@ -52,6 +52,7 @@
 
 **機能**:
 - **🎯 K-meansクラスタリング**: 教師なし学習による選手タイプの自動分類
+- **🧠 FT-Transformer + K-means（実験的）**: 自己教師あり学習のFT-Transformerエンコーダが Self-Attention で特徴量間の交互作用を学習し、その埋め込みベクトルに対してK-meansでクラスタリングすることで、より意味のある選手グルーピングを実現
 - **多次元分析**: 4-6個のパフォーマンス指標に基づいて選手をセグメント化
 - **インタラクティブ可視化**: クラスタベースの色分け散布図
 - **クラスタプロファイリング**: 各選手セグメントの統計サマリー
@@ -74,7 +75,7 @@
 - `GET /api/v1/segmentation/batters` - K-meansクラスタリングによる打者セグメンテーション取得
 - `GET /api/v1/segmentation/pitchers` - K-meansクラスタリングによる投手セグメンテーション取得
 
-**技術**: React、Recharts、scikit-learn、pandas、FastAPI
+**技術**: React、Recharts、scikit-learn、PyTorch、pandas、FastAPI
 
 **分析ノートブック**:
 - `analysis/player_segmentation.ipynb` - 可視化付きK-meansクラスタリング分析
@@ -174,7 +175,7 @@ RATE_LIMIT_ENABLED=true
 
 **機能**:
 - **📊 データドリフト検知**: KS検定、PSI（Population Stability Index）、平均シフト分析を用いたMLモデル入力データの分布変化の統計的監視
-- **🗄️ モデルレジストリ & バージョニング**: 学習済みMLモデル（KMeans + StandardScaler）をGCSに永続化し、バージョン管理。メタデータはBigQueryに記録しモデルリネージを追跡
+- **🗄️ モデルレジストリ & バージョニング**: 学習済みMLモデル（KMeans、FT-Transformer + StandardScaler）をGCSに永続化し、バージョン管理。メタデータはBigQueryに記録しモデルリネージを追跡
 - **🔄 自動ベースライン**: ドリフト検知がアクティブモデルの学習シーズンを自動参照 — 手動でのベースライン指定不要
 - **🚦 CI/CDドリフトゲート**: クリティカルなデータドリフト検出時にデプロイをブロックし、モデル再学習を促す
 
@@ -197,7 +198,7 @@ CI/CD ドリフトチェック → アクティブモデルの学習データ vs
 
 **モデルレジストリ機能**:
 - **GCSストレージ**: バージョン管理されたモデルアーティファクト（`models/{model_type}/{version}/model.joblib`）
-- **BigQueryメタデータ**: `algorithm`カラム（KMeans、LightGBM等対応）と`model_params` JSONによるバージョン追跡
+- **BigQueryメタデータ**: `algorithm`カラム（KMeans、FT-Transformer、LightGBM等対応）と`model_params` JSONによるバージョン追跡
 - **バージョン昇格**: `promote_version()`によるアクティブバージョン管理
 - **フォールバック**: `player_segmentation.py`がレジストリから読み込み可能、失敗時はオンザフライでフィッティング
 
@@ -210,7 +211,7 @@ CI/CD ドリフトチェック → アクティブモデルの学習データ vs
 - `POST /api/v1/model-registry/promote` - バージョンをアクティブに昇格
 - `GET /api/v1/model-registry/active` - 現在のアクティブバージョン取得
 
-**技術**: scikit-learn、scipy、joblib、Google Cloud Storage、BigQuery
+**技術**: scikit-learn、PyTorch、scipy、joblib、Google Cloud Storage、BigQuery
 
 ### 技術機能
 - **AI搭載処理**: Gemini 2.5 Flashを使用したクエリ解析とレスポンス生成
@@ -701,6 +702,7 @@ git push → Cloud Buildトリガー → cloudbuild.yaml 実行
 - `test_security.py` (13テスト): SQLインジェクション防止と入力検証
 - `test_reflection_loop.py` (11テスト): Reflection Loop自己修正ロジック、エラー分類、Executor空結果検出
 - `test_data_drift.py` (17テスト): データドリフト検知ロジック（PSI、KS検定、重要度判定）
+- `test_ft_transformer.py` (5テスト): FT-Transformerエンコーダのアーキテクチャと自己教師あり学習
 - `test_model_registry.py` (5+テスト): モデルレジストリサービス（学習、登録、ロード、昇格 — GCS/BigQueryモック使用）
 
 **ローカルでテスト実行:**
@@ -862,6 +864,7 @@ diamond-lens/
 │   │   │   ├── llm_logger_service.py # LLM I/Oロギング（user_id対応）
 │   │   │   ├── data_drift_service.py  # データドリフト検知（PSI、KS検定）
 │   │   │   ├── ml_monitoring_logger.py # MLモニタリングログ
+│   │   │   ├── ft_transformer.py          # FT-Transformerエンコーダ（選手セグメンテーション用）
 │   │   │   ├── model_registry_service.py # モデルレジストリ & バージョニング（GCS + BQ）
 │   │   │   ├── monitoring_service.py # カスタムメトリクス
 │   │   │   └── token_budget_service.py # 日次LLMトークンバジェット（インメモリ）

@@ -427,7 +427,7 @@ graph TD
 | **Model Registry** | `model_registry_service.py` — train, register, load, promote model versions |
 | **Model Storage** | GCS: `gs://diamond-lens-models/models/{model_type}/{version}/model.joblib` |
 | **Metadata Storage** | BigQuery: `ml_model_registry` table (version, algorithm, training_season, gcs_path, model_params, is_active) |
-| **Supported Algorithms** | `algorithm` column: KMeans, LightGBM, etc. with generic `model_params` JSON |
+| **Supported Algorithms** | `algorithm` column: KMeans, FT-Transformer, LightGBM, etc. with generic `model_params` JSON |
 | **Drift Detection** | PSI (Warning ≥ 0.1, Critical ≥ 0.2), KS test (p-value < 0.05), mean shift % |
 | **Auto-Baseline** | `detect-drift` endpoint auto-detects `baseline_season` from active model's `training_season` |
 | **CI/CD Gate** | `check_data_drift.py` blocks deployment on critical drift (exit code 1) |
@@ -448,6 +448,7 @@ graph TD
 | File | Purpose |
 |------|---------|
 | `services/data_drift_service.py` | Core drift detection logic (PSI, KS test, mean shift) |
+| `services/ft_transformer.py` | FT-Transformer encoder: self-supervised feature embedding for player segmentation |
 | `services/model_registry_service.py` | Model Registry: train, GCS upload, BigQuery metadata, load, promote |
 | `services/ml_monitoring_logger.py` | Drift report logging to BigQuery |
 | `services/player_segmentation.py` | Loads active model from registry or fits new |
