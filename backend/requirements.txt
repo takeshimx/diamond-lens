@@ -7,12 +7,14 @@ google-cloud-bigquery
 google-cloud-storage
 google-cloud-monitoring
 google-cloud-speech # For speech to text
+google-cloud-aiplatform # For Vertex AI Endpoint
 scikit-learn
 pandas
 numpy
 pydantic
 pydantic-settings
 requests
+httpx # For async HTTP requests
 
 # 会話履歴・エージェント機能用
 redis
@@ -40,5 +42,3 @@ firebase-admin
 slowapi
 scipy
 joblib
-
-# torch

@@ -99,6 +99,20 @@ subgraph "Application Layer - Cloud Run"
     StatsAgent --> Frontend
     MatchupAgent --> Frontend
 
+    subgraph "ML Model Architecture (3-Layer Separation)"
+        TrainingLayer[Training Layer<br/>Local/Notebook<br/>scripts/train_and_register_ft_transformer.py]
+        ModelRegistry[Vertex AI Model Registry<br/>GCS Storage<br/>Model Versioning]
+        InferenceLayer[Inference Layer - OPTIONAL<br/>Vertex AI Endpoint<br/>Managed Hosting]
+        ApplicationLayer[Application Layer<br/>FastAPI on Cloud Run<br/>Local K-means (default)<br/>OR HTTP to Vertex AI]
+
+        TrainingLayer --> ModelRegistry
+        ModelRegistry -.Optional.-> InferenceLayer
+        InferenceLayer -.HTTP.-> ApplicationLayer
+        ModelRegistry -.Load.-> ApplicationLayer
+    end
+
+    Backend --> ApplicationLayer
+
     Scheduler --> Workflows
     Workflows --> ETL
     Workflows --> Staging
@@ -125,6 +139,86 @@ subgraph "Application Layer - Cloud Run"
     style Workflows fill:#fbbc04,color:#000
     style CloudMonitoring fill:#ea4335,color:#fff
 ```
+
+### ML Model Architecture: 3-Layer Separation of Concerns
+
+The project follows modern MLOps best practices by **separating machine learning workflows into three distinct layers**. This architecture eliminates the anti-pattern of bundling heavy ML dependencies (PyTorch, 3.9GB) in production API containers.
+
+#### Why This Architecture?
+
+**❌ Old Approach (2024-2025): Monolithic**
+- Training + Inference in FastAPI backend
+- PyTorch in Cloud Run container → 3.9GB image size
+- High memory usage, slow cold starts
+- Tight coupling between training and serving
+
+**✅ New Approach (2026): Separation of Concerns**
+- **Training isolated** in notebooks/scripts (`scripts/train_and_register_ft_transformer.py`)
+- **Models versioned** in Vertex AI Model Registry (GCS storage, ~$0.002/month)
+- **Lightweight FastAPI** backend (no PyTorch in production)
+- **Optional Vertex AI Endpoint** for high-scale inference
+- **Easy rollback** and A/B testing with model versions
+
+#### Layer Details
+
+**[1] Training Layer (Local or Vertex AI Pipelines)**
+- **Location**: `scripts/train_and_register_ft_transformer.py`, `analysis/kmeans_vs_ft_transformer.ipynb`
+- **Execution**: Local environment with PyTorch installed
+- **Output**: Trained FT-Transformer + K-means models
+- **Registration**: Models uploaded to Vertex AI Model Registry (GCS)
+- **Cost**: ~$0.002/month (GCS storage only)
+
+**[2] Inference Layer (Vertex AI Endpoint) - OPTIONAL**
+- **Purpose**: Managed model hosting for high-scale inference
+- **Requirements**: Custom container for PyTorch models (not currently used)
+- **Auto-scaling**: Managed by Vertex AI
+- **Cost**: ~$73/month (24/7 n1-standard-2 instance)
+- **Status**: **Not recommended** unless high-scale inference is required
+
+**[3] Application Layer (FastAPI on Cloud Run) - LIGHTWEIGHT**
+- **Default**: Local K-means clustering (lightweight, fast)
+- **Optional**: HTTP calls to Vertex AI Endpoint (switchable via env var `USE_VERTEX_AI_ENDPOINT`)
+- **Dependencies**: No PyTorch, scikit-learn only for local K-means
+- **Fallback**: Automatic fallback to local K-means if Vertex AI fails
+- **Cost**: Cloud Run costs only (minimal)
+
+#### Current Implementation
+
+**Training:**
+```bash
+# Local training with PyTorch
+python scripts/train_and_register_ft_transformer.py --model-type batter --season 2025
+```
+
+**Model Registry:**
+```python
+# Models versioned in Vertex AI Model Registry
+# Stored in GCS: gs://diamond-lens-models/ft-transformer/v1/
+# Metadata logged to BigQuery: ml_model_registry
+```
+
+**Inference (Default):**
+```python
+# Local K-means in FastAPI (player_segmentation.py)
+kmeans, scaler, X_scaled = self._load_or_fit("batter_segmentation", X)
+df['cluster'] = kmeans.predict(X_scaled)
+```
+
+**Inference (Optional - Vertex AI):**
+```python
+# HTTP call to Vertex AI Endpoint (if USE_VERTEX_AI_ENDPOINT=true)
+predictions = await self._predict_with_vertex_ai(endpoint_id, instances)
+```
+
+#### Cost Comparison
+
+| Component | Current (Default) | Optional (Vertex AI) |
+|-----------|------------------|----------------------|
+| Model Storage | GCS: $0.002/month | GCS: $0.002/month |
+| Compute | Cloud Run (included) | Vertex AI Endpoint: $73/month (24/7) |
+| **Total** | **~$0** | **~$73/month** |
+
+**→ Recommendation:** Use default local K-means unless high-scale inference is required.
 
 ### Technology Stack
 

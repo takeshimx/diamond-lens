@@ -258,6 +258,70 @@ The application follows a sophisticated 4-step pipeline:
    - **Reflection Loop**: Each agent includes a `reflection` node that detects executor errors (SQL syntax, empty results) and feeds diagnostic context back to the LLM for self-correction, with a max retry cap to prevent infinite loops.
    - **Integrated UI**: Pipes structured chart/table metadata directly into the specialized frontend components.
 
+### ML Model Architecture: 3-Layer Separation of Concerns
+
+The project follows modern MLOps best practices by separating machine learning workflows into three distinct layers:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ [1] Training Layer (Local or Vertex AI Pipelines)              │
+│  ├── Notebook/Script: FT-Transformer & K-means training        │
+│  ├── Model evaluation & comparison                             │
+│  └── Model registration to Vertex AI Model Registry (GCS)      │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ [2] Inference Layer (Vertex AI Endpoint) - OPTIONAL            │
+│  ├── Managed model hosting & auto-scaling                      │
+│  ├── Online prediction API                                     │
+│  └── Requires custom container for PyTorch models (not used)   │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ [3] Application Layer (FastAPI on Cloud Run) - LIGHTWEIGHT     │
+│  ├── Data retrieval from BigQuery                              │
+│  ├── Local K-means inference (default)                         │
+│  ├── OR HTTP calls to Vertex AI Endpoint (optional)            │
+│  └── No PyTorch/heavy ML dependencies in production            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Why This Architecture?
+
+**2024-2025 Approach (Monolithic):**
+- ❌ Training + Inference in FastAPI backend
+- ❌ PyTorch in Cloud Run container (3.9GB image size)
+- ❌ High memory usage and slow cold starts
+- ❌ Tight coupling between training and serving
+
+**2026 Approach (Separation of Concerns):**
+- ✅ Training isolated in notebooks/scripts (`scripts/train_and_register_ft_transformer.py`)
+- ✅ Models versioned in Vertex AI Model Registry (GCS storage, ~$0.002/month)
+- ✅ Lightweight FastAPI backend (no PyTorch in production)
+- ✅ Optional Vertex AI Endpoint for high-scale inference
+- ✅ Easy rollback and A/B testing with model versions
+
+#### Current Implementation
+
+**Training:**
+- Location: `scripts/train_and_register_ft_transformer.py`, `analysis/kmeans_vs_ft_transformer.ipynb`
+- Run locally with PyTorch installed
+- Registers models to Vertex AI Model Registry
+
+**Inference:**
+- Default: Local K-means clustering (lightweight, fast)
+- Optional: Vertex AI Endpoint (via HTTP, switchable with env var `USE_VERTEX_AI_ENDPOINT`)
+- Automatic fallback to local K-means if Vertex AI fails
+
+**Cost Comparison:**
+| Component | Current (Default) | Optional (Vertex AI) |
+|-----------|------------------|----------------------|
+| Model Storage | GCS: $0.002/month | GCS: $0.002/month |
+| Compute | Cloud Run (included) | Endpoint: $73/month (24/7) |
+| **Total** | **~$0** | **~$73/month** |
+
+→ **Recommended**: Use default local K-means unless high-scale inference is required.
+
 ### Key Configuration System
 - **`query_maps.py`**: Central configuration for all query types and metric mappings
 - **`QUERY_TYPE_CONFIG`**: Maps query types to table schemas and column mappings

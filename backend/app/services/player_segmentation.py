@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 from google.cloud import bigquery
 import pandas as pd
 from sklearn.cluster import KMeans
@@ -7,6 +7,7 @@ from backend.app.config.settings import get_settings
 from backend.app.services.model_registry_service import ModelRegistryService
 import numpy as np
 import logging
+import httpx
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -19,10 +20,19 @@ class PlayerSegmentationService:
         self.client = bigquery.Client()
 
         # Model Registry Service（ロード失敗時は None → fallback to fit）
-        try:    
+        try:
             self.model_registry = ModelRegistryService()
         except Exception:
             self.model_registry = None
+
+        # Vertex AI Endpoint 設定
+        self.use_vertex_ai = settings.use_vertex_ai_endpoint
+        self.vertex_ai_location = settings.vertex_ai_location
+        self.vertex_ai_endpoint_id_batter = settings.vertex_ai_endpoint_id_batter
+        self.vertex_ai_endpoint_id_pitcher = settings.vertex_ai_endpoint_id_pitcher
+
+        # Vertex AI クライアント（遅延初期化）
+        self._aiplatform_client = None
 
         # Batter cluster labels
         self.batter_cluster_labels = {
@@ -135,10 +145,72 @@ class PlayerSegmentationService:
         model, scaler, embeddings = train_ft_transformer(X, n_features=n_features)
         return model, scaler, embeddings
 
-    
-    def get_batter_segmentation(
+    async def _predict_with_vertex_ai(
+        self,
+        endpoint_id: str,
+        instances: List[List[float]]
+    ) -> Optional[List[int]]:
+        """
+        Vertex AI Endpoint を呼び出して推論を実行
+
+        Args:
+            endpoint_id: Vertex AI Endpoint ID
+            instances: 特徴量のリスト [[ops, iso, k_rate, bb_rate], ...]
+
+        Returns:
+            クラスタ ID のリスト [0, 1, 2, 3, ...] or None（失敗時）
+        """
+        try:
+            # Vertex AI Endpoint URL
+            endpoint_url = (
+                f"https://{self.vertex_ai_location}-aiplatform.googleapis.com"
+                f"/v1/projects/{settings.gcp_project_id}"
+                f"/locations/{self.vertex_ai_location}"
+                f"/endpoints/{endpoint_id}:predict"
+            )
+
+            # GCP 認証トークンを取得（google.auth を使用）
+            from google.auth import default
+            from google.auth.transport.requests import Request
+
+            credentials, _ = default()
+            credentials.refresh(Request())
+            token = credentials.token
+
+            # リクエストペイロード
+            payload = {"instances": instances}
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+
+            # HTTP リクエスト送信
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(endpoint_url, json=payload, headers=headers)
+                response.raise_for_status()
+
+                result = response.json()
+                predictions = result.get("predictions", [])
+
+                logger.info(
+                    f"Vertex AI Endpoint prediction successful: "
+                    f"endpoint_id={endpoint_id}, instances={len(instances)}, "
+                    f"predictions={len(predictions)}"
+                )
+
+                return predictions
+
+        except Exception as e:
+            logger.error(
+                f"Vertex AI Endpoint prediction failed: endpoint_id={endpoint_id}, "
+                f"error={str(e)}"
+            )
+            return None
+
+    async def get_batter_segmentation(
         self, season: int = 2025, min_pa: int = 300,
-        use_ft_transformer: bool = False
+        use_ft_transformer: bool = False,
+        force_local: bool = False
     ) -> Dict:
         """
         Perform K-means clustering on batters.
@@ -146,7 +218,9 @@ class PlayerSegmentationService:
         Args:
             season (int): The season year
             min_pa (int): The minimum plate appearances
-        
+            use_ft_transformer (bool): FT-Transformerを使用するか（デフォルト: False）
+            force_local (bool): 強制的にローカルのK-meansを使用するか（デフォルト: False）
+
         Returns:
             Dict: A dictionary containing the batter segmentation results.
         """
@@ -177,7 +251,31 @@ class PlayerSegmentationService:
             features = ['ops', 'iso', 'k_rate', 'bb_rate']
             X = df[features]
 
-            if use_ft_transformer:
+            # Vertex AI Endpoint を使用するか判定
+            use_vertex_ai = (
+                self.use_vertex_ai
+                and not force_local
+                and self.vertex_ai_endpoint_id_batter is not None
+            )
+
+            if use_vertex_ai:
+                # ---- Vertex AI Endpoint モード ----
+                logger.info("Using Vertex AI Endpoint for batter segmentation")
+                instances = X.values.tolist()
+                predictions = await self._predict_with_vertex_ai(
+                    self.vertex_ai_endpoint_id_batter, instances
+                )
+
+                if predictions is not None:
+                    df['cluster'] = predictions
+                    logger.info(f"Vertex AI prediction successful: {len(predictions)} predictions")
+                else:
+                    # Vertex AI が失敗した場合は、ローカルの K-means にフォールバック
+                    logger.warning("Vertex AI prediction failed, falling back to local K-means")
+                    kmeans, scaler, X_scaled = self._load_or_fit("batter_segmentation", X)
+                    df['cluster'] = kmeans.predict(X_scaled)
+
+            elif use_ft_transformer:
                 # ---- FT-Transformer モード ----
                 model, scaler, embeddings = self._load_or_fit_ft("batter_segmentation_ft", X)
                 # 埋め込みベクトルに対して K-means
@@ -221,13 +319,19 @@ class PlayerSegmentationService:
         except Exception as e:
             return {"error": True, "message": str(e)}
 
-    def get_pitcher_segmentation(self, season: int = 2025, min_ip: int = 90, use_ft_transformer: bool = False) -> Dict:
+    async def get_pitcher_segmentation(
+        self, season: int = 2025, min_ip: int = 90,
+        use_ft_transformer: bool = False,
+        force_local: bool = False
+    ) -> Dict:
         """
         Perform K-means clustering on pitchers.
 
         Args:
             season (int): The season year
             min_ip (int): The minimum innings pitched
+            use_ft_transformer (bool): FT-Transformerを使用するか（デフォルト: False）
+            force_local (bool): 強制的にローカルのK-meansを使用するか（デフォルト: False）
 
         Returns:
             Dict: A dictionary containing the pitcher segmentation results.
@@ -263,7 +367,31 @@ class PlayerSegmentationService:
             features = ['era', 'k_9', 'gbpct']
             X = df[features]
 
-            if use_ft_transformer:
+            # Vertex AI Endpoint を使用するか判定
+            use_vertex_ai = (
+                self.use_vertex_ai
+                and not force_local
+                and self.vertex_ai_endpoint_id_pitcher is not None
+            )
+
+            if use_vertex_ai:
+                # ---- Vertex AI Endpoint モード ----
+                logger.info("Using Vertex AI Endpoint for pitcher segmentation")
+                instances = X.values.tolist()
+                predictions = await self._predict_with_vertex_ai(
+                    self.vertex_ai_endpoint_id_pitcher, instances
+                )
+
+                if predictions is not None:
+                    df['cluster'] = predictions
+                    logger.info(f"Vertex AI prediction successful: {len(predictions)} predictions")
+                else:
+                    # Vertex AI が失敗した場合は、ローカルの K-means にフォールバック
+                    logger.warning("Vertex AI prediction failed, falling back to local K-means")
+                    kmeans, scaler, X_scaled = self._load_or_fit("pitcher_segmentation", X)
+                    df['cluster'] = kmeans.predict(X_scaled)
+
+            elif use_ft_transformer:
                 # ---- FT-Transformer モード ----
                 model, scaler, embeddings = self._load_or_fit_ft("pitcher_segmentation_ft", X)
                 # 埋め込みベクトルに対して K-means

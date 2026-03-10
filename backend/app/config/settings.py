@@ -115,6 +115,14 @@ class Settings(BaseSettings):
     gcs_bucket_name: str = "diamond-lens-models"
     model_registry_table_id: str = "ml_model_registry"
 
+    # ============================================================
+    # Vertex AI Endpoint 設定
+    # ============================================================
+    use_vertex_ai_endpoint: bool = False  # デフォルトは False（既存のK-meansを使用）
+    vertex_ai_location: str = "asia-northeast1"
+    vertex_ai_endpoint_id_batter: Optional[str] = None  # Batter用エンドポイントID
+    vertex_ai_endpoint_id_pitcher: Optional[str] = None  # Pitcher用エンドポイントID
+
 
     class Config:
         """Pydantic設定"""
