@@ -4,6 +4,7 @@ python-multipart
 dbt-bigquery
 dotenv
 google-cloud-bigquery
+google-cloud-bigquery-storage # BigQuery Storage API for fast to_dataframe()
 google-cloud-storage
 google-cloud-monitoring
 google-cloud-speech # For speech to text
@@ -42,3 +43,4 @@ firebase-admin
 slowapi
 scipy
 joblib
+xgboost # Stuff+/Pitching+ pitch quality models

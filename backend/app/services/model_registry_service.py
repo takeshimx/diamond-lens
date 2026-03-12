@@ -149,6 +149,37 @@ MODEL_TRAINING_CONFIG = {
             "embedding_dim": 16,
         },
     },
+    "stuff_plus": {
+        "algorithm": "xgboost",
+        "table": "statcast_master",
+        "features": [
+            "release_speed", "release_spin_rate", "spin_axis",
+            "pfx_x", "pfx_z", "release_extension",
+            "release_pos_x", "release_pos_z",
+            "api_break_z_with_gravity", "api_break_x_arm",
+            "arm_angle",
+        ],
+        "target": "delta_pitcher_run_exp",
+        "aggregation": "pitcher × pitch_type (min 100 pitches)",
+        "normalization": "z-score (100=avg, 15=1σ)",
+        "min_sample": 100,
+    },
+    "pitching_plus": {
+        "algorithm": "xgboost",
+        "table": "statcast_master",
+        "features": [
+            "release_speed", "release_spin_rate", "spin_axis",
+            "pfx_x", "pfx_z", "release_extension",
+            "release_pos_x", "release_pos_z",
+            "api_break_z_with_gravity", "api_break_x_arm",
+            "arm_angle",
+            "plate_x", "plate_z",
+        ],
+        "target": "delta_pitcher_run_exp",
+        "aggregation": "pitcher × pitch_type (min 100 pitches)",
+        "normalization": "z-score (100=avg, 15=1σ)",
+        "min_sample": 100,
+    },
 }
 
 

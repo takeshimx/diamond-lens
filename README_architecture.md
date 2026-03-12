@@ -235,6 +235,7 @@ predictions = await self._predict_with_vertex_ai(endpoint_id, instances)
 | **AI Agent** | LangGraph, Gemini 2.5 Flash | Multi-step reasoning & Tool use |
 | **MLOps** | Prompt Registry, Golden Dataset, BigQuery Logging | Prompt versioning, LLM evaluation gate, I/O observability |
 | **ML Monitoring** | Data Drift Service, Model Registry, GCS, BigQuery | Data drift detection (PSI/KS), model versioning & auto-baseline CI/CD gate |
+| **Stuff+/Pitching+** | XGBoost, Model Registry, BigQuery | Pitch quality evaluation, pre-computed rankings, real-time inference |
 | **HITL Feedback** | Feedback UI, BigQuery, pending_review.json | User feedback collection, golden dataset expansion pipeline |
 | **Rate Limiting** | Custom ASGI Middleware, slowapi, In-Memory Counters | Multi-tier rate limiting (Global/Session/Endpoint) + LLM token budget |
 | **Orchestration** | Cloud Workflows, Cloud Scheduler | Pipeline automation |
@@ -549,6 +550,42 @@ graph TD
 | `endpoints/drift_monitoring_endpoints.py` | Drift detection API endpoints with auto-baseline |
 | `endpoints/model_registry_endpoints.py` | Model registry API endpoints |
 | `scripts/check_data_drift.py` | CI/CD drift check gate script |
+
+### 8d. Stuff+ / Pitching+ Pitch Quality Evaluation
+
+| Property | Value |
+|----------|-------|
+| **Algorithm** | XGBoost Regressor (500 estimators, max_depth=6, early stopping) |
+| **Target Variable** | `delta_pitcher_run_exp` (pitch-level run expectancy change) |
+| **Stuff+ Features (11)** | `release_speed`, `release_spin_rate`, `spin_axis`, `pfx_x`, `pfx_z`, `release_extension`, `release_pos_x`, `release_pos_z`, `api_break_z_with_gravity`, `api_break_x_arm`, `arm_angle` |
+| **Pitching+ Features (13)** | Stuff+ features + `plate_x`, `plate_z` |
+| **Scoring** | z-score normalization (100 = league average, 15 points = 1σ) |
+| **Aggregation** | Pitcher × pitch type level with minimum pitch count filter (default: 100) |
+| **Pre-computed Rankings** | BigQuery `stuff_plus_rankings` table for fast retrieval |
+| **Real-time Inference** | On-demand prediction using active model from Model Registry |
+| **Gap Analysis** | Stuff+ vs Pitching+ comparison classifies pitchers as stuff-dominant, command-dominant, or balanced |
+| **Model Storage** | GCS via Model Registry (model.joblib + rankings.csv + metadata.json) |
+| **Validation** | Pitch-level RMSE/R², aggregated Pearson/Spearman correlation |
+
+**API Endpoints:**
+- `GET /api/v1/stuff-plus/rankings` — Stuff+ or Pitching+ leaderboard (paginated, sortable)
+- `GET /api/v1/stuff-plus/pitcher/{pitcher_id}` — Real-time per-pitcher pitch-level scores
+- `GET /api/v1/stuff-plus/pitcher/{pitcher_id}/compare` — Stuff+ vs Pitching+ gap analysis
+
+**Key Files:**
+
+| File | Purpose |
+|------|---------|
+| `services/stuff_plus_service.py` | Inference service: rankings retrieval, real-time prediction, gap analysis |
+| `endpoints/stuff_plus_endpoints.py` | API endpoints for rankings, pitcher detail, model comparison |
+| `scripts/train_stuff_plus.py` | Training pipeline: data fetch → XGBoost training → ranking computation → GCS + Model Registry registration |
+| `analysis/stuff_plus.ipynb` | Model development and validation notebook |
+
+**Training Pipeline:**
+```bash
+# Train both Stuff+ and Pitching+ models for a given season
+python scripts/train_stuff_plus.py --season 2025 --min-pitches 100
+```
 
 ### 8. Orchestration
 
