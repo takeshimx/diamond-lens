@@ -88,6 +88,35 @@ async def get_pitcher_detail(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/stuff-plus/pitcher/{pitcher_id}/trend")
+async def get_monthly_trend(
+    pitcher_id: int = Path(..., description="MLB pitcher ID"),
+    model_type: str = Query(
+        "stuff_plus",
+        pattern="^(stuff_plus|pitching_plus|pitching_plus_plus)$",
+    ),
+    season: int = Query(2025, ge=2020, le=2026),
+):
+    """
+    月別スコア推移（球種別）
+
+    シーズン中の月ごとの Stuff+ / Pitching+ / Pitching++ スコア変動を取得。
+    球質の劣化、制球の乱れ、打者の適応（攻略）を可視化。
+    """
+    try:
+        return await service.get_monthly_trend(
+            pitcher_id=pitcher_id,
+            model_type=model_type,
+            season=season,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/stuff-plus/pitcher/{pitcher_id}/compare")
 async def compare_models(
     pitcher_id: int = Path(..., description="MLB pitcher ID"),

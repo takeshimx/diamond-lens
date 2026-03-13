@@ -327,6 +327,148 @@ class StuffPlusService:
         }
 
     # ----------------------------------------------------------
+    # 月別スコア推移（球種別 × 月）
+    # ----------------------------------------------------------
+    async def get_monthly_trend(
+        self,
+        pitcher_id: int,
+        model_type: str = "stuff_plus",
+        season: int = 2025,
+    ) -> Dict:
+        """
+        月別 Stuff+ / Pitching+ / Pitching++ スコア推移を取得
+
+        Returns:
+            {"pitcher_id", "player_name", "model_type", "season",
+             "pitch_names": [...], "monthly": [{month, pitch_name: score, ...}]}
+        """
+        artifact = self._ensure_model_loaded(model_type)
+        xgb_model: xgb.XGBRegressor = artifact["model"]
+        encoded_columns: List[str] = artifact["encoded_columns"]
+        z_mu: float = artifact["z_score_mu"]
+        z_sigma: float = artifact["z_score_sigma"]
+        features: List[str] = artifact["features"]
+
+        # game_date を追加取得（月の抽出に使用）
+        cols = ", ".join(STATCAST_COLUMNS + ["game_date"])
+        query = f"""
+            SELECT {cols}
+            FROM `{settings.get_table_full_name('statcast_master')}`
+            WHERE pitcher = @pitcher_id
+                AND game_year = @season
+                AND pitch_type IS NOT NULL
+                AND release_speed IS NOT NULL
+                AND delta_pitcher_run_exp IS NOT NULL
+        """
+        job_config = self._make_job_config([
+            ("pitcher_id", "INT64", pitcher_id),
+            ("season", "INT64", season),
+        ])
+
+        df = self.client.query(query, job_config=job_config).to_dataframe()
+        if df.empty:
+            raise ValueError(f"No data found for pitcher_id={pitcher_id}, season={season}")
+
+        player_name = self._format_name(df["player_name"].iloc[0])
+
+        # 月を抽出
+        df["month"] = pd.to_datetime(df["game_date"]).dt.month
+
+        # plate_z_norm
+        sz_range = df["sz_top"] - df["sz_bot"]
+        df["plate_z_norm"] = np.where(
+            sz_range > 0,
+            (df["plate_z"] - df["sz_bot"]) / sz_range,
+            np.nan,
+        )
+
+        # Pitching++ 用特徴量
+        if model_type == "pitching_plus_plus":
+            df = df.sort_values(["game_pk", "at_bat_number", "pitch_number"])
+            grp = df.groupby(["game_pk", "at_bat_number"])
+            df["prev_release_pos_x"] = grp["release_pos_x"].shift(1)
+            df["prev_release_pos_z"] = grp["release_pos_z"].shift(1)
+            df["prev_release_speed"] = grp["release_speed"].shift(1)
+            df["prev_pfx_z"] = grp["pfx_z"].shift(1)
+            df["prev_pitch_type"] = grp["pitch_type"].shift(1)
+
+            df["release_diff"] = np.sqrt(
+                (df["release_pos_x"] - df["prev_release_pos_x"]) ** 2
+                + (df["release_pos_z"] - df["prev_release_pos_z"]) ** 2
+            )
+            df["speed_diff"] = df["release_speed"] - df["prev_release_speed"]
+            df["zone_distance"] = np.sqrt(
+                df["plate_x"] ** 2 + (df["plate_z_norm"] - 0.5) ** 2
+            )
+
+            df["release_diff"] = df["release_diff"].fillna(0)
+            df["speed_diff"] = df["speed_diff"].fillna(0)
+            df["prev_pfx_z"] = df["prev_pfx_z"].fillna(df["pfx_z"])
+            df["prev_pitch_type"] = df["prev_pitch_type"].fillna("NONE")
+
+        cat_cols = (
+            ["pitch_type", "prev_pitch_type"]
+            if model_type == "pitching_plus_plus"
+            else ["pitch_type"]
+        )
+
+        df_clean = df.dropna(subset=features + ["delta_pitcher_run_exp"]).copy()
+        df_encoded = pd.get_dummies(
+            df_clean[features + cat_cols], columns=cat_cols
+        )
+
+        for col in encoded_columns:
+            if col not in df_encoded.columns:
+                df_encoded[col] = 0
+        df_encoded = df_encoded[encoded_columns]
+
+        # 予測
+        df_clean["predicted_run_exp"] = xgb_model.predict(df_encoded)
+
+        # 月 × 球種に集約
+        score_col = model_type
+        monthly = (
+            df_clean
+            .groupby(["month", "pitch_name"])
+            .agg(
+                mean_pred_run_exp=("predicted_run_exp", "mean"),
+                actual_run_exp=("delta_pitcher_run_exp", "mean"),
+                pitch_count=("predicted_run_exp", "count"),
+            )
+            .reset_index()
+        )
+        monthly[score_col] = 100 + (z_mu - monthly["mean_pred_run_exp"]) / z_sigma * 15
+
+        # フロントエンド用フォーマット: [{month, pitch1_score, pitch1_count, ...}]
+        pitch_names = sorted(
+            n for n in df_clean["pitch_name"].unique() if n != "Pitch Out"
+        )
+
+        months_data = []
+        for month in sorted(monthly["month"].unique()):
+            month_df = monthly[monthly["month"] == month]
+            entry = {"month": int(month)}
+            total_count = 0
+            for _, row in month_df.iterrows():
+                pn = row["pitch_name"]
+                if pn == "Pitch Out":
+                    continue
+                entry[pn] = round(float(row[score_col]), 1)
+                entry[f"{pn}_count"] = int(row["pitch_count"])
+                total_count += int(row["pitch_count"])
+            entry["total_count"] = total_count
+            months_data.append(entry)
+
+        return {
+            "pitcher_id": pitcher_id,
+            "player_name": player_name,
+            "model_type": model_type,
+            "season": season,
+            "pitch_names": pitch_names,
+            "monthly": months_data,
+        }
+
+    # ----------------------------------------------------------
     # Stuff+ vs Pitching+ 比較（gap分析）
     # ----------------------------------------------------------
     async def compare_stuff_pitching(

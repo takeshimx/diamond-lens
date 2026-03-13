@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Legend } from 'recharts';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Legend } from 'recharts';
 import { Target, Search, ArrowUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 
 const StuffPlus = () => {
   const { getIdToken } = useAuth();
   // サブビュー切替
-  const [view, setView] = useState('rankings'); // 'rankings' | 'detail' | 'compare'
+  const [view, setView] = useState('rankings'); // 'rankings' | 'detail' | 'compare' | 'trend'
 
   // Rankings state
   const [rankings, setRankings] = useState([]);
@@ -36,6 +36,16 @@ const StuffPlus = () => {
   const [compareSeason, setCompareSeason] = useState(2025);
   const [compareResult, setCompareResult] = useState(null);
   const compareSearchRef = useRef(null);
+
+  // Trend state
+  const [trendPitcherId, setTrendPitcherId] = useState('');
+  const [trendSearchQuery, setTrendSearchQuery] = useState('');
+  const [trendSuggestions, setTrendSuggestions] = useState([]);
+  const [trendShowSuggestions, setTrendShowSuggestions] = useState(false);
+  const [trendModelType, setTrendModelType] = useState('stuff_plus');
+  const [trendSeason, setTrendSeason] = useState(2025);
+  const [trendResult, setTrendResult] = useState(null);
+  const trendSearchRef = useRef(null);
 
   // Shared
   const [isLoading, setIsLoading] = useState(false);
@@ -103,6 +113,17 @@ const StuffPlus = () => {
     return () => clearTimeout(timer);
   }, [compareSearchQuery, compareSeason]);
 
+  // Trend 検索デバウンス
+  useEffect(() => {
+    if (trendSearchQuery.length < 2) { setTrendSuggestions([]); return; }
+    const timer = setTimeout(async () => {
+      const results = await searchPitchers(trendSearchQuery, trendSeason);
+      setTrendSuggestions(results);
+      setTrendShowSuggestions(results.length > 0);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [trendSearchQuery, trendSeason]);
+
   // クリック外で候補を閉じる
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -111,6 +132,9 @@ const StuffPlus = () => {
       }
       if (compareSearchRef.current && !compareSearchRef.current.contains(e.target)) {
         setCompareShowSuggestions(false);
+      }
+      if (trendSearchRef.current && !trendSearchRef.current.contains(e.target)) {
+        setTrendShowSuggestions(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -246,6 +270,41 @@ const StuffPlus = () => {
       setIsLoading(false);
     }
   };
+
+  // ----------------------------------------------------------
+  // Monthly Trend 取得
+  // ----------------------------------------------------------
+  const fetchTrend = async () => {
+    if (!trendPitcherId) return;
+    setIsLoading(true);
+    setError(null);
+    setTrendResult(null);
+    try {
+      const params = new URLSearchParams({
+        model_type: trendModelType,
+        season: trendSeason,
+      });
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${BACKEND_URL}/api/v1/stuff-plus/pitcher/${trendPitcherId}/trend?${params}`, { headers });
+      if (!res.ok) {
+        if (res.status === 404) throw new Error('投手が見つかりませんでした');
+        if (res.status === 503) throw new Error('モデルが利用できません');
+        throw new Error(`API error: ${res.status}`);
+      }
+      setTrendResult(await res.json());
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // trendModelType 変更時に自動再取得
+  useEffect(() => {
+    if (view === 'trend' && trendPitcherId) {
+      fetchTrend();
+    }
+  }, [trendModelType]);
 
   // ----------------------------------------------------------
   // Rankings ビュー内でクリックしてDetail遷移
@@ -781,6 +840,208 @@ const StuffPlus = () => {
   );
 
   // ==========================================================
+  // Trend ビュー（月別推移）
+  // ==========================================================
+  const MONTH_LABELS = { 3: 'Mar', 4: 'Apr', 5: 'May', 6: 'Jun', 7: 'Jul', 8: 'Aug', 9: 'Sep', 10: 'Oct', 11: 'Nov' };
+  const PITCH_COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#a855f7', '#ec4899', '#06b6d4', '#f97316'];
+
+  const TrendChartTooltip = ({ active, payload, label }) => {
+    if (!active || !payload || !payload.length) return null;
+    const monthEntry = trendResult?.monthly?.find(m => m.month === label);
+    return (
+      <div className="bg-gray-800 border border-gray-600 rounded-lg p-3 shadow-lg">
+        <p className="text-white font-medium mb-1">{MONTH_LABELS[label] || `Month ${label}`}</p>
+        {payload.map((p, i) => (
+          <div key={i} className="flex items-center gap-2 text-sm">
+            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }} />
+            <span className="text-gray-300">{p.name}:</span>
+            <span className={`font-bold ${getScoreColor(p.value)}`}>{p.value}</span>
+            {monthEntry && monthEntry[`${p.name}_count`] != null && (
+              <span className="text-gray-500 text-xs">({monthEntry[`${p.name}_count`]}球)</span>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const TrendView = () => (
+    <div className="space-y-4">
+      {/* 入力コントロール */}
+      <div className="flex flex-wrap gap-3 items-end">
+        <div className="relative" ref={trendSearchRef}>
+          <label className="block text-xs text-gray-400 mb-1">投手名</label>
+          <div className="flex items-center">
+            <Search className="absolute left-2.5 w-3.5 h-3.5 text-gray-500" />
+            <input
+              type="text"
+              value={trendSearchQuery}
+              onChange={(e) => {
+                setTrendSearchQuery(e.target.value);
+                setTrendPitcherId('');
+                setTrendShowSuggestions(true);
+              }}
+              placeholder="e.g. Ohtani"
+              className="bg-gray-700 text-white border border-gray-600 rounded-lg pl-8 pr-3 py-1.5 text-sm w-52"
+            />
+          </div>
+          {trendShowSuggestions && trendSuggestions.length > 0 && (
+            <div className="absolute z-50 mt-1 w-72 bg-gray-800 border border-gray-600 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+              {trendSuggestions.map((s) => (
+                <button
+                  key={s.pitcher_id}
+                  onClick={() => {
+                    setTrendPitcherId(String(s.pitcher_id));
+                    setTrendSearchQuery(s.player_name);
+                    setTrendShowSuggestions(false);
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-gray-700 transition-colors flex items-center justify-between"
+                >
+                  <span className="text-white text-sm font-medium">{s.player_name}</span>
+                  <span className="text-gray-500 text-xs">{s.team} / {s.hand === 'R' ? 'RHP' : s.hand === 'L' ? 'LHP' : s.hand}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex rounded-lg overflow-hidden border border-gray-600">
+          <button
+            onClick={() => setTrendModelType('stuff_plus')}
+            className={`px-3 py-1.5 text-sm font-medium transition-all ${
+              trendModelType === 'stuff_plus'
+                ? 'bg-blue-600 text-white shadow-[0_0_12px_rgba(59,130,246,0.5)]'
+                : 'bg-gray-700 text-gray-500 hover:bg-gray-600 hover:text-gray-300'
+            }`}
+          >
+            Stuff+
+          </button>
+          <button
+            onClick={() => setTrendModelType('pitching_plus')}
+            className={`px-3 py-1.5 text-sm font-medium transition-all ${
+              trendModelType === 'pitching_plus'
+                ? 'bg-purple-600 text-white shadow-[0_0_12px_rgba(168,85,247,0.5)]'
+                : 'bg-gray-700 text-gray-500 hover:bg-gray-600 hover:text-gray-300'
+            }`}
+          >
+            Pitching+
+          </button>
+          <button
+            onClick={() => setTrendModelType('pitching_plus_plus')}
+            className={`px-3 py-1.5 text-sm font-medium transition-all ${
+              trendModelType === 'pitching_plus_plus'
+                ? 'bg-green-600 text-white shadow-[0_0_12px_rgba(34,197,94,0.5)]'
+                : 'bg-gray-700 text-gray-500 hover:bg-gray-600 hover:text-gray-300'
+            }`}
+          >
+            Pitching++
+          </button>
+        </div>
+
+        <select
+          value={trendSeason}
+          onChange={(e) => setTrendSeason(Number(e.target.value))}
+          className="bg-gray-700 text-white border border-gray-600 rounded-lg px-3 py-1.5 text-sm"
+        >
+          {[2026, 2025, 2024, 2023, 2022, 2021, 2020].map(y => (
+            <option key={y} value={y}>{y}</option>
+          ))}
+        </select>
+
+        <button
+          onClick={fetchTrend}
+          disabled={!trendPitcherId || isLoading}
+          className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          <Search className="w-3.5 h-3.5" />
+          推移表示
+        </button>
+      </div>
+
+      {/* 結果 */}
+      {trendResult && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <h3 className="text-lg font-bold text-white">{trendResult.player_name}</h3>
+            <span className="text-sm text-gray-400">
+              {trendModelType === 'stuff_plus' ? 'Stuff+' : trendModelType === 'pitching_plus' ? 'Pitching+' : 'Pitching++'} / {trendResult.season} 月別推移
+            </span>
+          </div>
+
+          {/* LineChart */}
+          <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+            <ResponsiveContainer width="100%" height={350}>
+              <LineChart data={trendResult.monthly} margin={{ top: 10, right: 10, left: 0, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis
+                  dataKey="month"
+                  stroke="#9ca3af"
+                  tick={{ fontSize: 12 }}
+                  tickFormatter={(m) => MONTH_LABELS[m] || m}
+                />
+                <YAxis stroke="#9ca3af" tick={{ fontSize: 12 }} domain={[60, 160]} />
+                <Tooltip content={<TrendChartTooltip />} />
+                <Legend wrapperStyle={{ fontSize: 12, color: '#9ca3af' }} />
+                <ReferenceLine y={100} stroke="#6b7280" strokeDasharray="4 4" label={{ value: 'Avg (100)', fill: '#6b7280', fontSize: 11 }} />
+                {trendResult.pitch_names.map((pn, i) => (
+                  <Line
+                    key={pn}
+                    type="monotone"
+                    dataKey={pn}
+                    name={pn}
+                    stroke={PITCH_COLORS[i % PITCH_COLORS.length]}
+                    strokeWidth={2}
+                    dot={{ r: 4 }}
+                    activeDot={{ r: 6 }}
+                    connectNulls
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* 月別テーブル */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-700">
+                  <th className="text-left text-gray-400 py-2 px-3">Month</th>
+                  {trendResult.pitch_names.map((pn, i) => (
+                    <th key={pn} className="text-right py-2 px-3" style={{ color: PITCH_COLORS[i % PITCH_COLORS.length] }}>{pn}</th>
+                  ))}
+                  <th className="text-right text-gray-400 py-2 px-3">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trendResult.monthly.map((m) => (
+                  <tr key={m.month} className="border-b border-gray-700/50">
+                    <td className="py-2 px-3 text-white font-medium">{MONTH_LABELS[m.month] || m.month}</td>
+                    {trendResult.pitch_names.map((pn) => (
+                      <td key={pn} className="py-2 px-3 text-right">
+                        {m[pn] != null
+                          ? <span className={`font-bold ${getScoreColor(m[pn])}`}>{m[pn]}</span>
+                          : <span className="text-gray-500">-</span>
+                        }
+                        {m[`${pn}_count`] != null && (
+                          <span className="text-gray-500 text-xs ml-1">({m[`${pn}_count`]})</span>
+                        )}
+                      </td>
+                    ))}
+                    <td className="py-2 px-3 text-right text-gray-300">{m.total_count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="text-xs text-gray-500 mt-2 px-3">
+              括弧内はその月の投球数。サンプルが少ない月はスコアの信頼度が低い点に注意。
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // ==========================================================
   // メインレンダリング
   // ==========================================================
   return (
@@ -804,11 +1065,11 @@ const StuffPlus = () => {
         </div>
         <div className="bg-purple-500/5 border border-purple-500/20 rounded-lg px-4 py-3">
           <span className="text-purple-400 font-semibold text-sm">Pitching+</span>
-          <p className="text-xs text-gray-400 mt-1">Stuff+ に投球位置（制球）を追加。ストライクゾーンは打者体格で正規化。</p>
+          <p className="text-xs text-gray-400 mt-1">Stuff+ に投球コースを追加。「良い球を、良い場所に投げられるか」を評価。コーナーワークに優れた投手が高スコア。</p>
         </div>
         <div className="bg-green-500/5 border border-green-500/20 rounded-lg px-4 py-3">
           <span className="text-green-400 font-semibold text-sm">Pitching++</span>
-          <p className="text-xs text-gray-400 mt-1">Pitching+ にトンネル距離・球速差・カウント・ゾーン距離を追加。シーケンス効果を反映。</p>
+          <p className="text-xs text-gray-400 mt-1">Pitching+ に前球との球速差・リリース差・カウント状況を追加。「配球の組み立てで打者を翻弄できるか」を評価。</p>
         </div>
       </div>
 
@@ -817,6 +1078,7 @@ const StuffPlus = () => {
         {[
           { key: 'rankings', label: 'ランキング' },
           { key: 'detail', label: '投手詳細' },
+          { key: 'trend', label: '月別推移' },
           { key: 'compare', label: 'モデル比較' },
         ].map(tab => (
           <button
@@ -853,6 +1115,7 @@ const StuffPlus = () => {
         <>
           {view === 'rankings' && RankingsView()}
           {view === 'detail' && DetailView()}
+          {view === 'trend' && TrendView()}
           {view === 'compare' && CompareView()}
         </>
       )}
