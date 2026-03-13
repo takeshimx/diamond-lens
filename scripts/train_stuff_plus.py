@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# 特徴量定義（Stuff+ と Pitching+ の唯一の差は plate_x/plate_z）
+# 特徴量定義（Stuff+ と Pitching+ の差は制球関連特徴量）
 # ============================================================
 STUFF_FEATURES = [
     'release_speed', 'release_spin_rate', 'spin_axis',
@@ -48,7 +48,8 @@ STUFF_FEATURES = [
     'api_break_z_with_gravity', 'api_break_x_arm',
     'arm_angle',
 ]
-PITCHING_FEATURES = STUFF_FEATURES + ['plate_x', 'plate_z']
+# plate_z_norm: 打者ストライクゾーンで正規化した plate_z（P5 Command Precision 由来）
+PITCHING_FEATURES = STUFF_FEATURES + ['plate_x', 'plate_z_norm']
 
 # XGBoost ハイパーパラメータ
 XGB_PARAMS = {
@@ -63,32 +64,40 @@ XGB_PARAMS = {
 
 QUERY_TEMPLATE = """
 SELECT
-    pitcher,
-    player_name,
-    pitch_type,
-    pitch_name,
-    release_speed,
-    release_spin_rate,
-    spin_axis,
-    pfx_x,
-    pfx_z,
-    release_extension,
-    release_pos_x,
-    release_pos_z,
-    plate_x,
-    plate_z,
-    api_break_z_with_gravity,
-    api_break_x_arm,
-    arm_angle,
-    delta_pitcher_run_exp,
-    game_year,
-    p_throws,
-    stand
-FROM `{project}.{dataset}.statcast_master`
+    s.pitcher,
+    p.full_name AS player_name,
+    p.primary_position,
+    t.team_name,
+    t.league,
+    s.pitch_type,
+    s.pitch_name,
+    s.release_speed,
+    s.release_spin_rate,
+    s.spin_axis,
+    s.pfx_x,
+    s.pfx_z,
+    s.release_extension,
+    s.release_pos_x,
+    s.release_pos_z,
+    s.plate_x,
+    s.plate_z,
+    s.sz_top,
+    s.sz_bot,
+    s.api_break_z_with_gravity,
+    s.api_break_x_arm,
+    s.arm_angle,
+    s.delta_pitcher_run_exp,
+    s.game_year,
+    s.p_throws,
+    s.stand
+FROM `{project}.{dataset}.statcast_master` s
+LEFT JOIN `{project}.{dataset}.dim_players_latest` p ON s.pitcher = p.mlbid
+LEFT JOIN `{project}.{dataset}.dim_teams` t ON p.current_team_id = t.team_id
 WHERE game_year = {season}
     AND pitch_type IS NOT NULL
     AND release_speed IS NOT NULL
     AND delta_pitcher_run_exp IS NOT NULL
+    AND p.primary_position IN ('Pitcher', 'Two-Way Player')
 """
 
 
@@ -187,7 +196,7 @@ class StuffPlusTrainer:
         # 投手 × 球種ごとに集約
         ranking = (
             df_clean
-            .groupby(["pitcher", "player_name", "pitch_name"])
+            .groupby(["pitcher", "player_name", "pitch_name", "p_throws", "team_name", "league"])
             .agg(
                 mean_pred_run_exp=("predicted_run_exp", "mean"),
                 actual_run_exp=("delta_pitcher_run_exp", "mean"),
@@ -334,6 +343,20 @@ class StuffPlusTrainer:
         """ランキング結果を BigQuery テーブルに書き込み（API用）"""
         table_id = f"{self.project_id}.{self.dataset_id}.stuff_plus_rankings"
 
+        # 既存データを削除（再トレーニング時の重複防止）
+        delete_query = f"""
+            DELETE FROM `{table_id}`
+            WHERE model_type = @model_type AND season = @season
+        """
+        delete_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("model_type", "STRING", model_name),
+                bigquery.ScalarQueryParameter("season", "INT64", season),
+            ]
+        )
+        self.bq_client.query(delete_query, job_config=delete_config).result()
+        logger.info(f"Deleted existing rankings: model_type={model_name}, season={season}")
+
         # model_type と season カラムを追加
         df_out = ranking.copy()
         df_out["model_type"] = model_name
@@ -362,6 +385,16 @@ class StuffPlusTrainer:
 
         # 1. データ取得（1回だけ）
         df = self.fetch_data(season)
+
+        # 特徴量エンジニアリング: plate_z を打者ストライクゾーンで正規化
+        sz_range = df["sz_top"] - df["sz_bot"]
+        df["plate_z_norm"] = np.where(
+            sz_range > 0,
+            (df["plate_z"] - df["sz_bot"]) / sz_range,
+            np.nan,
+        )
+        n_valid = df["plate_z_norm"].notna().sum()
+        logger.info(f"plate_z_norm computed: {n_valid:,}/{len(df):,} valid rows")
 
         results = {}
 

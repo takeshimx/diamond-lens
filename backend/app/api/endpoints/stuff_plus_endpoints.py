@@ -21,6 +21,7 @@ async def get_rankings(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     sort_order: str = Query("desc", pattern="^(asc|desc)$"),
+    min_pitches: int = Query(0, ge=0, le=5000, description="球種別最低投球数フィルタ"),
 ):
     """
     Stuff+ or Pitching+ ランキングを取得
@@ -35,6 +36,26 @@ async def get_rankings(
             limit=limit,
             offset=offset,
             sort_order=sort_order,
+            min_pitches=min_pitches,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/stuff-plus/search")
+async def search_pitchers(
+    name: str = Query(..., min_length=2, description="検索する選手名（部分一致）"),
+    season: int = Query(2025, ge=2020, le=2026),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """
+    選手名で投手を検索（オートコンプリート用）
+    """
+    try:
+        return await service.search_pitchers(
+            name=name,
+            season=season,
+            limit=limit,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

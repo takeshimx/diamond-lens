@@ -26,7 +26,7 @@ STATCAST_COLUMNS = [
     "release_speed", "release_spin_rate", "spin_axis",
     "pfx_x", "pfx_z", "release_extension",
     "release_pos_x", "release_pos_z",
-    "plate_x", "plate_z",
+    "plate_x", "plate_z", "sz_top", "sz_bot",
     "api_break_z_with_gravity", "api_break_x_arm",
     "arm_angle",
     "delta_pitcher_run_exp",
@@ -73,6 +73,16 @@ class StuffPlusService:
     # ----------------------------------------------------------
     # ランキング取得（事前計算済み → BigQuery SELECT）
     # ----------------------------------------------------------
+    # ----------------------------------------------------------
+    # 名前フォーマット: "Last, First" → "First Last"
+    # ----------------------------------------------------------
+    @staticmethod
+    def _format_name(name: str) -> str:
+        if name and ", " in name:
+            last, first = name.split(", ", 1)
+            return f"{first} {last}"
+        return name or ""
+
     async def get_rankings(
         self,
         model_type: str = "stuff_plus",
@@ -80,6 +90,7 @@ class StuffPlusService:
         limit: int = 50,
         offset: int = 0,
         sort_order: str = "desc",
+        min_pitches: int = 0,
     ) -> Dict:
         """
         事前計算済みランキングを BigQuery から取得
@@ -90,11 +101,15 @@ class StuffPlusService:
         score_col = "stuff_plus" if model_type == "stuff_plus" else "pitching_plus"
         order = "DESC" if sort_order == "desc" else "ASC"
 
+        # min_pitches フィルタ
+        pitches_filter = "AND pitch_count >= @min_pitches" if min_pitches > 0 else ""
+
         # トータル件数
         count_query = f"""
             SELECT COUNT(*) as total
             FROM `{RANKINGS_TABLE}`
             WHERE model_type = @model_type AND season = @season
+            {pitches_filter}
         """
 
         # ランキングデータ
@@ -103,6 +118,9 @@ class StuffPlusService:
                 pitcher,
                 player_name,
                 pitch_name,
+                p_throws,
+                team_name,
+                league,
                 {score_col},
                 pitch_count,
                 avg_velo,
@@ -111,23 +129,28 @@ class StuffPlusService:
                 actual_run_exp
             FROM `{RANKINGS_TABLE}`
             WHERE model_type = @model_type AND season = @season
+            {pitches_filter}
             ORDER BY {score_col} {order}
             LIMIT @limit OFFSET @offset
         """
 
-        job_config = self._make_job_config([
+        base_params = [
             ("model_type", "STRING", model_type),
             ("season", "INT64", season),
-            ("limit", "INT64", limit),
-            ("offset", "INT64", offset),
-        ])
+        ]
+        if min_pitches > 0:
+            base_params.append(("min_pitches", "INT64", min_pitches))
+
+        job_config = self._make_job_config(
+            base_params + [
+                ("limit", "INT64", limit),
+                ("offset", "INT64", offset),
+            ]
+        )
 
         try:
             # 件数取得
-            count_config = self._make_job_config([
-                ("model_type", "STRING", model_type),
-                ("season", "INT64", season),
-            ])
+            count_config = self._make_job_config(base_params)
             count_result = list(self.client.query(count_query, job_config=count_config))
             total = count_result[0]["total"] if count_result else 0
 
@@ -140,6 +163,9 @@ class StuffPlusService:
                     "pitcher_id": int(row["pitcher"]),
                     "player_name": row["player_name"],
                     "pitch_name": row["pitch_name"],
+                    "hand": row.get("p_throws", ""),
+                    "team": row.get("team_name", ""),
+                    "league": row.get("league", ""),
                     "score": round(float(row[score_col]), 1),
                     "pitch_count": int(row["pitch_count"]),
                     "avg_velo": round(float(row["avg_velo"]), 1),
@@ -202,9 +228,17 @@ class StuffPlusService:
         if df.empty:
             raise ValueError(f"No data found for pitcher_id={pitcher_id}, season={season}")
 
-        player_name = df["player_name"].iloc[0]
+        player_name = self._format_name(df["player_name"].iloc[0])
 
-        # 特徴量作成（notebook と同じロジック）
+        # plate_z を打者ストライクゾーンで正規化（Pitching+ 用）
+        sz_range = df["sz_top"] - df["sz_bot"]
+        df["plate_z_norm"] = np.where(
+            sz_range > 0,
+            (df["plate_z"] - df["sz_bot"]) / sz_range,
+            np.nan,
+        )
+
+        # 特徴量作成
         df_clean = df.dropna(subset=features + ["pitch_type", "delta_pitcher_run_exp"]).copy()
         df_encoded = pd.get_dummies(
             df_clean[features + ["pitch_type"]], columns=["pitch_type"]
@@ -330,6 +364,56 @@ class StuffPlusService:
             "profile_desc": profile_desc,
             "comparison": comparison,
         }
+
+    # ----------------------------------------------------------
+    # 選手名検索（ランキングテーブルから DISTINCT 投手を返す）
+    # ----------------------------------------------------------
+    async def search_pitchers(
+        self,
+        name: str,
+        season: int = 2025,
+        limit: int = 10,
+    ) -> List[Dict]:
+        """
+        ランキングテーブルから名前で投手を検索
+
+        Returns:
+            [{"pitcher_id": int, "player_name": str, "team": str, "hand": str}, ...]
+        """
+        query = f"""
+            SELECT DISTINCT pitcher, player_name, team_name, p_throws
+            FROM `{RANKINGS_TABLE}`
+            WHERE season = @season
+                AND model_type = 'stuff_plus'
+                AND LOWER(player_name) LIKE LOWER(@name_pattern)
+            ORDER BY player_name
+            LIMIT @limit
+        """
+        job_config = self._make_job_config([
+            ("season", "INT64", season),
+            ("name_pattern", "STRING", f"%{name}%"),
+            ("limit", "INT64", limit),
+        ])
+
+        try:
+            df = self.client.query(query, job_config=job_config).to_dataframe()
+            results = []
+            seen = set()
+            for _, row in df.iterrows():
+                pid = int(row["pitcher"])
+                if pid in seen:
+                    continue
+                seen.add(pid)
+                results.append({
+                    "pitcher_id": pid,
+                    "player_name": row["player_name"],
+                    "team": row.get("team_name", ""),
+                    "hand": row.get("p_throws", ""),
+                })
+            return results
+        except Exception as e:
+            logger.error(f"Failed to search pitchers: {e}")
+            raise
 
     # ----------------------------------------------------------
     # ヘルパー

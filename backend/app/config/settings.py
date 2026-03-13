@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     bigquery_batter_split_stats_table_id: str = "tbl_batter_split_stats"
     bigquery_batter_performance_flags_7days_table_id: str = "view_tbl_batter_rolling_vs_season_stats_7_days"
     bigquery_batter_performance_flags_15days_table_id: str = "view_tbl_batter_rolling_vs_season_stats_15_days"
+    bigquery_stuff_plus_rankings_table_id: str = "stuff_plus_rankings"
+    bigquery_statcast_master_table_id: str = "statcast_master"
 
     # ============================================================
     # API Keys

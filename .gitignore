@@ -76,3 +76,5 @@ linux_practice_test/*
 
 CLAUDE.md
 .claude/
+
+queries/

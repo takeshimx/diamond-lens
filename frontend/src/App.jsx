@@ -8,6 +8,7 @@ import StatisticalAnalysis from './components/StatisticalAnalysis.jsx';
 import PlayerSegmentation from './components/PlayerSegmentation.jsx';
 import PitcherFatigue from './components/PitcherFatigue.jsx';
 import PitcherWhiffPredictor from './components/PitcherWhiffPredictor.jsx';
+import StuffPlus from './components/StuffPlus.jsx';
 import VoiceInput from './components/VoiceInput.jsx';
 import MatchupAnalysisCard from './components/MatchupAnalysisCard.jsx';
 import { useAuth } from './hooks/useAuth';
@@ -2757,6 +2758,20 @@ const MLBChatApp = () => {
                   <Users className="w-4 h-4 flex-shrink-0" />
                   <span className="truncate">選手分類</span>
                 </button>
+                <button
+                  onClick={() => {
+                    setUiMode('stuff-plus');
+                    setQuickResult(null);
+                    setCustomResult(null);
+                  }}
+                  className={`px-4 py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center sm:justify-start gap-2 min-w-0 w-full sm:w-auto ${uiMode === 'stuff-plus'
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                    }`}
+                >
+                  <Target className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate">球質評価</span>
+                </button>
 
                 {/* 疲労分析 - 一時無効化 */}
                 {/* <button
@@ -3040,6 +3055,11 @@ const MLBChatApp = () => {
               /* ===== 選手セグメンテーションエリア ===== */
               <div className="px-4 sm:px-6 py-6 sm:py-8 h-full">
                 <PlayerSegmentation />
+              </div>
+            ) : uiMode === 'stuff-plus' ? (
+              /* ===== Stuff+ / Pitching+ 球質評価エリア ===== */
+              <div className="px-4 sm:px-6 py-6 sm:py-8 h-full">
+                <StuffPlus />
               </div>
             ) : uiMode === 'fatigue' ? (
               /* ===== 投手疲労分析エリア ===== */
