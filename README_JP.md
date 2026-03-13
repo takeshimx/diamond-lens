@@ -213,12 +213,13 @@ CI/CD ドリフトチェック → アクティブモデルの学習データ vs
 
 **技術**: scikit-learn、PyTorch、scipy、joblib、Google Cloud Storage、BigQuery
 
-### 9. Stuff+ / Pitching+ 球質評価（バックエンド）
+### 9. Stuff+ / Pitching+ / Pitching++ 球質評価（バックエンド）
 **ステータス**: ✅ バックエンドAPI完了（フロントエンド未実装）
 
 **機能**:
 - **⚾ Stuff+モデル**: 球速、回転数、変化量、リリースポイント、arm angleに基づく純粋な球質評価。XGBoost回帰で`delta_pitcher_run_exp`を予測
 - **🎯 Pitching+モデル**: Stuff+の特徴量に投球位置（`plate_x`, `plate_z`）を追加した総合投球評価
+- **🚀 Pitching++モデル**: Pitching+の特徴量に球種シーケンス（トンネル効果、球速差）、コマンド（`zone_distance`）、カウント（`balls`, `strikes`）を追加した高度な投球評価
 - **📊 事前計算ランキング**: 投手×球種のランキングをBigQueryに格納し、ページネーション・ソート対応で高速取得
 - **🔮 リアルタイム推論**: Model Registryのactiveモデルを使用した、投手単位のオンデマンド予測
 - **⚖️ Stuff+ vs Pitching+ ギャップ分析**: 両スコアを比較し「球質型」「制球型」「バランス型」に投手を分類
@@ -228,25 +229,26 @@ CI/CD ドリフトチェック → アクティブモデルの学習データ vs
 - **目的変数**: `delta_pitcher_run_exp`（投球レベルの失点期待値変化）
 - **Stuff+特徴量**（11個）: `release_speed`, `release_spin_rate`, `spin_axis`, `pfx_x`, `pfx_z`, `release_extension`, `release_pos_x`, `release_pos_z`, `api_break_z_with_gravity`, `api_break_x_arm`, `arm_angle`
 - **Pitching+特徴量**（13個）: Stuff+特徴量 + `plate_x`, `plate_z`
+- **Pitching++特徴量**: Pitching+特徴量 + コマンド（`zone_distance`） + カウント（`balls`, `strikes`） + トンネル効果（`release_diff`, `speed_diff`, `prev_pfx_z`）
 - **スコアリング**: z-score正規化（100 = リーグ平均、15ポイント = 1σ）
 - **集約**: 投手×球種レベル、最低投球数フィルター付き（デフォルト: 100球）
 
 **学習パイプライン** (`scripts/train_stuff_plus.py`):
 1. BigQuery `statcast_master`から投球レベルデータを取得
-2. Stuff+とPitching+の両方のXGBoostモデルを学習
+2. Stuff+、Pitching+、Pitching++のXGBoostモデルを学習
 3. z-score正規化で投手×球種ランキングを計算
 4. Model Registry経由でモデルアーティファクトをGCSに保存
 5. 事前計算ランキングをBigQuery `stuff_plus_rankings`テーブルに書き込み
 
 **APIエンドポイント**:
-- `GET /api/v1/stuff-plus/rankings` - Stuff+またはPitching+リーダーボード取得（ページネーション・ソート対応）
+- `GET /api/v1/stuff-plus/rankings` - Stuff+、Pitching+、またはPitching++リーダーボード取得（ページネーション・ソート対応）
 - `GET /api/v1/stuff-plus/pitcher/{pitcher_id}` - 特定投手の球種別スコアをリアルタイム推論
 - `GET /api/v1/stuff-plus/pitcher/{pitcher_id}/compare` - Stuff+ vs Pitching+ ギャップ分析
 
 **技術**: XGBoost、scikit-learn、pandas、BigQuery、GCS、Model Registry
 
 **分析ノートブック**:
-- `analysis/stuff_plus.ipynb` - Stuff+ / Pitching+ モデル開発と検証
+- `analysis/stuff_plus.ipynb` - Stuff+ / Pitching+ / Pitching++ モデル開発と検証
 
 ### 技術機能
 - **AI搭載処理**: Gemini 2.5 Flashを使用したクエリ解析とレスポンス生成
