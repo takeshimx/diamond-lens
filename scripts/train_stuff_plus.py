@@ -51,6 +51,23 @@ STUFF_FEATURES = [
 # plate_z_norm: 打者ストライクゾーンで正規化した plate_z（P5 Command Precision 由来）
 PITCHING_FEATURES = STUFF_FEATURES + ['plate_x', 'plate_z_norm']
 
+# Pitching++ Pitching+ + tunnel + count + zone_distance
+PITCHING_PP_FEATURES = STUFF_FEATURES + [
+    # Command
+    'plate_x', 'plate_z_norm', 'zone_distance',
+    # Count
+    'balls', 'strikes',
+    # Tunnel
+    'release_diff', 'speed_diff', 'prev_pfx_z',
+]
+
+# モデルごとの One-Hot Encoding 対象カテゴリカルカラム
+CATEGORICAL_COLUMNS = {
+    "stuff_plus": ["pitch_type"],
+    "pitching_plus": ["pitch_type"],
+    "pitching_plus_plus": ["pitch_type", "prev_pitch_type"],
+}
+
 # XGBoost ハイパーパラメータ
 XGB_PARAMS = {
     'n_estimators': 500,
@@ -63,42 +80,84 @@ XGB_PARAMS = {
 }
 
 QUERY_TEMPLATE = """
+WITH sequenced AS (
+    SELECT
+        s.pitcher,
+        s.pitch_type,
+        s.pitch_name,
+        s.release_speed,
+        s.release_spin_rate,
+        s.spin_axis,
+        s.pfx_x,
+        s.pfx_z,
+        s.release_extension,
+        s.release_pos_x,
+        s.release_pos_z,
+        s.plate_x,
+        s.plate_z,
+        s.sz_top,
+        s.sz_bot,
+        s.api_break_z_with_gravity,
+        s.api_break_x_arm,
+        s.arm_angle,
+        s.delta_pitcher_run_exp,
+        s.game_year,
+        s.p_throws,
+        s.stand,
+        s.balls,
+        s.strikes,
+        -- LAG: 同一打席内の前球データ（Pitching++ 用）
+        LAG(s.release_pos_x) OVER(PARTITION BY s.game_pk, s.at_bat_number ORDER BY s.pitch_number) AS prev_release_pos_x,
+        LAG(s.release_pos_z) OVER(PARTITION BY s.game_pk, s.at_bat_number ORDER BY s.pitch_number) AS prev_release_pos_z,
+        LAG(s.release_speed) OVER(PARTITION BY s.game_pk, s.at_bat_number ORDER BY s.pitch_number) AS prev_release_speed,
+        LAG(s.pfx_z) OVER(PARTITION BY s.game_pk, s.at_bat_number ORDER BY s.pitch_number) AS prev_pfx_z,
+        LAG(s.pitch_type) OVER(PARTITION BY s.game_pk, s.at_bat_number ORDER BY s.pitch_number) AS prev_pitch_type
+    FROM `{project}.{dataset}.statcast_master` s
+    WHERE s.game_year = {season}
+)
 SELECT
-    s.pitcher,
+    sq.pitcher,
     p.full_name AS player_name,
     p.primary_position,
     t.team_name,
     t.league,
-    s.pitch_type,
-    s.pitch_name,
-    s.release_speed,
-    s.release_spin_rate,
-    s.spin_axis,
-    s.pfx_x,
-    s.pfx_z,
-    s.release_extension,
-    s.release_pos_x,
-    s.release_pos_z,
-    s.plate_x,
-    s.plate_z,
-    s.sz_top,
-    s.sz_bot,
-    s.api_break_z_with_gravity,
-    s.api_break_x_arm,
-    s.arm_angle,
-    s.delta_pitcher_run_exp,
-    s.game_year,
-    s.p_throws,
-    s.stand
-FROM `{project}.{dataset}.statcast_master` s
-LEFT JOIN `{project}.{dataset}.dim_players_latest` p ON s.pitcher = p.mlbid
+    sq.pitch_type,
+    sq.pitch_name,
+    sq.release_speed,
+    sq.release_spin_rate,
+    sq.spin_axis,
+    sq.pfx_x,
+    sq.pfx_z,
+    sq.release_extension,
+    sq.release_pos_x,
+    sq.release_pos_z,
+    sq.plate_x,
+    sq.plate_z,
+    sq.sz_top,
+    sq.sz_bot,
+    sq.api_break_z_with_gravity,
+    sq.api_break_x_arm,
+    sq.arm_angle,
+    sq.delta_pitcher_run_exp,
+    sq.game_year,
+    sq.p_throws,
+    sq.stand,
+    sq.balls,
+    sq.strikes,
+    sq.prev_release_pos_x,
+    sq.prev_release_pos_z,
+    sq.prev_release_speed,
+    sq.prev_pfx_z,
+    sq.prev_pitch_type
+FROM sequenced sq
+LEFT JOIN `{project}.{dataset}.dim_players_latest` p ON sq.pitcher = p.mlbid
 LEFT JOIN `{project}.{dataset}.dim_teams` t ON p.current_team_id = t.team_id
-WHERE game_year = {season}
-    AND pitch_type IS NOT NULL
-    AND release_speed IS NOT NULL
-    AND delta_pitcher_run_exp IS NOT NULL
+WHERE sq.pitch_type IS NOT NULL
+    AND sq.release_speed IS NOT NULL
+    AND sq.delta_pitcher_run_exp IS NOT NULL
     AND p.primary_position IN ('Pitcher', 'Two-Way Player')
 """
+
 
 
 class StuffPlusTrainer:
@@ -140,9 +199,12 @@ class StuffPlusTrainer:
         """
         logger.info(f"--- Training {model_name} ({len(features)} features) ---")
 
+        # カテゴリカルカラムをモデルごとに決定
+        cat_cols = CATEGORICAL_COLUMNS.get(model_name, ["pitch_type"])
+
         # 欠損除去 + One-Hot Encoding
-        df_clean = df.dropna(subset=features + ["pitch_type", "delta_pitcher_run_exp"]).copy()
-        df_encoded = pd.get_dummies(df_clean[features + ["pitch_type"]], columns=["pitch_type"])
+        df_clean = df.dropna(subset=features + ["delta_pitcher_run_exp"]).copy()
+        df_encoded = pd.get_dummies(df_clean[features + cat_cols], columns=cat_cols)
 
         X = df_encoded
         y = df_clean["delta_pitcher_run_exp"].values
@@ -188,7 +250,7 @@ class StuffPlusTrainer:
         Returns:
             (ranking_df, updated_metrics)
         """
-        score_col = "stuff_plus" if model_name == "stuff_plus" else "pitching_plus"
+        score_col = model_name
 
         # 全データに対する予測
         df_clean["predicted_run_exp"] = model.predict(df_encoded)
@@ -396,11 +458,38 @@ class StuffPlusTrainer:
         n_valid = df["plate_z_norm"].notna().sum()
         logger.info(f"plate_z_norm computed: {n_valid:,}/{len(df):,} valid rows")
 
+        # Pitching++ 用特徴量エンジニアリング
+        # P5: zone_distance — ゾーン中心 (0, 0.5) からの距離
+        df["zone_distance"] = np.sqrt(
+            df["plate_x"] ** 2 + (df["plate_z_norm"] - 0.5) ** 2
+        )
+
+        # P1: release_diff — 前球とのリリースポイント差（トンネル距離）
+        df["release_diff"] = np.sqrt(
+            (df["release_pos_x"] - df["prev_release_pos_x"]) ** 2
+            + (df["release_pos_z"] - df["prev_release_pos_z"]) ** 2
+        )
+
+        # P1: speed_diff — 前球との球速差
+        df["speed_diff"] = df["release_speed"] - df["prev_release_speed"]
+
+        # 打席の最初の球（prev = NULL）をデフォルト値で埋める
+        df["release_diff"] = df["release_diff"].fillna(0)       # トンネル無し
+        df["speed_diff"] = df["speed_diff"].fillna(0)            # 球速変化なし
+        df["prev_pfx_z"] = df["prev_pfx_z"].fillna(df["pfx_z"]) # 自球の変化量
+        df["prev_pitch_type"] = df["prev_pitch_type"].fillna("NONE")  # 前球なし
+
+        logger.info(
+            f"Pitching++ features: zone_distance valid={df['zone_distance'].notna().sum():,}, "
+            f"release_diff valid={df['release_diff'].notna().sum():,}"
+        )
+
         results = {}
 
         for model_name, features in [
             ("stuff_plus", STUFF_FEATURES),
             ("pitching_plus", PITCHING_FEATURES),
+            ("pitching_plus_plus", PITCHING_PP_FEATURES),
         ]:
             logger.info("")
             logger.info(f"{'=' * 30} {model_name} {'=' * 30}")
@@ -427,7 +516,7 @@ class StuffPlusTrainer:
             results[model_name] = version
 
             # TOP 5 表示
-            score_col = "stuff_plus" if model_name == "stuff_plus" else "pitching_plus"
+            score_col = model_name
             top5 = ranking.nlargest(5, score_col)
             logger.info(f"\n{model_name} TOP 5:")
             for _, row in top5.iterrows():
@@ -444,8 +533,8 @@ class StuffPlusTrainer:
         logger.info("NEXT STEPS:")
         logger.info("  1. promote version:")
         logger.info("     svc = ModelRegistryService()")
-        logger.info(f"     svc.promote_version('stuff_plus', '{results['stuff_plus'].version}')")
-        logger.info(f"     svc.promote_version('pitching_plus', '{results['pitching_plus'].version}')")
+        for name, ver in results.items():
+            logger.info(f"     svc.promote_version('{name}', '{ver.version}')")
         logger.info("  2. API エンドポイントからランキング取得可能")
         logger.info("=" * 70)
 

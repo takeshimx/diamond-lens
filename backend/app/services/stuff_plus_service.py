@@ -30,6 +30,9 @@ STATCAST_COLUMNS = [
     "api_break_z_with_gravity", "api_break_x_arm",
     "arm_angle",
     "delta_pitcher_run_exp",
+    # Pitching++ 用（Stuff+/Pitching+ では取得のみで使用しない）
+    "game_pk", "at_bat_number", "pitch_number",
+    "balls", "strikes",
 ]
 
 
@@ -98,7 +101,7 @@ class StuffPlusService:
         Returns:
             {"rankings": [...], "total": int, "model_type": str, "season": int}
         """
-        score_col = "stuff_plus" if model_type == "stuff_plus" else "pitching_plus"
+        score_col = model_type
         order = "DESC" if sort_order == "desc" else "ASC"
 
         # min_pitches フィルタ
@@ -230,7 +233,7 @@ class StuffPlusService:
 
         player_name = self._format_name(df["player_name"].iloc[0])
 
-        # plate_z を打者ストライクゾーンで正規化（Pitching+ 用）
+        # plate_z を打者ストライクゾーンで正規化
         sz_range = df["sz_top"] - df["sz_bot"]
         df["plate_z_norm"] = np.where(
             sz_range > 0,
@@ -238,10 +241,41 @@ class StuffPlusService:
             np.nan,
         )
 
+        # Pitching++ 用: トンネル・カウント・ゾーン特徴量
+        if model_type == "pitching_plus_plus":
+            df = df.sort_values(["game_pk", "at_bat_number", "pitch_number"])
+            grp = df.groupby(["game_pk", "at_bat_number"])
+            df["prev_release_pos_x"] = grp["release_pos_x"].shift(1)
+            df["prev_release_pos_z"] = grp["release_pos_z"].shift(1)
+            df["prev_release_speed"] = grp["release_speed"].shift(1)
+            df["prev_pfx_z"] = grp["pfx_z"].shift(1)
+            df["prev_pitch_type"] = grp["pitch_type"].shift(1)
+
+            df["release_diff"] = np.sqrt(
+                (df["release_pos_x"] - df["prev_release_pos_x"]) ** 2
+                + (df["release_pos_z"] - df["prev_release_pos_z"]) ** 2
+            )
+            df["speed_diff"] = df["release_speed"] - df["prev_release_speed"]
+            df["zone_distance"] = np.sqrt(
+                df["plate_x"] ** 2 + (df["plate_z_norm"] - 0.5) ** 2
+            )
+
+            df["release_diff"] = df["release_diff"].fillna(0)
+            df["speed_diff"] = df["speed_diff"].fillna(0)
+            df["prev_pfx_z"] = df["prev_pfx_z"].fillna(df["pfx_z"])
+            df["prev_pitch_type"] = df["prev_pitch_type"].fillna("NONE")
+
+        # カテゴリカルカラム決定
+        cat_cols = (
+            ["pitch_type", "prev_pitch_type"]
+            if model_type == "pitching_plus_plus"
+            else ["pitch_type"]
+        )
+
         # 特徴量作成
-        df_clean = df.dropna(subset=features + ["pitch_type", "delta_pitcher_run_exp"]).copy()
+        df_clean = df.dropna(subset=features + ["delta_pitcher_run_exp"]).copy()
         df_encoded = pd.get_dummies(
-            df_clean[features + ["pitch_type"]], columns=["pitch_type"]
+            df_clean[features + cat_cols], columns=cat_cols
         )
 
         # encoded_columns に合わせる（存在しないカラムは 0 埋め）
@@ -254,7 +288,7 @@ class StuffPlusService:
         df_clean["predicted_run_exp"] = xgb_model.predict(df_encoded)
 
         # 球種ごとに集約
-        score_col = "stuff_plus" if model_type == "stuff_plus" else "pitching_plus"
+        score_col = model_type
         agg = (
             df_clean
             .groupby("pitch_name")
@@ -301,19 +335,21 @@ class StuffPlusService:
         season: int = 2025,
     ) -> Dict:
         """
-        Stuff+ vs Pitching+ を比較。gap が大きい = 球質と制球に乖離あり
+        Stuff+ vs Pitching+ vs Pitching++ を比較。gap が大きい = 球質と制球に乖離あり
 
         Returns:
             {"pitcher_id", "player_name", "comparison": [...], "profile": str}
         """
         stuff = await self.predict_single_pitcher(pitcher_id, "stuff_plus", season)
         pitching = await self.predict_single_pitcher(pitcher_id, "pitching_plus", season)
+        pitching_pp = await self.predict_single_pitcher(pitcher_id, "pitching_plus_plus", season)
 
         # pitch_name でマージ
         stuff_map = {p["pitch_name"]: p for p in stuff["pitches"]}
         pitching_map = {p["pitch_name"]: p for p in pitching["pitches"]}
+        pp_map = {p["pitch_name"]: p for p in pitching_pp["pitches"]}
 
-        all_pitches = set(stuff_map.keys()) | set(pitching_map.keys())
+        all_pitches = set(stuff_map.keys()) | set(pitching_map.keys()) | set(pp_map.keys())
 
         comparison = []
         total_gap = 0.0
@@ -322,18 +358,21 @@ class StuffPlusService:
         for pitch_name in sorted(all_pitches):
             s = stuff_map.get(pitch_name)
             p = pitching_map.get(pitch_name)
+            pp = pp_map.get(pitch_name)
 
             stuff_score = s["score"] if s else None
             pitching_score = p["score"] if p else None
+            pp_score = pp["score"] if pp else None
             gap = (stuff_score - pitching_score) if (stuff_score and pitching_score) else None
 
             comparison.append({
                 "pitch_name": pitch_name,
                 "stuff_plus": stuff_score,
                 "pitching_plus": pitching_score,
+                "pitching_plus_plus": pp_score,
                 "gap": round(gap, 1) if gap is not None else None,
-                "pitch_count": (s or p)["pitch_count"],
-                "avg_velo": (s or p)["avg_velo"],
+                "pitch_count": (s or p or pp)["pitch_count"],
+                "avg_velo": (s or p or pp)["avg_velo"],
             })
 
             if gap is not None:

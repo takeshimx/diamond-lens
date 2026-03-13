@@ -235,7 +235,7 @@ predictions = await self._predict_with_vertex_ai(endpoint_id, instances)
 | **AI Agent** | LangGraph, Gemini 2.5 Flash | Multi-step reasoning & Tool use |
 | **MLOps** | Prompt Registry, Golden Dataset, BigQuery Logging | Prompt versioning, LLM evaluation gate, I/O observability |
 | **ML Monitoring** | Data Drift Service, Model Registry, GCS, BigQuery | Data drift detection (PSI/KS), model versioning & auto-baseline CI/CD gate |
-| **Stuff+/Pitching+** | XGBoost, Model Registry, BigQuery | Pitch quality evaluation, pre-computed rankings, real-time inference |
+| **Stuff+/Pitching+/Pitching++** | XGBoost, Model Registry, BigQuery | Pitch quality evaluation, sequence context modeling, pre-computed rankings, real-time inference |
 | **HITL Feedback** | Feedback UI, BigQuery, pending_review.json | User feedback collection, golden dataset expansion pipeline |
 | **Rate Limiting** | Custom ASGI Middleware, slowapi, In-Memory Counters | Multi-tier rate limiting (Global/Session/Endpoint) + LLM token budget |
 | **Orchestration** | Cloud Workflows, Cloud Scheduler | Pipeline automation |
@@ -551,7 +551,7 @@ graph TD
 | `endpoints/model_registry_endpoints.py` | Model registry API endpoints |
 | `scripts/check_data_drift.py` | CI/CD drift check gate script |
 
-### 8d. Stuff+ / Pitching+ Pitch Quality Evaluation
+### 8d. Stuff+ / Pitching+ / Pitching++ Pitch Quality Evaluation
 
 | Property | Value |
 |----------|-------|
@@ -559,6 +559,7 @@ graph TD
 | **Target Variable** | `delta_pitcher_run_exp` (pitch-level run expectancy change) |
 | **Stuff+ Features (11)** | `release_speed`, `release_spin_rate`, `spin_axis`, `pfx_x`, `pfx_z`, `release_extension`, `release_pos_x`, `release_pos_z`, `api_break_z_with_gravity`, `api_break_x_arm`, `arm_angle` |
 | **Pitching+ Features (13)** | Stuff+ features + `plate_x`, `plate_z` |
+| **Pitching++ Features** | Pitching+ features + command (`zone_distance`) + count (`balls`, `strikes`) + tunneling (`release_diff`, `speed_diff`, `prev_pfx_z`) |
 | **Scoring** | z-score normalization (100 = league average, 15 points = 1σ) |
 | **Aggregation** | Pitcher × pitch type level with minimum pitch count filter (default: 100) |
 | **Pre-computed Rankings** | BigQuery `stuff_plus_rankings` table for fast retrieval |
@@ -568,7 +569,7 @@ graph TD
 | **Validation** | Pitch-level RMSE/R², aggregated Pearson/Spearman correlation |
 
 **API Endpoints:**
-- `GET /api/v1/stuff-plus/rankings` — Stuff+ or Pitching+ leaderboard (paginated, sortable)
+- `GET /api/v1/stuff-plus/rankings` — Stuff+, Pitching+, or Pitching++ leaderboard (paginated, sortable)
 - `GET /api/v1/stuff-plus/pitcher/{pitcher_id}` — Real-time per-pitcher pitch-level scores
 - `GET /api/v1/stuff-plus/pitcher/{pitcher_id}/compare` — Stuff+ vs Pitching+ gap analysis
 
@@ -583,7 +584,7 @@ graph TD
 
 **Training Pipeline:**
 ```bash
-# Train both Stuff+ and Pitching+ models for a given season
+# Train Stuff+, Pitching+, and Pitching++ models for a given season
 python scripts/train_stuff_plus.py --season 2025 --min-pitches 100
 ```
 

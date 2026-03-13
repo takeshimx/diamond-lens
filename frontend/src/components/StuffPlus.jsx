@@ -282,6 +282,7 @@ const StuffPlus = () => {
         <p className="text-white font-medium">{d.pitch_name}</p>
         {d.stuff_plus != null && <p className="text-blue-400 text-sm">Stuff+: {d.stuff_plus}</p>}
         {d.pitching_plus != null && <p className="text-purple-400 text-sm">Pitching+: {d.pitching_plus}</p>}
+        {d.pitching_plus_plus != null && <p className="text-green-400 text-sm">Pitching++: {d.pitching_plus_plus}</p>}
         {d.gap != null && <p className="text-gray-300 text-sm">Gap: {d.gap > 0 ? '+' : ''}{d.gap}</p>}
         <p className="text-gray-300 text-sm">投球数: {d.pitch_count}</p>
       </div>
@@ -313,23 +314,33 @@ const StuffPlus = () => {
         <div className="flex rounded-lg overflow-hidden border border-gray-600">
           <button
             onClick={() => { setRankingsModelType('stuff_plus'); setRankingsOffset(0); }}
-            className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+            className={`px-3 py-1.5 text-sm font-medium transition-all ${
               rankingsModelType === 'stuff_plus'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                ? 'bg-blue-600 text-white shadow-[0_0_12px_rgba(59,130,246,0.5)]'
+                : 'bg-gray-700 text-gray-500 hover:bg-gray-600 hover:text-gray-300'
             }`}
           >
             Stuff+
           </button>
           <button
             onClick={() => { setRankingsModelType('pitching_plus'); setRankingsOffset(0); }}
-            className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+            className={`px-3 py-1.5 text-sm font-medium transition-all ${
               rankingsModelType === 'pitching_plus'
-                ? 'bg-purple-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                ? 'bg-purple-600 text-white shadow-[0_0_12px_rgba(168,85,247,0.5)]'
+                : 'bg-gray-700 text-gray-500 hover:bg-gray-600 hover:text-gray-300'
             }`}
           >
             Pitching+
+          </button>
+          <button
+            onClick={() => { setRankingsModelType('pitching_plus_plus'); setRankingsOffset(0); }}
+            className={`px-3 py-1.5 text-sm font-medium transition-all ${
+              rankingsModelType === 'pitching_plus_plus'
+                ? 'bg-green-600 text-white shadow-[0_0_12px_rgba(34,197,94,0.5)]'
+                : 'bg-gray-700 text-gray-500 hover:bg-gray-600 hover:text-gray-300'
+            }`}
+          >
+            Pitching++
           </button>
         </div>
 
@@ -504,6 +515,16 @@ const StuffPlus = () => {
           >
             Pitching+
           </button>
+          <button
+            onClick={() => setDetailModelType('pitching_plus_plus')}
+            className={`px-3 py-1.5 text-sm font-medium transition-all ${
+              detailModelType === 'pitching_plus_plus'
+                ? 'bg-green-600 text-white shadow-[0_0_12px_rgba(34,197,94,0.5)]'
+                : 'bg-gray-700 text-gray-500 hover:bg-gray-600 hover:text-gray-300'
+            }`}
+          >
+            Pitching++
+          </button>
         </div>
 
         <select
@@ -532,7 +553,7 @@ const StuffPlus = () => {
           <div className="flex items-center gap-3">
             <h3 className="text-lg font-bold text-white">{detailResult.player_name}</h3>
             <span className="text-sm text-gray-400">
-              {detailResult.model_type === 'stuff_plus' ? 'Stuff+' : 'Pitching+'} / {detailResult.season}
+              {detailResult.model_type === 'stuff_plus' ? 'Stuff+' : detailResult.model_type === 'pitching_plus' ? 'Pitching+' : 'Pitching++'} / {detailResult.season}
             </span>
           </div>
 
@@ -698,6 +719,7 @@ const StuffPlus = () => {
                 <ReferenceLine y={100} stroke="#6b7280" strokeDasharray="4 4" />
                 <Bar dataKey="stuff_plus" name="Stuff+" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="pitching_plus" name="Pitching+" fill="#a855f7" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="pitching_plus_plus" name="Pitching++" fill="#22c55e" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -710,6 +732,7 @@ const StuffPlus = () => {
                   <th className="text-left text-gray-400 py-2 px-3">Pitch</th>
                   <th className="text-right text-blue-400 py-2 px-3">Stuff+</th>
                   <th className="text-right text-purple-400 py-2 px-3">Pitching+</th>
+                  <th className="text-right text-green-400 py-2 px-3">Pitching++</th>
                   <th className="text-right text-gray-400 py-2 px-3">Gap</th>
                   <th className="text-right text-gray-400 py-2 px-3">Count</th>
                   <th className="text-right text-gray-400 py-2 px-3">Velo <span className="text-gray-500 font-normal">(mph)</span></th>
@@ -728,6 +751,12 @@ const StuffPlus = () => {
                     <td className="py-2 px-3 text-right">
                       {c.pitching_plus != null
                         ? <span className={`font-bold ${getScoreColor(c.pitching_plus)}`}>{c.pitching_plus}</span>
+                        : <span className="text-gray-500">-</span>
+                      }
+                    </td>
+                    <td className="py-2 px-3 text-right">
+                      {c.pitching_plus_plus != null
+                        ? <span className={`font-bold ${getScoreColor(c.pitching_plus_plus)}`}>{c.pitching_plus_plus}</span>
                         : <span className="text-gray-500">-</span>
                       }
                     </td>
@@ -762,20 +791,24 @@ const StuffPlus = () => {
           <Target className="w-6 h-6 text-blue-400" />
         </div>
         <div>
-          <h2 className="text-xl font-bold text-white">Stuff+ / Pitching+</h2>
+          <h2 className="text-xl font-bold text-white">Stuff+ / Pitching+ / Pitching++</h2>
           <p className="text-sm text-gray-400">XGBoostベースの球質・投球評価モデル</p>
         </div>
       </div>
 
       {/* モデル定義 */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg px-4 py-3">
           <span className="text-blue-400 font-semibold text-sm">Stuff+</span>
-          <p className="text-xs text-gray-400 mt-1">球速・回転・変化量・リリースなど物理的な球質のみで評価。100 = MLB平均、15pt = 1標準偏差。</p>
+          <p className="text-xs text-gray-400 mt-1">球速・回転・変化量・リリースなど物理的な球質のみで評価。100 = MLB平均、15pt = 1SD。</p>
         </div>
         <div className="bg-purple-500/5 border border-purple-500/20 rounded-lg px-4 py-3">
           <span className="text-purple-400 font-semibold text-sm">Pitching+</span>
-          <p className="text-xs text-gray-400 mt-1">Stuff+ の全特徴量に加え、投球位置（制球）を考慮。ストライクゾーンは打者体格で正規化。</p>
+          <p className="text-xs text-gray-400 mt-1">Stuff+ に投球位置（制球）を追加。ストライクゾーンは打者体格で正規化。</p>
+        </div>
+        <div className="bg-green-500/5 border border-green-500/20 rounded-lg px-4 py-3">
+          <span className="text-green-400 font-semibold text-sm">Pitching++</span>
+          <p className="text-xs text-gray-400 mt-1">Pitching+ にトンネル距離・球速差・カウント・ゾーン距離を追加。シーケンス効果を反映。</p>
         </div>
       </div>
 
@@ -784,7 +817,7 @@ const StuffPlus = () => {
         {[
           { key: 'rankings', label: 'ランキング' },
           { key: 'detail', label: '投手詳細' },
-          { key: 'compare', label: 'Stuff+ vs Pitching+' },
+          { key: 'compare', label: 'モデル比較' },
         ].map(tab => (
           <button
             key={tab.key}

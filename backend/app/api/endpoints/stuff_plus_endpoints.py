@@ -14,8 +14,8 @@ service = StuffPlusService()
 async def get_rankings(
     model_type: str = Query(
         "stuff_plus",
-        description="stuff_plus（球質のみ）or pitching_plus（球質+制球）",
-        pattern="^(stuff_plus|pitching_plus)$",
+        description="stuff_plus（球質のみ）/ pitching_plus（球質+制球）/ pitching_plus_plus（球質+制球+シーケンス）",
+        pattern="^(stuff_plus|pitching_plus|pitching_plus_plus)$",
     ),
     season: int = Query(2025, ge=2020, le=2026),
     limit: int = Query(50, ge=1, le=500),
@@ -24,10 +24,11 @@ async def get_rankings(
     min_pitches: int = Query(0, ge=0, le=5000, description="球種別最低投球数フィルタ"),
 ):
     """
-    Stuff+ or Pitching+ ランキングを取得
+    Stuff+ / Pitching+ / Pitching++ ランキングを取得
 
     - **stuff_plus**: 球質のみ（速度、回転、変化量、リリース、arm angle）
-    - **pitching_plus**: 球質 + 投球位置（plate_x/plate_z）
+    - **pitching_plus**: 球質 + 投球位置（plate_x/plate_z_norm）
+    - **pitching_plus_plus**: 球質 + 制球 + トンネル + カウント + ゾーン距離
     """
     try:
         return await service.get_rankings(
@@ -66,12 +67,12 @@ async def get_pitcher_detail(
     pitcher_id: int = Path(..., description="MLB pitcher ID"),
     model_type: str = Query(
         "stuff_plus",
-        pattern="^(stuff_plus|pitching_plus)$",
+        pattern="^(stuff_plus|pitching_plus|pitching_plus_plus)$",
     ),
     season: int = Query(2025, ge=2020, le=2026),
 ):
     """
-    特定投手の球種別 Stuff+ / Pitching+ スコアをリアルタイム推論
+    特定投手の球種別 Stuff+ / Pitching+ / Pitching++ スコアをリアルタイム推論
     """
     try:
         return await service.predict_single_pitcher(

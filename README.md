@@ -213,12 +213,13 @@ CI/CD Drift Check → Compare active model's training data vs latest season
 
 **Technologies**: scikit-learn, PyTorch, scipy, joblib, Google Cloud Storage, BigQuery
 
-### 9. Stuff+ / Pitching+ Pitch Quality Evaluation (Backend)
+### 9. Stuff+ / Pitching+ / Pitching++ Pitch Quality Evaluation (Backend)
 **Status**: ✅ Backend API ready (frontend pending)
 
 **Capabilities**:
 - **⚾ Stuff+ Model**: Evaluates pure pitch quality (velocity, spin rate, movement, release point, arm angle) independent of location, using XGBoost regression on `delta_pitcher_run_exp`
 - **🎯 Pitching+ Model**: Evaluates total pitching effectiveness by adding pitch location (`plate_x`, `plate_z`) to the Stuff+ feature set
+- **🚀 Pitching++ Model**: Advanced pitching evaluation combining Pitching+ with sequence context (tunneling, speed difference), precise command (`zone_distance`), and count (`balls`, `strikes`)
 - **📊 Pre-computed Rankings**: Pitcher × pitch type rankings stored in BigQuery for fast retrieval with pagination and sorting
 - **🔮 Real-time Inference**: On-demand per-pitcher prediction using active model from Model Registry
 - **⚖️ Stuff+ vs Pitching+ Gap Analysis**: Compares both scores to classify pitchers as "stuff-dominant", "command-dominant", or "balanced"
@@ -228,25 +229,26 @@ CI/CD Drift Check → Compare active model's training data vs latest season
 - **Target Variable**: `delta_pitcher_run_exp` (pitch-level run expectancy change)
 - **Stuff+ Features** (11): `release_speed`, `release_spin_rate`, `spin_axis`, `pfx_x`, `pfx_z`, `release_extension`, `release_pos_x`, `release_pos_z`, `api_break_z_with_gravity`, `api_break_x_arm`, `arm_angle`
 - **Pitching+ Features** (13): Stuff+ features + `plate_x`, `plate_z`
+- **Pitching++ Features**: Pitching+ features + command (`zone_distance`) + count (`balls`, `strikes`) + tunneling (`release_diff`, `speed_diff`, `prev_pfx_z`)
 - **Scoring**: z-score normalization (100 = league average, 15 points = 1σ)
 - **Aggregation**: Pitcher × pitch type level with minimum pitch count filter (default: 100)
 
 **Training Pipeline** (`scripts/train_stuff_plus.py`):
 1. Fetch pitch-level data from BigQuery `statcast_master`
-2. Train XGBoost for both Stuff+ and Pitching+ models
+2. Train XGBoost for Stuff+, Pitching+, and Pitching++ models
 3. Compute pitcher × pitch type rankings with z-score normalization
 4. Save model artifacts to GCS via Model Registry
 5. Write pre-computed rankings to BigQuery `stuff_plus_rankings` table
 
 **API Endpoints**:
-- `GET /api/v1/stuff-plus/rankings` - Get Stuff+ or Pitching+ leaderboard (paginated, sortable)
+- `GET /api/v1/stuff-plus/rankings` - Get Stuff+, Pitching+, or Pitching++ leaderboard (paginated, sortable)
 - `GET /api/v1/stuff-plus/pitcher/{pitcher_id}` - Real-time per-pitcher pitch-level scores
 - `GET /api/v1/stuff-plus/pitcher/{pitcher_id}/compare` - Stuff+ vs Pitching+ gap analysis
 
 **Technologies**: XGBoost, scikit-learn, pandas, BigQuery, GCS, Model Registry
 
 **Analysis Notebooks**:
-- `analysis/stuff_plus.ipynb` - Stuff+ / Pitching+ model development and validation
+- `analysis/stuff_plus.ipynb` - Stuff+ / Pitching+ / Pitching++ model development and validation
 
 ### Technical Features
 - **AI-Powered Processing**: Uses Gemini 2.5 Flash for query parsing and response generation
