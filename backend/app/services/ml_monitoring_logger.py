@@ -40,8 +40,10 @@ class MLMonitoringLogger:
         """
         DriftReport を非同期で BigQuery に書き込む。
 
-        各 FeatureDriftResult を個別の行として記録する。
-        メインスレッドをブロックしない。
+        drift_type に応じて記録形式を変える:
+        - "feature": 各特徴量を個別行として記録
+        - "prediction": prediction_drift を1行として記録
+        - "concept": concept_drift を1行として記録
 
         Args:
             report: DriftReport インスタンス
@@ -49,28 +51,83 @@ class MLMonitoringLogger:
         if not self.client:
             logger.warning("MLMonitoringLogger not initialized, skipping log")
             return
-        
+
+        drift_type = getattr(report, "drift_type", "feature")
         rows = []
-        for feature in report.features:
+
+        if drift_type == "feature" and report.features:
+            for feature in report.features:
+                rows.append({
+                    "log_id": str(uuid.uuid4()),
+                    "timestamp": report.timestamp,
+                    "report_id": report.report_id,
+                    "model_type": report.model_type,
+                    "drift_type": drift_type,
+                    "baseline_season": report.baseline_season,
+                    "target_season": report.target_season,
+                    "feature_name": feature.feature_name,
+                    "ks_statistic": feature.ks_statistic,
+                    "ks_p_value": feature.ks_p_value,
+                    "psi_value": feature.psi_value,
+                    "mean_baseline": feature.mean_baseline,
+                    "mean_target": feature.mean_target,
+                    "mean_shift_pct": feature.mean_shift_pct,
+                    "drift_detected": feature.drift_detected,
+                    "severity": feature.severity,
+                    "overall_drift_detected": report.overall_drift_detected,
+                })
+
+        elif drift_type == "prediction" and report.prediction_drift:
+            pd_result = report.prediction_drift
             rows.append({
                 "log_id": str(uuid.uuid4()),
                 "timestamp": report.timestamp,
                 "report_id": report.report_id,
                 "model_type": report.model_type,
+                "drift_type": drift_type,
                 "baseline_season": report.baseline_season,
                 "target_season": report.target_season,
-                "feature_name": feature.feature_name,
-                "ks_statistic": feature.ks_statistic,
-                "ks_p_value": feature.ks_p_value,
-                "psi_value": feature.psi_value,
-                "mean_baseline": feature.mean_baseline,
-                "mean_target": feature.mean_target,
-                "mean_shift_pct": feature.mean_shift_pct,
-                "drift_detected": feature.drift_detected,
-                "severity": feature.severity,
+                "feature_name": "predicted_run_exp",
+                "ks_statistic": pd_result.ks_statistic,
+                "ks_p_value": pd_result.ks_p_value,
+                "psi_value": pd_result.psi_value,
+                "mean_baseline": pd_result.mean_baseline,
+                "mean_target": pd_result.mean_target,
+                "mean_shift_pct": pd_result.mean_shift_pct,
+                "drift_detected": pd_result.drift_detected,
+                "severity": pd_result.severity,
                 "overall_drift_detected": report.overall_drift_detected,
             })
-        
+
+        elif drift_type == "concept" and report.concept_drift:
+            cd_result = report.concept_drift
+            rows.append({
+                "log_id": str(uuid.uuid4()),
+                "timestamp": report.timestamp,
+                "report_id": report.report_id,
+                "model_type": report.model_type,
+                "drift_type": drift_type,
+                "baseline_season": report.baseline_season,
+                "target_season": report.target_season,
+                "feature_name": "concept_pred_vs_actual",
+                "ks_statistic": 0.0,
+                "ks_p_value": 0.0,
+                "psi_value": 0.0,
+                "mean_baseline": cd_result.rmse_baseline,
+                "mean_target": cd_result.rmse_target,
+                "mean_shift_pct": cd_result.rmse_change_pct,
+                "drift_detected": cd_result.drift_detected,
+                "severity": cd_result.severity,
+                "overall_drift_detected": report.overall_drift_detected,
+            })
+
+        if not rows:
+            logger.warning(
+                f"No rows to log for drift report "
+                f"{report.report_id} (drift_type={drift_type})"
+            )
+            return
+
         thread = threading.Thread(
             target=self._write_rows_to_bigquery,
             args=(rows,),

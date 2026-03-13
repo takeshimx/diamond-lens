@@ -57,7 +57,7 @@ class DriftReportResponse(BaseModel):
 class DriftDetectRequest(BaseModel):
     baseline_season: int
     target_season: int
-    model_type: str  # "batter_segmentation" | "pitcher_segmentation"
+    model_type: str
 
 
 # ============================================================
@@ -100,6 +100,94 @@ async def detect_drift(
     monitoring_logger.log_drift_report(report)
 
     return report
+
+
+@router.post("/detect-prediction-drift")
+async def detect_prediction_drift(
+    model_type: str = Query(
+        ...,
+        description="stuff_plus / pitching_plus / pitching_plus_plus",
+        pattern="^(stuff_plus|pitching_plus|pitching_plus_plus)$",
+    ),
+    target_season: int = Query(..., ge=2020, le=2026),
+    baseline_season: Optional[int] = Query(None, ge=2020, le=2026),
+):
+    """
+    Prediction Drift: モデル予測値の分布変化を検知。
+    同じモデルで baseline / target の Statcast データを推論し、
+    予測分布の KS / PSI を比較する。Stuff+ 系モデル専用。
+    """
+    if baseline_season is None:
+        if registry is None:
+            raise HTTPException(
+                status_code=400,
+                detail="baseline_season is required (Model Registry unavailable)."
+            )
+        active = registry.get_active_version(model_type)
+        if not active:
+            raise HTTPException(
+                status_code=400,
+                detail=f"baseline_season is required because no active model was found for {model_type}."
+            )
+        baseline_season = active.training_season
+
+    try:
+        report = service.detect_prediction_drift(
+            baseline_season=baseline_season,
+            target_season=target_season,
+            model_type=model_type,
+        )
+        monitoring_logger.log_drift_report(report)
+        return report
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error(f"Prediction drift detection failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/detect-concept-drift")
+async def detect_concept_drift(
+    model_type: str = Query(
+        ...,
+        description="stuff_plus / pitching_plus / pitching_plus_plus",
+        pattern="^(stuff_plus|pitching_plus|pitching_plus_plus)$",
+    ),
+    target_season: int = Query(..., ge=2020, le=2026),
+    baseline_season: Optional[int] = Query(None, ge=2020, le=2026),
+):
+    """
+    Concept Drift: 予測精度の劣化を検知。
+    同じモデルの RMSE / 相関係数が baseline→target で悪化していれば
+    特徴量と目的変数の関係が変わった（= 再学習が必要）ことを示す。
+    """
+    if baseline_season is None:
+        if registry is None:
+            raise HTTPException(
+                status_code=400,
+                detail="baseline_season is required (Model Registry unavailable)."
+            )
+        active = registry.get_active_version(model_type)
+        if not active:
+            raise HTTPException(
+                status_code=400,
+                detail=f"baseline_season is required because no active model was found for {model_type}."
+            )
+        baseline_season = active.training_season
+
+    try:
+        report = service.detect_concept_drift(
+            baseline_season=baseline_season,
+            target_season=target_season,
+            model_type=model_type,
+        )
+        monitoring_logger.log_drift_report(report)
+        return report
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error(f"Concept drift detection failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/drift-history")
