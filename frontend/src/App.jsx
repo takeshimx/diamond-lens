@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import AgentReasoningTracker from './components/AgentReasoningTracker.jsx';
-import { Send, TrendingUp, User, Bot, Activity, MessageCircle, Zap, Settings, Users, AlertTriangle, Brain, Target, Trash2, LogOut, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { Send, TrendingUp, User, Bot, Activity, MessageCircle, Zap, Settings, Users, AlertTriangle, Brain, Target, Trash2, LogOut, ThumbsUp, ThumbsDown, BarChart3 } from 'lucide-react';
 import SimpleChatChart from './components/ChatChart.jsx';
 import QuickQuestions from './components/QuickQuestions.jsx';
 import CustomQueryBuilder from './components/CustomQueryBuilder.jsx';
@@ -9,6 +9,7 @@ import PlayerSegmentation from './components/PlayerSegmentation.jsx';
 import PitcherFatigue from './components/PitcherFatigue.jsx';
 import PitcherWhiffPredictor from './components/PitcherWhiffPredictor.jsx';
 import StuffPlus from './components/StuffPlus.jsx';
+import AdvancedStats from './components/AdvancedStats.jsx';
 import VoiceInput from './components/VoiceInput.jsx';
 import MatchupAnalysisCard from './components/MatchupAnalysisCard.jsx';
 import { useAuth } from './hooks/useAuth';
@@ -2772,6 +2773,20 @@ const MLBChatApp = () => {
                   <Target className="w-4 h-4 flex-shrink-0" />
                   <span className="truncate">球質評価</span>
                 </button>
+                <button
+                  onClick={() => {
+                    setUiMode('advanced-stats');
+                    setQuickResult(null);
+                    setCustomResult(null);
+                  }}
+                  className={`px-4 py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center sm:justify-start gap-2 min-w-0 w-full sm:w-auto ${uiMode === 'advanced-stats'
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                    }`}
+                >
+                  <BarChart3 className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate">Advanced Stats</span>
+                </button>
 
                 {/* 疲労分析 - 一時無効化 */}
                 {/* <button
@@ -3060,6 +3075,11 @@ const MLBChatApp = () => {
               /* ===== Stuff+ / Pitching+ 球質評価エリア ===== */
               <div className="px-4 sm:px-6 py-6 sm:py-8 h-full">
                 <StuffPlus />
+              </div>
+            ) : uiMode === 'advanced-stats' ? (
+              /* ===== Advanced Stats Rankings エリア ===== */
+              <div className="px-4 sm:px-6 py-6 sm:py-8 h-full">
+                <AdvancedStats />
               </div>
             ) : uiMode === 'fatigue' ? (
               /* ===== 投手疲労分析エリア ===== */
