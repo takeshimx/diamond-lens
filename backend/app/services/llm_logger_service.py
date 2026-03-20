@@ -56,6 +56,10 @@ class LLMLogEntry:
         self.is_retry: bool = False
         self.retry_count: int = 0
         self.retry_reason: Optional[str] = None
+        self.reflection_pre_query: Optional[str] = None
+        self.reflection_post_query: Optional[str] = None
+        # Synthesizer fields
+        self.synthesizer_source_data: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
         """BigQuery INSERT 用の辞書に変換"""
@@ -75,7 +79,7 @@ class LLMLogEntry:
             "parsed_season": self.parsed_season,
             "routing_result": self.routing_result,
             # 回答テキストは長くなりすぎないよう先頭500文字に制限
-            "response_answer": self.response_answer[:500] if self.response_answer else None,
+            "response_answer": self.response_answer[:1000] if self.response_answer else None,
             "response_has_table": self.response_has_table,
             "response_has_chart": self.response_has_chart,
             "success": self.success,
@@ -92,6 +96,10 @@ class LLMLogEntry:
             "is_retry": self.is_retry,
             "retry_count": self.retry_count,
             "retry_reason": self.retry_reason,
+            "reflection_pre_query": self.reflection_pre_query,
+            "reflection_post_query": self.reflection_post_query,
+            # Synthesizer fields
+            "synthesizer_source_data": self.synthesizer_source_data,
         }
 
 

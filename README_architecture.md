@@ -237,6 +237,7 @@ predictions = await self._predict_with_vertex_ai(endpoint_id, instances)
 | **ML Monitoring** | Data Drift Service, Model Registry, GCS, BigQuery | Data drift detection (PSI/KS), model versioning & auto-baseline CI/CD gate |
 | **Stuff+/Pitching+/Pitching++** | XGBoost, Model Registry, BigQuery | Pitch quality evaluation, sequence context modeling, pre-computed rankings, real-time inference |
 | **HITL Feedback** | Feedback UI, BigQuery, pending_review.json | User feedback collection, golden dataset expansion pipeline |
+| **LLM as a Judge** | 5 Judge Services, Gemini 2.0 Flash, BigQuery Logging | Automated multi-dimensional quality evaluation (parse, synthesizer, reflection, routing, drift alerts) |
 | **Rate Limiting** | Custom ASGI Middleware, slowapi, In-Memory Counters | Multi-tier rate limiting (Global/Session/Endpoint) + LLM token budget |
 | **Orchestration** | Cloud Workflows, Cloud Scheduler | Pipeline automation |
 | **Monitoring** | Cloud Monitoring, Discord Webhooks | Custom metrics, alerts, dashboards, pipeline notifications |
@@ -587,6 +588,49 @@ graph TD
 # Train Stuff+, Pitching+, and Pitching++ models for a given season
 python scripts/train_stuff_plus.py --season 2025 --min-pitches 100
 ```
+
+### 8e. LLM as a Judge — Automated Quality Evaluation
+
+| Property | Value |
+|----------|-------|
+| **Architecture** | 5 independent Judge services + batch evaluation pipeline |
+| **LLM Model** | Gemini 2.0 Flash (via `GEMINI_API_KEY_V2`) |
+| **Evaluation Mode** | Batch (BQ log → sample → Judge) — zero impact on production latency |
+| **Logging** | Raw step I/O logged to `llm_interaction_logs` via `llm_logger_service.py` |
+| **E2E Script** | `evaluate_with_llm_judge.py` for parse accuracy regression testing |
+
+**5 Judge Services:**
+
+| # | Judge | Service File | Evaluation Dimensions | Output |
+|---|---|---|---|---|
+| 1 | Parse Accuracy | `llm_judge_service.py` | query_type, metrics extraction, player name resolution, intent understanding (1-5 each) | `JudgeVerdict` |
+| 2 | Synthesizer Quality | `synthesizer_judge_service.py` | Factual accuracy, analytical depth, language quality, structure, completeness (1-5 each) | `SynthesizerVerdict` |
+| 3 | Reflection Decision | `reflection_judge_service.py` | Trigger appropriateness, root cause identification, correction quality, over-correction risk (1-5 each) | `ReflectionVerdict` |
+| 4 | Routing Accuracy | `routing_judge_service.py` | Route accuracy, ambiguity handling, reasoning quality (1-5 each) | `RoutingVerdict` |
+| 5 | Drift Alert Quality | `drift_alert_judge_service.py` | Statistical validity, practical significance, actionability, domain relevance (1-5 each) | `DriftAlertVerdict` |
+
+**Operational Architecture:**
+
+```
+[Real-time] User query → Normal processing flow
+                → Log step I/O to BigQuery (0 additional Gemini calls)
+
+[Batch]     BQ logs → Sample extraction → 5 Judges evaluate → Results to BQ
+            (Frequency and sample size configurable)
+```
+
+**Key Files:**
+
+| File | Purpose |
+|------|---------|
+| `services/llm_judge_service.py` | Parse accuracy Judge with METRIC_MAP key validation |
+| `services/synthesizer_judge_service.py` | Synthesizer output quality Judge (agent/simple path-aware) |
+| `services/reflection_judge_service.py` | Reflection loop decision quality Judge |
+| `services/routing_judge_service.py` | Supervisor routing accuracy Judge (two-way player handling) |
+| `services/drift_alert_judge_service.py` | Data drift alert quality Judge (model-specific domain context) |
+| `services/llm_logger_service.py` | BQ logging with Judge-ready fields (`reflection_pre_query`, `reflection_post_query`, `synthesizer_source_data`) |
+| `scripts/evaluate_with_llm_judge.py` | E2E evaluation script for golden dataset |
+| `tests/golden_dataset.json` | Golden dataset with batting, pitching, edge cases (14 cases) |
 
 ### 8. Orchestration
 

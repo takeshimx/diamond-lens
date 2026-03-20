@@ -1,6 +1,6 @@
 {
-    "description": "LLM評価用ゴールデンデータセット - パース精度の検証",
-    "version": "1.0",
+    "description": "LLM評価用ゴールデンデータセット - パース精度の検証（打撃 + 投手）",
+    "version": "2.0",
     "created_at": "2026-02-22",
     "test_cases": [
         {
@@ -93,7 +93,7 @@
         {
             "id": "GD-007",
             "category": "batting_splits",
-            "query": "大谷翔平の左投手に対する打率は？2025年",
+            "query": "大谷翔平の左投手に対する2025年の打率は？",
             "season": null,
             "expected": {
                 "query_type": "batting_splits",
@@ -134,6 +134,82 @@
                 ],
                 "name": "Paul Skenes",
                 "season": 2025
+            }
+        },
+        {
+            "id": "GD-011",
+            "category": "season_pitching",
+            "query": "2025年の奪三振数トップ5を表で見せて",
+            "season": null,
+            "expected": {
+                "query_type": "season_pitching",
+                "metrics_contains": [
+                    "strikeouts"
+                ],
+                "season": 2025,
+                "order_by": "strikeouts",
+                "output_format": "table",
+                "limit": 5
+            }
+        },
+        {
+            "id": "GD-012",
+            "category": "season_pitching",
+            "query": "山本由伸の2025年の主要スタッツを教えて",
+            "season": null,
+            "expected": {
+                "query_type": "season_pitching",
+                "metrics_contains": [
+                    "main_stats"
+                ],
+                "name": "Yoshinobu Yamamoto",
+                "season": 2025
+            }
+        },
+        {
+            "id": "GD-013",
+            "category": "season_pitching",
+            "query": "今永昇太の2025年のWHIPとFIPは？",
+            "season": null,
+            "expected": {
+                "query_type": "season_pitching",
+                "metrics_contains": [
+                    "whip",
+                    "fip"
+                ],
+                "name": "Shota Imanaga",
+                "season": 2025
+            }
+        },
+        {
+            "id": "GD-014",
+            "category": "season_batting",
+            "query": "フリーマンの2025年のOPSはいくつ？",
+            "season": null,
+            "expected": {
+                "query_type": "season_batting",
+                "metrics_contains": [
+                    "on_base_plus_slugging"
+                ],
+                "name": "Freddie Freeman",
+                "season": 2025
+            }
+        },
+        {
+            "id": "GD-015",
+            "category": "batting_splits",
+            "query": "大谷翔平の2025年の7回以降のRISP時フルカウントでの打率は？",
+            "season": null,
+            "expected": {
+                "query_type": "batting_splits",
+                "metrics_contains": [
+                    "batting_average"
+                ],
+                "name": "Shohei Ohtani",
+                "season": 2025,
+                "split_type": "risp",
+                "strikes": 2,
+                "balls": 3
             }
         }
     ]

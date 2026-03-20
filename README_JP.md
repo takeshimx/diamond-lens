@@ -250,6 +250,33 @@ CI/CD ドリフトチェック → アクティブモデルの学習データ vs
 **分析ノートブック**:
 - `analysis/stuff_plus.ipynb` - Stuff+ / Pitching+ / Pitching++ モデル開発と検証
 
+### 10. LLM as a Judge（LLMによる自動品質評価）
+**ステータス**: ✅ サービス層＋ユニットテスト完了
+
+**概要**: AIシステムの各処理ステップの出力品質を、別のLLM（Gemini Flash）が自動的に多次元で採点する品質保証フレームワーク。本番リクエストの入出力をBigQueryにログし、バッチ処理でサンプル評価を実行する設計。
+
+**5つの Judge サービス**:
+
+| # | Judge | 評価対象 | 評価次元 | ファイル |
+|---|---|---|---|---|
+| 1 | **パース精度** | LLMクエリパース結果 | query_type正確性、metrics抽出、選手名解決、意図理解 | `llm_judge_service.py` |
+| 2 | **Synthesizer品質** | AI生成レスポンス | 事実正確性、分析深度、言語品質、構造、完全性 | `synthesizer_judge_service.py` |
+| 3 | **Reflection判断** | 自己修正ループ | トリガー適切性、根本原因特定、修正品質、過修正リスク | `reflection_judge_service.py` |
+| 4 | **ルーティング精度** | Supervisorルーティング | ルーティング正確性、曖昧性対応、判断根拠の質 | `routing_judge_service.py` |
+| 5 | **ドリフトアラート品質** | データドリフト検知結果 | 統計的妥当性、実用的重要性、対応可能性、ドメイン関連性 | `drift_alert_judge_service.py` |
+
+**運用アーキテクチャ**:
+```
+【リアルタイム】ユーザー質問 → 各ステップの入出力を BQ にログ（Gemini 追加呼び出し 0回）
+【バッチ評価】BQ からサンプル抽出 → 5つの Judge で一括採点 → 評価結果を BQ に保存
+```
+
+**E2Eスクリプト**:
+- `backend/scripts/evaluate_with_llm_judge.py` — ゴールデンデータセットに対するパース精度の回帰テスト
+
+**テスト**:
+- `test_llm_judge.py`, `test_synthesizer_judge.py`, `test_reflection_judge.py`, `test_routing_judge.py`, `test_drift_alert_judge.py`
+
 ### 技術機能
 - **AI搭載処理**: Gemini 2.5 Flashを使用したクエリ解析とレスポンス生成
 - **リアルタイムインターフェース**: ローディング状態とライブ更新付きのインタラクティブ体験
