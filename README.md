@@ -250,6 +250,33 @@ CI/CD Drift Check → Compare active model's training data vs latest season
 **Analysis Notebooks**:
 - `analysis/stuff_plus.ipynb` - Stuff+ / Pitching+ / Pitching++ model development and validation
 
+### 10. LLM as a Judge (Automated Quality Evaluation)
+**Status**: ✅ Service layer + unit tests complete
+
+**Overview**: A quality assurance framework where a separate LLM (Gemini Flash) automatically scores the output quality of each processing step across multiple dimensions. Designed to log production request I/O to BigQuery and run batch sample evaluations.
+
+**5 Judge Services**:
+
+| # | Judge | Evaluation Target | Evaluation Dimensions | File |
+|---|---|---|---|---|
+| 1 | **Parse Accuracy** | LLM query parse results | query_type accuracy, metrics extraction, player name resolution, intent understanding | `llm_judge_service.py` |
+| 2 | **Synthesizer Quality** | AI-generated responses | Factual accuracy, analytical depth, language quality, structure, completeness | `synthesizer_judge_service.py` |
+| 3 | **Reflection Decision** | Self-correction loop | Trigger appropriateness, root cause identification, correction quality, over-correction risk | `reflection_judge_service.py` |
+| 4 | **Routing Accuracy** | Supervisor routing | Route accuracy, ambiguity handling, reasoning quality | `routing_judge_service.py` |
+| 5 | **Drift Alert Quality** | Data drift detection results | Statistical validity, practical significance, actionability, domain relevance | `drift_alert_judge_service.py` |
+
+**Operational Architecture**:
+```
+[Real-time] User query → Log step I/O to BigQuery (0 additional Gemini calls)
+[Batch]     Sample from BQ → 5 Judges score → Results saved to BQ
+```
+
+**E2E Script**:
+- `backend/scripts/evaluate_with_llm_judge.py` — Parse accuracy regression testing against golden dataset
+
+**Tests**:
+- `test_llm_judge.py`, `test_synthesizer_judge.py`, `test_reflection_judge.py`, `test_routing_judge.py`, `test_drift_alert_judge.py`
+
 ### Technical Features
 - **AI-Powered Processing**: Uses Gemini 2.5 Flash for query parsing and response generation
 - **Real-time Interface**: Interactive experience with loading states and live updates

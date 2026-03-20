@@ -1,0 +1,1141 @@
+{
+  "evaluation_timestamp": "2026-03-20T01:08:01.881356+00:00",
+  "total_cases": 14,
+  "rule_based_accuracy": 0.5714285714285714,
+  "judge_accuracy": 0.7857142857142857,
+  "average_judge_score": 4.214285714285714,
+  "failure_categories": {
+    "over_extraction": 2,
+    "type_misclassification": 6
+  },
+  "results": [
+    {
+      "case_id": "GD-001",
+      "query": "2025年のホームラン王は誰？",
+      "expected": {
+        "query_type": "season_batting",
+        "metrics_contains": [
+          "homerun"
+        ],
+        "season": 2025,
+        "order_by": "homerun",
+        "name": null
+      },
+      "actual": {
+        "query_type": "season_batting",
+        "metrics": [
+          "homerun"
+        ],
+        "split_type": null,
+        "inning": null,
+        "strikes": null,
+        "balls": null,
+        "game_score": null,
+        "pitcher_throws": null,
+        "pitch_type": null,
+        "name": null,
+        "season": 2025,
+        "order_by": "homerun",
+        "limit": 1,
+        "output_format": "sentence"
+      },
+      "rule_based": {
+        "passed": true,
+        "critical_failure": false,
+        "fields": {
+          "query_type": {
+            "expected": "season_batting",
+            "actual": "season_batting",
+            "passed": true
+          },
+          "metrics_contains": {
+            "expected": [
+              "homerun"
+            ],
+            "actual": [
+              "homerun"
+            ],
+            "passed": true
+          },
+          "season": {
+            "expected": 2025,
+            "actual": 2025,
+            "passed": true
+          },
+          "order_by": {
+            "expected": "homerun",
+            "actual": "homerun",
+            "passed": true
+          },
+          "name": {
+            "expected": null,
+            "actual": null,
+            "passed": true
+          }
+        }
+      },
+      "judge_verdict": {
+        "case_id": "GD-001",
+        "user_query": "2025年のホームラン王は誰？",
+        "query_type_accuracy": 5,
+        "metrics_accuracy": 4,
+        "entity_resolution": 5,
+        "intent_understanding": 4,
+        "overall_score": 4.5,
+        "passed": true,
+        "reasoning": "query_type, entity_resolution は期待通り。 metrics は `metrics_contains` ではなく `metrics` となっているが、キー自体は METRIC_MAP に登録されているものであり、意図も捉えている。limit が追加されている点はやや過剰抽出。",
+        "failure_category": "over_extraction",
+        "timestamp": "2026-03-20T01:06:29.350153+00:00",
+        "judge_model": "gemini-2.0-flash",
+        "latency_ms": 1953.23
+      }
+    },
+    {
+      "case_id": "GD-002",
+      "query": "大谷翔平の2025年の打率は？",
+      "expected": {
+        "query_type": "season_batting",
+        "metrics_contains": [
+          "batting_average"
+        ],
+        "season": 2025,
+        "name": "Shohei Ohtani"
+      },
+      "actual": {
+        "query_type": "season_batting",
+        "metrics": [
+          "batting_average"
+        ],
+        "split_type": null,
+        "inning": null,
+        "strikes": null,
+        "balls": null,
+        "game_score": null,
+        "pitcher_throws": null,
+        "pitch_type": null,
+        "name": "Shohei Ohtani",
+        "season": 2025,
+        "order_by": null,
+        "limit": 1,
+        "output_format": "sentence"
+      },
+      "rule_based": {
+        "passed": true,
+        "critical_failure": false,
+        "fields": {
+          "query_type": {
+            "expected": "season_batting",
+            "actual": "season_batting",
+            "passed": true
+          },
+          "metrics_contains": {
+            "expected": [
+              "batting_average"
+            ],
+            "actual": [
+              "batting_average"
+            ],
+            "passed": true
+          },
+          "season": {
+            "expected": 2025,
+            "actual": 2025,
+            "passed": true
+          },
+          "name": {
+            "expected": "Shohei Ohtani",
+            "actual": "Shohei Ohtani",
+            "passed": true
+          }
+        }
+      },
+      "judge_verdict": {
+        "case_id": "GD-002",
+        "user_query": "大谷翔平の2025年の打率は？",
+        "query_type_accuracy": 5,
+        "metrics_accuracy": 5,
+        "entity_resolution": 5,
+        "intent_understanding": 5,
+        "overall_score": 5.0,
+        "passed": true,
+        "reasoning": "query_type, metrics, entity resolution, intent understanding 全てにおいて期待値と一致しており、完璧な結果です。",
+        "failure_category": null,
+        "timestamp": "2026-03-20T01:06:33.886611+00:00",
+        "judge_model": "gemini-2.0-flash",
+        "latency_ms": 1677.1499999999999
+      }
+    },
+    {
+      "case_id": "GD-003",
+      "query": "2025年の防御率トップ5を表で見せて",
+      "expected": {
+        "query_type": "season_pitching",
+        "metrics_contains": [
+          "era"
+        ],
+        "season": 2025,
+        "output_format": "table",
+        "limit": 5
+      },
+      "actual": {
+        "query_type": "season_batting",
+        "metrics": [
+          "earned_run_average"
+        ],
+        "split_type": null,
+        "inning": null,
+        "strikes": null,
+        "balls": null,
+        "game_score": null,
+        "pitcher_throws": null,
+        "pitch_type": null,
+        "name": null,
+        "season": 2025,
+        "order_by": "earned_run_average",
+        "limit": 5,
+        "output_format": "table"
+      },
+      "rule_based": {
+        "passed": false,
+        "critical_failure": true,
+        "fields": {
+          "query_type": {
+            "expected": "season_pitching",
+            "actual": "season_batting",
+            "passed": false
+          },
+          "metrics_contains": {
+            "expected": [
+              "era"
+            ],
+            "actual": [
+              "earned_run_average"
+            ],
+            "passed": false
+          },
+          "season": {
+            "expected": 2025,
+            "actual": 2025,
+            "passed": true
+          },
+          "output_format": {
+            "expected": "table",
+            "actual": "table",
+            "passed": true
+          },
+          "limit": {
+            "expected": 5,
+            "actual": 5,
+            "passed": true
+          }
+        }
+      },
+      "judge_verdict": {
+        "case_id": "GD-003",
+        "user_query": "2025年の防御率トップ5を表で見せて",
+        "query_type_accuracy": 1,
+        "metrics_accuracy": 4,
+        "entity_resolution": 5,
+        "intent_understanding": 4,
+        "overall_score": 3.5,
+        "passed": true,
+        "reasoning": "query_type が season_batting と誤分類されているため大幅減点。metrics はリスト内に正しいキーが含まれているが、'metrics_contains' の条件を満たしていないため、accuracy はやや低い。",
+        "failure_category": "type_misclassification",
+        "timestamp": "2026-03-20T01:06:40.515550+00:00",
+        "judge_model": "gemini-2.0-flash",
+        "latency_ms": 1679.628
+      }
+    },
+    {
+      "case_id": "GD-004",
+      "query": "ムーキー・ベッツの2025年得点圏打率は？",
+      "expected": {
+        "query_type": "batting_splits",
+        "split_type": "risp",
+        "metrics_contains": [
+          "batting_average"
+        ],
+        "name": "Mookie Betts",
+        "season": 2025
+      },
+      "actual": {
+        "query_type": "batting_splits",
+        "metrics": [
+          "batting_average"
+        ],
+        "split_type": "risp",
+        "inning": null,
+        "strikes": null,
+        "balls": null,
+        "game_score": null,
+        "pitcher_throws": null,
+        "pitch_type": null,
+        "name": "Mookie Betts",
+        "season": 2025,
+        "order_by": null,
+        "limit": 1,
+        "output_format": "sentence"
+      },
+      "rule_based": {
+        "passed": true,
+        "critical_failure": false,
+        "fields": {
+          "query_type": {
+            "expected": "batting_splits",
+            "actual": "batting_splits",
+            "passed": true
+          },
+          "split_type": {
+            "expected": "risp",
+            "actual": "risp",
+            "passed": true
+          },
+          "metrics_contains": {
+            "expected": [
+              "batting_average"
+            ],
+            "actual": [
+              "batting_average"
+            ],
+            "passed": true
+          },
+          "name": {
+            "expected": "Mookie Betts",
+            "actual": "Mookie Betts",
+            "passed": true
+          },
+          "season": {
+            "expected": 2025,
+            "actual": 2025,
+            "passed": true
+          }
+        }
+      },
+      "judge_verdict": {
+        "case_id": "GD-004",
+        "user_query": "ムーキー・ベッツの2025年得点圏打率は？",
+        "query_type_accuracy": 5,
+        "metrics_accuracy": 5,
+        "entity_resolution": 5,
+        "intent_understanding": 5,
+        "overall_score": 5.0,
+        "passed": true,
+        "reasoning": "すべての評価項目において期待値と完全に一致しており、意図を正確に捉えている。",
+        "failure_category": "none",
+        "timestamp": "2026-03-20T01:06:45.316177+00:00",
+        "judge_model": "gemini-2.0-flash",
+        "latency_ms": 1594.613
+      }
+    },
+    {
+      "case_id": "GD-005",
+      "query": "マイク・トラウトの通算ホームラン数は？",
+      "expected": {
+        "query_type": "career_batting",
+        "metrics_contains": [
+          "homerun"
+        ],
+        "name": "Mike Trout",
+        "season": null
+      },
+      "actual": {
+        "query_type": "career_batting",
+        "metrics": [
+          "homerun"
+        ],
+        "split_type": null,
+        "inning": null,
+        "strikes": null,
+        "balls": null,
+        "game_score": null,
+        "pitcher_throws": null,
+        "pitch_type": null,
+        "name": "Mike Trout",
+        "season": null,
+        "order_by": null,
+        "limit": 1,
+        "output_format": "sentence"
+      },
+      "rule_based": {
+        "passed": true,
+        "critical_failure": false,
+        "fields": {
+          "query_type": {
+            "expected": "career_batting",
+            "actual": "career_batting",
+            "passed": true
+          },
+          "metrics_contains": {
+            "expected": [
+              "homerun"
+            ],
+            "actual": [
+              "homerun"
+            ],
+            "passed": true
+          },
+          "name": {
+            "expected": "Mike Trout",
+            "actual": "Mike Trout",
+            "passed": true
+          },
+          "season": {
+            "expected": null,
+            "actual": null,
+            "passed": true
+          }
+        }
+      },
+      "judge_verdict": {
+        "case_id": "GD-005",
+        "user_query": "マイク・トラウトの通算ホームラン数は？",
+        "query_type_accuracy": 5,
+        "metrics_accuracy": 5,
+        "entity_resolution": 5,
+        "intent_understanding": 5,
+        "overall_score": 5.0,
+        "passed": true,
+        "reasoning": "query_type, metrics, entity resolution, intent understanding 全て期待値と一致しており、METRIC_MAP に登録されたキーを使用しているため、満点評価です。",
+        "failure_category": null,
+        "timestamp": "2026-03-20T01:06:49.850397+00:00",
+        "judge_model": "gemini-2.0-flash",
+        "latency_ms": 1747.952
+      }
+    },
+    {
+      "case_id": "GD-006",
+      "query": "アーロン・ジャッジの2025年の主要スタッツを教えて",
+      "expected": {
+        "query_type": "season_batting",
+        "metrics_contains": [
+          "main_stats"
+        ],
+        "name": "Aaron Judge",
+        "season": 2025
+      },
+      "actual": {
+        "query_type": "season_batting",
+        "metrics": [
+          "main_stats"
+        ],
+        "split_type": null,
+        "inning": null,
+        "strikes": null,
+        "balls": null,
+        "game_score": null,
+        "pitcher_throws": null,
+        "pitch_type": null,
+        "name": "Aaron Judge",
+        "season": 2025,
+        "order_by": null,
+        "limit": null,
+        "output_format": "sentence"
+      },
+      "rule_based": {
+        "passed": true,
+        "critical_failure": false,
+        "fields": {
+          "query_type": {
+            "expected": "season_batting",
+            "actual": "season_batting",
+            "passed": true
+          },
+          "metrics_contains": {
+            "expected": [
+              "main_stats"
+            ],
+            "actual": [
+              "main_stats"
+            ],
+            "passed": true
+          },
+          "name": {
+            "expected": "Aaron Judge",
+            "actual": "Aaron Judge",
+            "passed": true
+          },
+          "season": {
+            "expected": 2025,
+            "actual": 2025,
+            "passed": true
+          }
+        }
+      },
+      "judge_verdict": {
+        "case_id": "GD-006",
+        "user_query": "アーロン・ジャッジの2025年の主要スタッツを教えて",
+        "query_type_accuracy": 5,
+        "metrics_accuracy": 5,
+        "entity_resolution": 5,
+        "intent_understanding": 5,
+        "overall_score": 5.0,
+        "passed": true,
+        "reasoning": "query_type, metrics, entity resolution, intent understanding 全てにおいて期待値と一致しており、完璧な結果です。",
+        "failure_category": null,
+        "timestamp": "2026-03-20T01:06:55.600409+00:00",
+        "judge_model": "gemini-2.0-flash",
+        "latency_ms": 1706.315
+      }
+    },
+    {
+      "case_id": "GD-007",
+      "query": "大谷翔平の左投手に対する2025年の打率は？",
+      "expected": {
+        "query_type": "batting_splits",
+        "split_type": "pitcher_throws",
+        "metrics_contains": [
+          "batting_average"
+        ],
+        "name": "Shohei Ohtani",
+        "pitcher_throws": "LHP",
+        "season": 2025
+      },
+      "actual": {
+        "query_type": "batting_splits",
+        "metrics": [
+          "batting_average"
+        ],
+        "split_type": "pitcher_throws",
+        "inning": null,
+        "strikes": null,
+        "balls": null,
+        "game_score": null,
+        "pitcher_throws": "LHP",
+        "pitch_type": null,
+        "name": "Shohei Ohtani",
+        "season": 2025,
+        "order_by": null,
+        "limit": null,
+        "output_format": "sentence"
+      },
+      "rule_based": {
+        "passed": true,
+        "critical_failure": false,
+        "fields": {
+          "query_type": {
+            "expected": "batting_splits",
+            "actual": "batting_splits",
+            "passed": true
+          },
+          "split_type": {
+            "expected": "pitcher_throws",
+            "actual": "pitcher_throws",
+            "passed": true
+          },
+          "metrics_contains": {
+            "expected": [
+              "batting_average"
+            ],
+            "actual": [
+              "batting_average"
+            ],
+            "passed": true
+          },
+          "name": {
+            "expected": "Shohei Ohtani",
+            "actual": "Shohei Ohtani",
+            "passed": true
+          },
+          "pitcher_throws": {
+            "expected": "LHP",
+            "actual": "LHP",
+            "passed": true
+          },
+          "season": {
+            "expected": 2025,
+            "actual": 2025,
+            "passed": true
+          }
+        }
+      },
+      "judge_verdict": {
+        "case_id": "GD-007",
+        "user_query": "大谷翔平の左投手に対する2025年の打率は？",
+        "query_type_accuracy": 5,
+        "metrics_accuracy": 5,
+        "entity_resolution": 5,
+        "intent_understanding": 5,
+        "overall_score": 5.0,
+        "passed": true,
+        "reasoning": "query_type, metrics, entity resolution, intent understanding の全てが期待値と一致しており、完璧な結果です。",
+        "failure_category": null,
+        "timestamp": "2026-03-20T01:07:01.479974+00:00",
+        "judge_model": "gemini-2.0-flash",
+        "latency_ms": 1556.8200000000002
+      }
+    },
+    {
+      "case_id": "GD-008",
+      "query": "2025年のWHIPが最も低いピッチャーは？",
+      "expected": {
+        "query_type": "season_pitching",
+        "metrics_contains": [
+          "whip"
+        ],
+        "name": null,
+        "season": 2025,
+        "order_by": "whip"
+      },
+      "actual": {
+        "query_type": "season_batting",
+        "metrics": [
+          "whip"
+        ],
+        "split_type": null,
+        "inning": null,
+        "strikes": null,
+        "balls": null,
+        "game_score": null,
+        "pitcher_throws": null,
+        "pitch_type": null,
+        "name": null,
+        "season": 2025,
+        "order_by": "whip",
+        "limit": 1,
+        "output_format": "sentence"
+      },
+      "rule_based": {
+        "passed": false,
+        "critical_failure": true,
+        "fields": {
+          "query_type": {
+            "expected": "season_pitching",
+            "actual": "season_batting",
+            "passed": false
+          },
+          "metrics_contains": {
+            "expected": [
+              "whip"
+            ],
+            "actual": [
+              "whip"
+            ],
+            "passed": true
+          },
+          "name": {
+            "expected": null,
+            "actual": null,
+            "passed": true
+          },
+          "season": {
+            "expected": 2025,
+            "actual": 2025,
+            "passed": true
+          },
+          "order_by": {
+            "expected": "whip",
+            "actual": "whip",
+            "passed": true
+          }
+        }
+      },
+      "judge_verdict": {
+        "case_id": "GD-008",
+        "user_query": "2025年のWHIPが最も低いピッチャーは？",
+        "query_type_accuracy": 1,
+        "metrics_accuracy": 5,
+        "entity_resolution": 5,
+        "intent_understanding": 3,
+        "overall_score": 3.5,
+        "passed": true,
+        "reasoning": "query_type が season_pitching であるべきところが season_batting になっており、意図を正しく捉えられていない。limit があるのは不適切。",
+        "failure_category": "type_misclassification",
+        "timestamp": "2026-03-20T01:07:12.793979+00:00",
+        "judge_model": "gemini-2.0-flash",
+        "latency_ms": 1745.351
+      }
+    },
+    {
+      "case_id": "GD-010",
+      "query": "ポールスキーンズの2025年の防御率とWHIPは？",
+      "expected": {
+        "query_type": "season_pitching",
+        "metrics_contains": [
+          "era",
+          "whip"
+        ],
+        "name": "Paul Skenes",
+        "season": 2025
+      },
+      "actual": {
+        "query_type": "season_batting",
+        "metrics": [
+          "earned_run_average",
+          "walks_hits_per_inning_pitched"
+        ],
+        "split_type": null,
+        "inning": null,
+        "strikes": null,
+        "balls": null,
+        "game_score": null,
+        "pitcher_throws": null,
+        "pitch_type": null,
+        "name": "Paul Skenes",
+        "season": 2025,
+        "order_by": null,
+        "limit": null,
+        "output_format": "sentence"
+      },
+      "rule_based": {
+        "passed": false,
+        "critical_failure": true,
+        "fields": {
+          "query_type": {
+            "expected": "season_pitching",
+            "actual": "season_batting",
+            "passed": false
+          },
+          "metrics_contains": {
+            "expected": [
+              "era",
+              "whip"
+            ],
+            "actual": [
+              "earned_run_average",
+              "walks_hits_per_inning_pitched"
+            ],
+            "passed": false
+          },
+          "name": {
+            "expected": "Paul Skenes",
+            "actual": "Paul Skenes",
+            "passed": true
+          },
+          "season": {
+            "expected": 2025,
+            "actual": 2025,
+            "passed": true
+          }
+        }
+      },
+      "judge_verdict": {
+        "case_id": "GD-010",
+        "user_query": "ポールスキーンズの2025年の防御率とWHIPは？",
+        "query_type_accuracy": 1,
+        "metrics_accuracy": 3,
+        "entity_resolution": 5,
+        "intent_understanding": 3,
+        "overall_score": 3.0,
+        "passed": false,
+        "reasoning": "クエリタイプがseason_pitchingであるべきところがseason_battingになっている。また、metricsが登録済みのキーであるearned_run_averageとwalks_hits_per_inning_pitchedを使用しているものの、期待値と一致しない。",
+        "failure_category": "type_misclassification",
+        "timestamp": "2026-03-20T01:07:26.555547+00:00",
+        "judge_model": "gemini-2.0-flash",
+        "latency_ms": 1728.585
+      }
+    },
+    {
+      "case_id": "GD-011",
+      "query": "2025年の奪三振数トップ5を表で見せて",
+      "expected": {
+        "query_type": "season_pitching",
+        "metrics_contains": [
+          "strikeouts"
+        ],
+        "season": 2025,
+        "order_by": "strikeouts",
+        "output_format": "table",
+        "limit": 5
+      },
+      "actual": {
+        "query_type": "season_batting",
+        "metrics": [
+          "strikeout"
+        ],
+        "split_type": null,
+        "inning": null,
+        "strikes": null,
+        "balls": null,
+        "game_score": null,
+        "pitcher_throws": null,
+        "pitch_type": null,
+        "name": null,
+        "season": 2025,
+        "order_by": "strikeout",
+        "limit": 5,
+        "output_format": "table"
+      },
+      "rule_based": {
+        "passed": false,
+        "critical_failure": true,
+        "fields": {
+          "query_type": {
+            "expected": "season_pitching",
+            "actual": "season_batting",
+            "passed": false
+          },
+          "metrics_contains": {
+            "expected": [
+              "strikeouts"
+            ],
+            "actual": [
+              "strikeout"
+            ],
+            "passed": false
+          },
+          "season": {
+            "expected": 2025,
+            "actual": 2025,
+            "passed": true
+          },
+          "order_by": {
+            "expected": "strikeouts",
+            "actual": "strikeout",
+            "passed": false
+          },
+          "output_format": {
+            "expected": "table",
+            "actual": "table",
+            "passed": true
+          },
+          "limit": {
+            "expected": 5,
+            "actual": 5,
+            "passed": true
+          }
+        }
+      },
+      "judge_verdict": {
+        "case_id": "GD-011",
+        "user_query": "2025年の奪三振数トップ5を表で見せて",
+        "query_type_accuracy": 1,
+        "metrics_accuracy": 3,
+        "entity_resolution": 5,
+        "intent_understanding": 4,
+        "overall_score": 3.25,
+        "passed": false,
+        "reasoning": "query_typeがseason_pitchingであるべきところがseason_battingになっており、metricsもstrikeoutsであるべきところがstrikeoutになっているため、全体的な精度が低い。ただし、season, limit, output_format は正しい。",
+        "failure_category": "type_misclassification",
+        "timestamp": "2026-03-20T01:07:34.293101+00:00",
+        "judge_model": "gemini-2.0-flash",
+        "latency_ms": 1819.491
+      }
+    },
+    {
+      "case_id": "GD-012",
+      "query": "山本由伸の2025年の主要スタッツを教えて",
+      "expected": {
+        "query_type": "season_pitching",
+        "metrics_contains": [
+          "main_stats"
+        ],
+        "name": "Yoshinobu Yamamoto",
+        "season": 2025
+      },
+      "actual": {
+        "query_type": "season_batting",
+        "metrics": [
+          "main_stats"
+        ],
+        "split_type": null,
+        "inning": null,
+        "strikes": null,
+        "balls": null,
+        "game_score": null,
+        "pitcher_throws": null,
+        "pitch_type": null,
+        "name": "Yoshinobu Yamamoto",
+        "season": 2025,
+        "order_by": null,
+        "limit": null,
+        "output_format": "sentence"
+      },
+      "rule_based": {
+        "passed": false,
+        "critical_failure": true,
+        "fields": {
+          "query_type": {
+            "expected": "season_pitching",
+            "actual": "season_batting",
+            "passed": false
+          },
+          "metrics_contains": {
+            "expected": [
+              "main_stats"
+            ],
+            "actual": [
+              "main_stats"
+            ],
+            "passed": true
+          },
+          "name": {
+            "expected": "Yoshinobu Yamamoto",
+            "actual": "Yoshinobu Yamamoto",
+            "passed": true
+          },
+          "season": {
+            "expected": 2025,
+            "actual": 2025,
+            "passed": true
+          }
+        }
+      },
+      "judge_verdict": {
+        "case_id": "GD-012",
+        "user_query": "山本由伸の2025年の主要スタッツを教えて",
+        "query_type_accuracy": 1,
+        "metrics_accuracy": 5,
+        "entity_resolution": 5,
+        "intent_understanding": 1,
+        "overall_score": 3.0,
+        "passed": false,
+        "reasoning": "query_typeがseason_battingと誤分類されており、投手の成績を求めている意図を理解できていないため、全体的なスコアが低くなりました。metrics自体はmain_statsという許可されたキーワードを使用しているので問題ありません。",
+        "failure_category": "type_misclassification",
+        "timestamp": "2026-03-20T01:07:39.785935+00:00",
+        "judge_model": "gemini-2.0-flash",
+        "latency_ms": 1793.4959999999999
+      }
+    },
+    {
+      "case_id": "GD-013",
+      "query": "今永昇太の2025年のWHIPとFIPは？",
+      "expected": {
+        "query_type": "season_pitching",
+        "metrics_contains": [
+          "whip",
+          "fip"
+        ],
+        "name": "Shota Imanaga",
+        "season": 2025
+      },
+      "actual": {
+        "query_type": "season_batting",
+        "metrics": [
+          "whip",
+          "fip"
+        ],
+        "split_type": null,
+        "inning": null,
+        "strikes": null,
+        "balls": null,
+        "game_score": null,
+        "pitcher_throws": null,
+        "pitch_type": null,
+        "name": "Shota Imanaga",
+        "season": 2025,
+        "order_by": null,
+        "limit": null,
+        "output_format": "sentence"
+      },
+      "rule_based": {
+        "passed": false,
+        "critical_failure": true,
+        "fields": {
+          "query_type": {
+            "expected": "season_pitching",
+            "actual": "season_batting",
+            "passed": false
+          },
+          "metrics_contains": {
+            "expected": [
+              "whip",
+              "fip"
+            ],
+            "actual": [
+              "whip",
+              "fip"
+            ],
+            "passed": true
+          },
+          "name": {
+            "expected": "Shota Imanaga",
+            "actual": "Shota Imanaga",
+            "passed": true
+          },
+          "season": {
+            "expected": 2025,
+            "actual": 2025,
+            "passed": true
+          }
+        }
+      },
+      "judge_verdict": {
+        "case_id": "GD-013",
+        "user_query": "今永昇太の2025年のWHIPとFIPは？",
+        "query_type_accuracy": 1,
+        "metrics_accuracy": 5,
+        "entity_resolution": 5,
+        "intent_understanding": 3,
+        "overall_score": 3.5,
+        "passed": true,
+        "reasoning": "query_typeがpitchingではなくbattingになっているため、意図理解が不十分。metricsは登録済みのキーと一致している。",
+        "failure_category": "type_misclassification",
+        "timestamp": "2026-03-20T01:07:49.373667+00:00",
+        "judge_model": "gemini-2.0-flash",
+        "latency_ms": 1615.589
+      }
+    },
+    {
+      "case_id": "GD-014",
+      "query": "フリーマンの2025年のOPSはいくつ？",
+      "expected": {
+        "query_type": "season_batting",
+        "metrics_contains": [
+          "on_base_plus_slugging"
+        ],
+        "name": "Freddie Freeman",
+        "season": 2025
+      },
+      "actual": {
+        "query_type": "season_batting",
+        "metrics": [
+          "on_base_plus_slugging"
+        ],
+        "split_type": null,
+        "inning": null,
+        "strikes": null,
+        "balls": null,
+        "game_score": null,
+        "pitcher_throws": null,
+        "pitch_type": null,
+        "name": "Freddie Freeman",
+        "season": 2025,
+        "order_by": null,
+        "limit": 1,
+        "output_format": "sentence"
+      },
+      "rule_based": {
+        "passed": true,
+        "critical_failure": false,
+        "fields": {
+          "query_type": {
+            "expected": "season_batting",
+            "actual": "season_batting",
+            "passed": true
+          },
+          "metrics_contains": {
+            "expected": [
+              "on_base_plus_slugging"
+            ],
+            "actual": [
+              "on_base_plus_slugging"
+            ],
+            "passed": true
+          },
+          "name": {
+            "expected": "Freddie Freeman",
+            "actual": "Freddie Freeman",
+            "passed": true
+          },
+          "season": {
+            "expected": 2025,
+            "actual": 2025,
+            "passed": true
+          }
+        }
+      },
+      "judge_verdict": {
+        "case_id": "GD-014",
+        "user_query": "フリーマンの2025年のOPSはいくつ？",
+        "query_type_accuracy": 5,
+        "metrics_accuracy": 5,
+        "entity_resolution": 5,
+        "intent_understanding": 5,
+        "overall_score": 5.0,
+        "passed": true,
+        "reasoning": "query_type, metrics, entity resolution, intent understanding の全てが期待値と一致しており、METRIC_MAPに登録されたキーが使用されているため、満点評価です。",
+        "failure_category": null,
+        "timestamp": "2026-03-20T01:07:54.630916+00:00",
+        "judge_model": "gemini-2.0-flash",
+        "latency_ms": 1632.255
+      }
+    },
+    {
+      "case_id": "GD-015",
+      "query": "大谷翔平の2025年の7回以降のRISP時フルカウントでの打率は？",
+      "expected": {
+        "query_type": "batting_splits",
+        "metrics_contains": [
+          "batting_average"
+        ],
+        "name": "Shohei Ohtani",
+        "season": 2025,
+        "split_type": "risp",
+        "strikes": 2,
+        "balls": 3
+      },
+      "actual": {
+        "query_type": "batting_splits",
+        "metrics": [
+          "batting_average"
+        ],
+        "split_type": "risp",
+        "inning": [
+          7,
+          8,
+          9
+        ],
+        "strikes": 2,
+        "balls": 3,
+        "game_score": null,
+        "pitcher_throws": null,
+        "pitch_type": null,
+        "name": "Shohei Ohtani",
+        "season": 2025,
+        "order_by": null,
+        "limit": 1,
+        "output_format": "sentence"
+      },
+      "rule_based": {
+        "passed": true,
+        "critical_failure": false,
+        "fields": {
+          "query_type": {
+            "expected": "batting_splits",
+            "actual": "batting_splits",
+            "passed": true
+          },
+          "metrics_contains": {
+            "expected": [
+              "batting_average"
+            ],
+            "actual": [
+              "batting_average"
+            ],
+            "passed": true
+          },
+          "name": {
+            "expected": "Shohei Ohtani",
+            "actual": "Shohei Ohtani",
+            "passed": true
+          },
+          "season": {
+            "expected": 2025,
+            "actual": 2025,
+            "passed": true
+          },
+          "split_type": {
+            "expected": "risp",
+            "actual": "risp",
+            "passed": true
+          },
+          "strikes": {
+            "expected": 2,
+            "actual": 2,
+            "passed": true
+          },
+          "balls": {
+            "expected": 3,
+            "actual": 3,
+            "passed": true
+          }
+        }
+      },
+      "judge_verdict": {
+        "case_id": "GD-015",
+        "user_query": "大谷翔平の2025年の7回以降のRISP時フルカウントでの打率は？",
+        "query_type_accuracy": 5,
+        "metrics_accuracy": 5,
+        "entity_resolution": 5,
+        "intent_understanding": 4,
+        "overall_score": 4.75,
+        "passed": true,
+        "reasoning": "query_type, metrics, entity resolution はすべて正しい。inning パラメータが過剰抽出されているが、それ以外は意図を捉えている。",
+        "failure_category": "over_extraction",
+        "timestamp": "2026-03-20T01:08:01.880622+00:00",
+        "judge_model": "gemini-2.0-flash",
+        "latency_ms": 1547.865
+      }
+    }
+  ]
+}
