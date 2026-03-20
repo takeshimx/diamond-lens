@@ -21,6 +21,16 @@ const initializeDarkMode = () => {
 
 
 
+// LLM Judge の failure_category を日本語ラベルに変換するマップ
+const FAILURE_CATEGORY_LABELS = {
+  unregistered_metric_key: '指標名の認識ミス',
+  entity_resolution_error: '選手名の変換ミス',
+  missing_context: '年度・条件の不足',
+  schema_violation: 'スキーマ違反',
+  over_extraction: '過剰なパラメータ抽出',
+  type_misclassification: 'クエリ分類ミス',
+};
+
 const MLBChatApp = () => {
   // Initialize dark mode on component mount
   useEffect(() => {
@@ -272,7 +282,9 @@ const MLBChatApp = () => {
         chartConfig: apiResponse.chartConfig || null,
         // Matchup Card fields
         isMatchupCard: apiResponse.isMatchupCard || false,
-        matchupData: apiResponse.matchupData || null
+        matchupData: apiResponse.matchupData || null,
+        // Quality Warning
+        qualityWarning: apiResponse.quality_warning || null
       };
 
     } catch (error) {
@@ -1136,6 +1148,7 @@ const MLBChatApp = () => {
         steps: response.steps, // 思考プロセス
         isMatchupCard: response.isMatchupCard, // 対戦分析カード表示フラグ
         matchupData: response.matchupData, // 対戦分析データ
+        qualityWarning: response.qualityWarning || null, // 品質警告フラグ
         timestamp: new Date()
       };
 
@@ -2872,6 +2885,21 @@ const MLBChatApp = () => {
                               <span className="w-2 h-2 bg-blue-600 dark:bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></span>
                             </div>
                             <span>{message.streamingStatus}</span>
+                          </div>
+                        )}
+
+                        {/* 品質警告バナー */}
+                        {message.qualityWarning?.has_warning && (
+                          <div className="mb-3 flex items-start gap-2 rounded-md bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
+                            <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                            <span>
+                              類似の質問で精度が低かった事例があります。回答内容を慎重にご確認ください。
+                              {message.qualityWarning.top_failure_category && (
+                                <span className="ml-1 text-amber-600 dark:text-amber-400">
+                                  ({FAILURE_CATEGORY_LABELS[message.qualityWarning.top_failure_category] ?? message.qualityWarning.top_failure_category})
+                                </span>
+                              )}
+                            </span>
                           </div>
                         )}
 

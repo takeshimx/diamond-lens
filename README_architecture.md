@@ -238,6 +238,7 @@ predictions = await self._predict_with_vertex_ai(endpoint_id, instances)
 | **Stuff+/Pitching+/Pitching++** | XGBoost, Model Registry, BigQuery | Pitch quality evaluation, sequence context modeling, pre-computed rankings, real-time inference |
 | **HITL Feedback** | Feedback UI, BigQuery, pending_review.json | User feedback collection, golden dataset expansion pipeline |
 | **LLM as a Judge** | 5 Judge Services, Gemini 2.0 Flash, BigQuery Logging | Automated multi-dimensional quality evaluation (parse, synthesizer, reflection, routing, drift alerts) |
+| **BQ Embedding Quality Warning** | BigQuery ML, Vertex AI text-multilingual-embedding-002, VECTOR_SEARCH, asyncio.gather | Serverless semantic similarity warning: detects queries similar to past bad-rated ones; daily batch embedding via BQ Scheduled Query; zero always-on instances |
 | **Rate Limiting** | Custom ASGI Middleware, slowapi, In-Memory Counters | Multi-tier rate limiting (Global/Session/Endpoint) + LLM token budget |
 | **Orchestration** | Cloud Workflows, Cloud Scheduler | Pipeline automation |
 | **Monitoring** | Cloud Monitoring, Discord Webhooks | Custom metrics, alerts, dashboards, pipeline notifications |

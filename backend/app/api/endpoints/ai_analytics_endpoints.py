@@ -20,6 +20,8 @@ from backend.app.utils.streaming import stream_json_events, format_sse
 from backend.app.api.rate_limit import limiter
 from backend.app.config.settings import get_settings
 from backend.app.services.token_budget_service import get_token_budget_service
+from backend.app.services.bq_embedding_service import get_bq_embedding_service
+import asyncio
 import logging
 import time
 from pydantic import BaseModel
@@ -120,15 +122,23 @@ async def get_player_stats_qna_endpoint(
         bq_latency = (bq_end - bq_start) * 1000
         logger.info(f"📊 BigQuery completed in {bq_end - bq_start:.2f} seconds")
 
-        logger.info("🤖 Calling Gemini API...")
+        logger.info("🤖 Calling Gemini API + Quality Warning Check (parallel)...")
         gemini_start = time.time()
 
-        # ai_response = get_ai_response_for_qna(request.query, request.season)
-        # Use chart-enabled version for enhanced visualization (会話履歴対応)
-        ai_response = get_ai_response_with_simple_chart(
-            request_body.query,
-            request_body.season,
-            session_id=session_id  # ★ セッションIDを渡す ★
+        # AI レスポンス生成と BQ 類似クエリ品質チェックを並列実行
+        # asyncio.to_thread: 同期関数をスレッドプールで実行し await で待つ
+        # asyncio.gather: 複数の非同期タスクを並列実行し、全完了を待つ
+        ai_response, warning_result = await asyncio.gather(
+            asyncio.to_thread(
+                get_ai_response_with_simple_chart,
+                request_body.query,
+                request_body.season,
+                session_id=session_id,
+            ),
+            asyncio.to_thread(
+                get_bq_embedding_service().check_quality_warning,
+                request_body.query,
+            ),
         )
 
         gemini_end = time.time()
@@ -175,8 +185,9 @@ async def get_player_stats_qna_endpoint(
         log_entry.success = True
         llm_logger.log(log_entry)
 
-        # ★ レスポンスにセッションIDを含める ★
+        # ★ レスポンスにセッションIDと品質警告フラグを含める ★
         ai_response["session_id"] = session_id
+        ai_response["quality_warning"] = warning_result
 
         return ai_response
 

@@ -277,6 +277,37 @@ CI/CD ドリフトチェック → アクティブモデルの学習データ vs
 **テスト**:
 - `test_llm_judge.py`, `test_synthesizer_judge.py`, `test_reflection_judge.py`, `test_routing_judge.py`, `test_drift_alert_judge.py`
 
+### 11. BQ Embeddingベース品質警告システム
+**ステータス**: ✅ 本番環境対応
+
+**概要**: ユーザーのクエリが過去に低評価（👎）を受けたクエリと類似しているかをリアルタイムで検知し、フロントエンドに警告バナーを表示するサーバレス品質警告システム。BigQuery ML の `ML.GENERATE_EMBEDDING` + `VECTOR_SEARCH` を使用。常時稼働インスタンスは一切なし。
+
+**アーキテクチャ**:
+```
+[毎日バッチ: 02:00 UTC]
+  llm_interaction_logs (user_rating='bad')
+    → request_id で元クエリをJOIN
+    → ML.GENERATE_EMBEDDING (Vertex AI text-multilingual-embedding-002)
+    → llm_query_embeddings に INSERT（追記のみ）
+
+[クエリ受信時 - AIレスポンスと並列実行]
+  ユーザークエリ → BQ ML.GENERATE_EMBEDDING（Vertex AI API 1回のみ）
+               → VECTOR_SEARCH（llm_query_embeddingsと照合）
+               → quality_warningフラグをレスポンスに付与
+               → フロントエンド: アンバー色の警告バナーを表示
+```
+
+**設計上の重要ポイント**:
+- **サーバレス**: Vertex AI APIはBQクエリ実行時のみ呼び出し — 常時稼働インスタンスなし
+- **並列実行**: `asyncio.gather` でAIレスポンス生成と警告チェックを並列実行、レイテンシへの影響ゼロ
+- **追記専用**: `llm_interaction_logs` も `llm_query_embeddings` も完全にappend-only（UPDATE不要）
+- **フィードバック駆動**: ユーザーが👎をつけるほど自動的に精度向上 — 手動ラベリング不要
+
+**新規BQリソース**:
+- `mlb_analytics_dash_25.query_embedding_model` — リモートモデル（Vertex AI `text-multilingual-embedding-002`）
+- `mlb_analytics_dash_25.llm_query_embeddings` — Embedding蓄積テーブル
+- BQ Connection: `asia-northeast1.vertex_ai_connection`
+
 ### 技術機能
 - **AI搭載処理**: Gemini 2.5 Flashを使用したクエリ解析とレスポンス生成
 - **リアルタイムインターフェース**: ローディング状態とライブ更新付きのインタラクティブ体験

@@ -277,6 +277,43 @@ CI/CD Drift Check → Compare active model's training data vs latest season
 **Tests**:
 - `test_llm_judge.py`, `test_synthesizer_judge.py`, `test_reflection_judge.py`, `test_routing_judge.py`, `test_drift_alert_judge.py`
 
+### 11. BQ Embedding-based Quality Warning System
+**Status**: ✅ Production-ready
+
+**Overview**: A serverless, pay-as-you-go quality warning system that detects when a user's query is similar to past queries that received negative feedback. Uses BigQuery ML `ML.GENERATE_EMBEDDING` + `VECTOR_SEARCH` with no always-on instances.
+
+**Architecture**:
+```
+[Daily Batch: 02:00 UTC]
+  llm_interaction_logs (user_rating='bad')
+    → JOIN original query via request_id
+    → ML.GENERATE_EMBEDDING (Vertex AI text-multilingual-embedding-002)
+    → INSERT INTO llm_query_embeddings (append-only)
+
+[At Request Time - Parallel with AI response]
+  User query → BQ ML.GENERATE_EMBEDDING (1 Vertex AI API call)
+             → VECTOR_SEARCH against llm_query_embeddings
+             → quality_warning flag returned with response
+             → Frontend: amber warning banner displayed
+```
+
+**Key Design Decisions**:
+- **Serverless**: Vertex AI API called only on BQ query execution — zero always-on instances
+- **Parallel execution**: `asyncio.gather` runs warning check alongside AI response generation, adding zero perceived latency
+- **Append-only**: Both `llm_interaction_logs` and `llm_query_embeddings` are append-only tables (no UPDATE)
+- **Feedback-driven**: Improves automatically as users submit negative ratings — no manual labeling required
+
+**Components**:
+- `services/bq_embedding_service.py` — VECTOR_SEARCH wrapper with graceful fallback
+- `llm_query_embeddings` BQ table — stores embeddings of bad-rated queries
+- BQ Scheduled Query (daily) — batch embedding generation
+- Frontend warning banner — amber alert with `AlertTriangle` icon
+
+**New BQ Resources**:
+- `mlb_analytics_dash_25.query_embedding_model` — Remote model (Vertex AI `text-multilingual-embedding-002`)
+- `mlb_analytics_dash_25.llm_query_embeddings` — Embedding storage table
+- BQ Connection: `asia-northeast1.vertex_ai_connection`
+
 ### Technical Features
 - **AI-Powered Processing**: Uses Gemini 2.5 Flash for query parsing and response generation
 - **Real-time Interface**: Interactive experience with loading states and live updates
