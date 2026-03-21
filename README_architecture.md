@@ -633,6 +633,42 @@ python scripts/train_stuff_plus.py --season 2025 --min-pitches 100
 | `scripts/evaluate_with_llm_judge.py` | E2E evaluation script for golden dataset |
 | `tests/golden_dataset.json` | Golden dataset with batting, pitching, edge cases (14 cases) |
 
+### 8f. Embedding-Based Semantic Drift Detection
+
+| Property | Value |
+|----------|-------|
+| **Approach** | BQ ML `ML.GENERATE_EMBEDDING` + `ML.DISTANCE (COSINE)` |
+| **Granularity** | Per pitch type (`pitch_name`) — 4-Seam Fastball, Slider, Curveball, Changeup, etc. |
+| **Snapshot Cadence** | Weekly (Monday 03:00 UTC via BQ Scheduled Query) |
+| **Baseline** | 4-week rolling centroid (average embedding over prior 4 weeks) |
+| **Embedding Model** | `query_embedding_model` (Vertex AI `text-multilingual-embedding-002`) |
+| **Drift Thresholds** | Stable < 0.10 ≤ Warning < 0.20 ≤ Critical |
+| **Output** | `semantic_drift` field appended to existing `DriftReport` |
+
+**Why per pitch type**: Each pitch type has completely different velocity ranges, spin rates, and movement profiles (e.g., 4-seam fastball vs. curveball). Aggregating across all pitch types would mask meaningful changes such as a league-wide velocity drop on fastballs or a shift in slider sweep angle.
+
+**Metrics per pitch type** (sourced from `statcast_master`):
+
+| Metric | Column | Description |
+|--------|--------|-------------|
+| Velocity | `release_speed` | Pitch velocity at release |
+| Spin rate | `release_spin_rate` | Spin rate (RPM) |
+| Horizontal break | `pfx_x` | Induced horizontal movement |
+| Vertical break (no gravity) | `pfx_z` | Induced vertical movement |
+| Vertical break (with gravity) | `api_break_z_with_gravity` | Total vertical drop |
+| Extension | `release_extension` | Release point distance from rubber |
+| Usage rate | `COUNT(*) / total` | Pitch type usage fraction |
+| Run value | `delta_pitcher_run_exp` | Average run expectancy per pitch |
+
+**Key Files:**
+
+| File | Purpose |
+|------|---------|
+| `services/bq_drift_embedding_service.py` | Cosine distance computation; graceful fallback when no snapshot data |
+| `services/data_drift_service.py` | `semantic_drift` field added to `DriftReport` and `to_dict()` |
+| `queries/create_pitcher_metrics_snapshots.sql` | Table DDL for weekly snapshots |
+| `queries/scheduled_pitcher_embedding_weekly.sql` | Weekly BQ Scheduled Query |
+
 ### 8. Orchestration
 
 | Property | Value |

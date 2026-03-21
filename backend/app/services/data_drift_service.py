@@ -89,6 +89,7 @@ class DriftReport:
     concept_drift: Optional[ConceptDriftResult] = None
     overall_drift_detected: bool = False
     summary: str = ""
+    semantic_drift: Optional[dict] = None # BQ Embedding由来のセマンティックドリフト
 
     def to_dict(self) -> Dict:
         """API レスポンス用の辞書変換"""
@@ -107,6 +108,8 @@ class DriftReport:
             result["prediction_drift"] = asdict(self.prediction_drift)
         if self.concept_drift:
             result["concept_drift"] = asdict(self.concept_drift)
+        if self.semantic_drift is not None:
+            result["semantic_drift"] = self.semantic_drift
         return result
 
 
@@ -340,6 +343,16 @@ class DataDriftService:
             overall_drift_detected=overall_drift,
             summary=summary,
         )
+
+        # Step 4: セマンティックドリフト（BQ Embedding）
+        try:
+            from backend.app.services.bq_drift_embedding_service import (
+                get_bq_drift_embedding_service,
+            )
+            report.semantic_drift = get_bq_drift_embedding_service().detect_semantic_drift()
+        except Exception as e:
+            logger.warning(f"Semantic drift detection skipped: {e}")
+            report.semantic_drift = {"error": str(e), "semantic_drift_status": "unknown"}
 
         logger.info(
             f"Drift detection complete: overall_drift={overall_drift}, "

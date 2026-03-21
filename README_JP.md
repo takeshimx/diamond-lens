@@ -308,6 +308,45 @@ CI/CD ドリフトチェック → アクティブモデルの学習データ vs
 - `mlb_analytics_dash_25.llm_query_embeddings` — Embedding蓄積テーブル
 - BQ Connection: `asia-northeast1.vertex_ai_connection`
 
+### 12. Embedding ベース セマンティック データドリフト検知
+**ステータス**: ✅ 本番環境対応
+
+**概要**: 既存の統計的ドリフト検知（KS検定／PSI）を補完し、BigQuery ML Embeddingを使って投球特性の*意味的な*変化を検知するシステム。フォーシーム・スライダー・チェンジアップ・カーブなど**球種ごと**に週次の投球メトリクスをEmbedding化し、4週間のローリングベースラインとのコサイン距離でドリフトを判定する。
+
+**アーキテクチャ**:
+```
+[週次バッチ: 毎週月曜 03:00 UTC]
+  statcast_master
+    → pitch_nameごとに集計: avg_velo, avg_spin, pfx_x, pfx_z,
+      api_break_z_with_gravity, release_extension, usage_pct, avg_delta_run_exp
+    → 全球種を1つの metrics_text 文字列に連結
+    → ML.GENERATE_EMBEDDING → pitcher_metrics_snapshots に INSERT
+
+[ドリフト検知時]
+  現在週のsnapshot embedding
+    → ML.DISTANCE (COSINE) vs 過去4週セントロイド
+    → semantic_drift_score として既存の DriftReport に追記
+```
+
+**球種別集計の理由**: フォーシーム・スライダー・カーブ・チェンジアップは球速・スピン・変化量がまったく異なる。全球種を混ぜて平均すると、例えば「フォーシームの球速低下」や「スライダーのスイープ角変化」といった意味のあるドリフトが打ち消し合ってしまうため、球種ごとの集計が必須。
+
+**ドリフトしきい値**:
+| スコア | ステータス |
+|--------|-----------|
+| < 0.10 | `stable` |
+| 0.10 – 0.20 | `warning` |
+| ≥ 0.20 | `critical` |
+
+**コンポーネント**:
+- `services/bq_drift_embedding_service.py` — BQ ML によるコサイン距離計算
+- `services/data_drift_service.py` — `DriftReport` に `semantic_drift` フィールドを追加
+- `queries/create_pitcher_metrics_snapshots.sql` — テーブルDDL
+- `queries/scheduled_pitcher_embedding_weekly.sql` — 週次Embedding生成スケジュールクエリ
+
+**新規BQリソース**:
+- `mlb_analytics_dash_25.pitcher_metrics_snapshots` — Embedding付き週次投球アーセナルスナップショット
+- BQ Scheduled Query: `pitcher_metrics_weekly_embedding`（毎週月曜 03:00 UTC）
+
 ### 技術機能
 - **AI搭載処理**: Gemini 2.5 Flashを使用したクエリ解析とレスポンス生成
 - **リアルタイムインターフェース**: ローディング状態とライブ更新付きのインタラクティブ体験
