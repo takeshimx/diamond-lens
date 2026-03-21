@@ -314,6 +314,45 @@ CI/CD Drift Check → Compare active model's training data vs latest season
 - `mlb_analytics_dash_25.llm_query_embeddings` — Embedding storage table
 - BQ Connection: `asia-northeast1.vertex_ai_connection`
 
+### 12. Embedding-Based Semantic Data Drift Detection
+**Status**: ✅ Production-ready
+
+**Overview**: Complements existing statistical drift detection (KS test / PSI) by detecting *semantic* shifts in pitching characteristics using BigQuery ML embeddings. Weekly snapshots of league-wide pitch arsenal metrics — aggregated per pitch type (4-Seam Fastball, Slider, Changeup, Curveball, etc.) — are embedded and compared against a 4-week rolling baseline using cosine distance.
+
+**Architecture**:
+```
+[Weekly Batch: Monday 03:00 UTC]
+  statcast_master
+    → Aggregate per pitch_name: avg_velo, avg_spin, pfx_x, pfx_z,
+      api_break_z_with_gravity, release_extension, usage_pct, avg_delta_run_exp
+    → Concatenate all pitch types into single metrics_text string
+    → ML.GENERATE_EMBEDDING → INSERT INTO pitcher_metrics_snapshots
+
+[At Drift Detection Time]
+  Current week snapshot embedding
+    → ML.DISTANCE (COSINE) vs 4-week baseline centroid
+    → semantic_drift_score appended to existing DriftReport
+```
+
+**Why per pitch type**: Each pitch type has completely different velocity ranges, spin rates, and movement profiles. Aggregating across all pitch types would mask meaningful changes — e.g., a league-wide velocity drop on fastballs or a shift in slider sweep angle.
+
+**Drift Thresholds**:
+| Score | Status |
+|-------|--------|
+| < 0.10 | `stable` |
+| 0.10 – 0.20 | `warning` |
+| ≥ 0.20 | `critical` |
+
+**Components**:
+- `services/bq_drift_embedding_service.py` — Cosine distance computation via BQ ML
+- `services/data_drift_service.py` — `semantic_drift` field added to `DriftReport`
+- `queries/create_pitcher_metrics_snapshots.sql` — Table DDL
+- `queries/scheduled_pitcher_embedding_weekly.sql` — Weekly embedding generation
+
+**New BQ Resources**:
+- `mlb_analytics_dash_25.pitcher_metrics_snapshots` — Weekly pitch arsenal snapshots with embeddings
+- BQ Scheduled Query: `pitcher_metrics_weekly_embedding` (Monday 03:00 UTC)
+
 ### Technical Features
 - **AI-Powered Processing**: Uses Gemini 2.5 Flash for query parsing and response generation
 - **Real-time Interface**: Interactive experience with loading states and live updates
