@@ -2,11 +2,16 @@ import os
 import json
 from backend.app.services.firebase_service import verify_firebase_token
 from backend.app.utils.structured_logger import get_logger
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
 
 logger = get_logger("auth")
 
 # 開発環境での認証スキップ（環境変数で制御）
 DISABLE_AUTH = os.getenv("DISABLE_AUTH", "false").lower() == "true"
+
+# Cloud Workflows の Service Account メール（環境変数で管理）
+WORKFLOWS_SA_EMAIL = os.getenv("WORKFLOWS_SA_EMAIL", "")
 
 # 認証不要のパス
 PUBLIC_PATHS = {
@@ -18,6 +23,11 @@ PUBLIC_PATHS = {
     "/redoc",
     "/api/v1/test",  # テスト用エンドポイント
     "/api/v1/test-post",  # テスト用POSTエンドポイント
+}
+
+# Cloud Workflows など内部サービスから呼ばれるパス（OIDC トークンで検証）
+INTERNAL_PATHS = {
+    "/api/v1/model-registry/retrain",
 }
 
 
@@ -62,10 +72,35 @@ class FirebaseAuthMiddleware:
             await self._send_401(send, "Missing or invalid Authorization header")
             return
 
-        id_token = auth_header[7:]  # "Bearer " を除去
+        token = auth_header[7:]  # "Bearer " を除去
+
+        # 内部パス（Cloud Workflows など）は OIDC トークンで検証
+        if path in INTERNAL_PATHS:
+            try:
+                audience = os.getenv("BACKEND_CLOUD_RUN_URL", "")
+                decoded = id_token.verify_oauth2_token(
+                    token,
+                    google_requests.Request(),
+                    audience=audience,
+                )
+                caller_email = decoded.get("email", "")
+                if WORKFLOWS_SA_EMAIL and caller_email != WORKFLOWS_SA_EMAIL:
+                    logger.warning("OIDC SA mismatch", email=caller_email)
+                    await self._send_401(send, "Unauthorized service account")
+                    return
+                scope["state"] = scope.get("state", {})
+                scope["state"]["user_id"] = caller_email
+                scope["state"]["user_email"] = caller_email
+                logger.info("OIDC auth success", email=caller_email)
+            except Exception as e:
+                logger.warning("OIDC auth failed", error=str(e))
+                await self._send_401(send, "Invalid or expired token")
+                return
+            await self.app(scope, receive, send)
+            return
 
         try:
-            decoded_token = verify_firebase_token(id_token)
+            decoded_token = verify_firebase_token(token)
             # user_id を scope に保存（エンドポイントから参照可能）
             scope["state"] = scope.get("state", {})
             scope["state"]["user_id"] = decoded_token["uid"]
