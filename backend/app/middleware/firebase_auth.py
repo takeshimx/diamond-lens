@@ -77,8 +77,7 @@ class FirebaseAuthMiddleware:
             try:
                 headers_dict = dict(scope.get("headers", []))
                 host = headers_dict.get(b"host", b"").decode()
-                scheme = scope.get("scheme", "https")
-                audience = f"{scheme}://{host}{path}"
+                audience = f"https://{host}{path}"
                 decoded = id_token.verify_oauth2_token(
                     token,
                     google_requests.Request(),
