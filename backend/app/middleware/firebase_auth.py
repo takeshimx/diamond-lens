@@ -10,8 +10,6 @@ logger = get_logger("auth")
 # 開発環境での認証スキップ（環境変数で制御）
 DISABLE_AUTH = os.getenv("DISABLE_AUTH", "false").lower() == "true"
 
-# Cloud Workflows の Service Account メール（環境変数で管理）
-WORKFLOWS_SA_EMAIL = os.getenv("WORKFLOWS_SA_EMAIL", "")
 
 # 認証不要のパス
 PUBLIC_PATHS = {
@@ -77,14 +75,18 @@ class FirebaseAuthMiddleware:
         # 内部パス（Cloud Workflows など）は OIDC トークンで検証
         if path in INTERNAL_PATHS:
             try:
-                audience = os.getenv("BACKEND_CLOUD_RUN_URL", "")
+                headers_dict = dict(scope.get("headers", []))
+                host = headers_dict.get(b"host", b"").decode()
+                scheme = scope.get("scheme", "https")
+                audience = f"{scheme}://{host}"
                 decoded = id_token.verify_oauth2_token(
                     token,
                     google_requests.Request(),
                     audience=audience,
                 )
                 caller_email = decoded.get("email", "")
-                if WORKFLOWS_SA_EMAIL and caller_email != WORKFLOWS_SA_EMAIL:
+                workflows_sa_email = os.getenv("WORKFLOWS_SA_EMAIL", "")
+                if workflows_sa_email and caller_email != workflows_sa_email:
                     logger.warning("OIDC SA mismatch", email=caller_email)
                     await self._send_401(send, "Unauthorized service account")
                     return
