@@ -93,6 +93,7 @@ An AI-powered analytics interface for exploring Major League Baseball statistics
 - **⚔️ Specialized Agents**:
   - **StatsAgent**: Expert in team/player season stats, trends, and group comparisons.
   - **MatchupAgent**: Expert in batter vs. pitcher head-to-head analytics and historic outcomes.
+  - **StrategyAgent** *(NEW — Phase 1 MVP)*: Cross-domain strategy analysis using Plan-and-Execute + Parallel Fan-Out pattern. Simultaneously invokes all 4 tools (batter stats, pitcher stats, matchup history, matchup analytics) via `asyncio.gather()` and synthesizes a structured 6-section strategy report. Renders a dedicated `StrategyReportCard` UI component.
 - **🏆 Professional Reports**: Generates structured analyst reports with headers, bullet points, and deep insights.
 - **⚖️ Fail-safe Generation**: Code-level guards to ensure complete, natural Japanese sentences without fragments.
 - **🔄 Reflection Loop (Self-Correction)**: Autonomous error recovery mechanism that detects SQL errors or empty query results and self-corrects by analyzing the root cause and retrying with improved parameters (max 2 retries). Intelligently classifies errors as retryable (syntax errors, empty results) vs non-retryable (permission, timeout, schema errors) to avoid wasteful retries.

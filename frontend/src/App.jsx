@@ -12,6 +12,7 @@ import StuffPlus from './components/StuffPlus.jsx';
 import AdvancedStats from './components/AdvancedStats.jsx';
 import VoiceInput from './components/VoiceInput.jsx';
 import MatchupAnalysisCard from './components/MatchupAnalysisCard.jsx';
+import StrategyReportCard from './components/StrategyReportCard.jsx';
 import { useAuth } from './hooks/useAuth';
 
 // Force dark mode on app load
@@ -283,6 +284,9 @@ const MLBChatApp = () => {
         // Matchup Card fields
         isMatchupCard: apiResponse.isMatchupCard || false,
         matchupData: apiResponse.matchupData || null,
+        // Strategy Report fields
+        isStrategyReport: apiResponse.isStrategyReport || false,
+        strategyData: apiResponse.strategyData || null,
         // Quality Warning
         qualityWarning: apiResponse.quality_warning || null
       };
@@ -1148,6 +1152,8 @@ const MLBChatApp = () => {
         steps: response.steps, // 思考プロセス
         isMatchupCard: response.isMatchupCard, // 対戦分析カード表示フラグ
         matchupData: response.matchupData, // 対戦分析データ
+        isStrategyReport: response.isStrategyReport || false, // 戦略レポートフラグ
+        strategyData: response.strategyData || null, // 戦略レポートデータ
         qualityWarning: response.qualityWarning || null, // 品質警告フラグ
         timestamp: new Date()
       };
@@ -1359,6 +1365,8 @@ const MLBChatApp = () => {
                         chartConfig: data.chartConfig,
                         isMatchupCard: data.isMatchupCard,
                         matchupData: data.matchupData,
+                        isStrategyReport: data.isStrategyReport || false,
+                        strategyData: data.strategyData || null,
                         isAgentic: true
                       };
 
@@ -2903,18 +2911,28 @@ const MLBChatApp = () => {
                           </div>
                         )}
 
-                        {/* メッセージテキスト */}
-                        <div className="mb-2">
-                          <p className="whitespace-pre-wrap">{message.content}</p>
-                          {/* ストリーミング中で内容がまだない場合のプレースホルダー */}
-                          {message.isStreaming && !message.content && (
-                            <div className="flex gap-1 text-gray-400">
-                              <span className="animate-pulse">●</span>
-                              <span className="animate-pulse" style={{ animationDelay: '0.15s' }}>●</span>
-                              <span className="animate-pulse" style={{ animationDelay: '0.3s' }}>●</span>
-                            </div>
-                          )}
-                        </div>
+                        {/* メッセージテキスト（戦略レポート時はカードで代替表示） */}
+                        {!message.isStrategyReport && (
+                          <div className="mb-2">
+                            <p className="whitespace-pre-wrap">{message.content}</p>
+                            {/* ストリーミング中で内容がまだない場合のプレースホルダー */}
+                            {message.isStreaming && !message.content && (
+                              <div className="flex gap-1 text-gray-400">
+                                <span className="animate-pulse">●</span>
+                                <span className="animate-pulse" style={{ animationDelay: '0.15s' }}>●</span>
+                                <span className="animate-pulse" style={{ animationDelay: '0.3s' }}>●</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {/* ストリーミング中の戦略レポートプレースホルダー */}
+                        {message.isStrategyReport && message.isStreaming && !message.content && (
+                          <div className="mb-2 flex gap-1 text-gray-400">
+                            <span className="animate-pulse">●</span>
+                            <span className="animate-pulse" style={{ animationDelay: '0.15s' }}>●</span>
+                            <span className="animate-pulse" style={{ animationDelay: '0.3s' }}>●</span>
+                          </div>
+                        )}
 
                         {/* 思考プロセス（エージェントモード時のみ表示） */}
                         {message.steps && message.steps.length > 0 && (
@@ -2963,6 +2981,11 @@ const MLBChatApp = () => {
                         {/* 対戦分析カード (Phase 6 - Incremental) */}
                         {message.isMatchupCard && message.matchupData && (
                           <MatchupAnalysisCard matchupData={message.matchupData} />
+                        )}
+
+                        {/* 戦略レポートカード (Phase 1 - StrategyAgent) */}
+                        {message.isStrategyReport && message.content && !message.isStreaming && (
+                          <StrategyReportCard finalAnswer={message.content} strategyData={message.strategyData} />
                         )}
 
                         {/* ===== フィードバック UI ===== */}

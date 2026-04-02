@@ -55,6 +55,7 @@ subgraph "Application Layer - Cloud Run"
                 Supervisor[SupervisorAgent<br/>Query Routing]
                 StatsAgent[StatsAgent<br/>Season Analytics]
                 MatchupAgent[MatchupAgent<br/>Matchup History]
+                StrategyAgent[StrategyAgent<br/>Strategy Analysis<br/>Parallel Fan-Out]
             end
         end
     end
@@ -95,9 +96,11 @@ subgraph "Application Layer - Cloud Run"
     MCPServer --> StandardAI
     Supervisor --> StatsAgent
     Supervisor --> MatchupAgent
+    Supervisor --> StrategyAgent
     StandardAI --> Frontend
     StatsAgent --> Frontend
     MatchupAgent --> Frontend
+    StrategyAgent --> Frontend
 
     subgraph "ML Model Architecture (3-Layer Separation)"
         TrainingLayer[Training Layer<br/>Local/Notebook<br/>scripts/train_and_register_ft_transformer.py]
