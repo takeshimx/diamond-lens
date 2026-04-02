@@ -160,7 +160,7 @@ def mlb_matchup_history_tool(batter_name: str, pitcher_name: str):
 
     query = f"""
     SELECT *
-    FROM `tksm-dash-test-25.mlb_analytics_dash_25.view_matchup_specific_history_2025`
+    FROM `tksm-dash-test-25.mlb_analytics_dash_25.view_matchup_specific_history`
     WHERE (
         (UPPER(batter_name) = UPPER(@batter_name)) OR
         (UPPER(batter_name) = UPPER(@batter_reversed)) OR
@@ -222,7 +222,7 @@ def mlb_matchup_analytics_tool(batter_name: str, pitcher_name: str):
     """
     query = f"""
     SELECT *
-    FROM `tksm-dash-test-25.mlb_analytics_dash_25.view_matchup_pitch_analytics_2021_2025`
+    FROM `tksm-dash-test-25.mlb_analytics_dash_25.view_matchup_pitch_analytics`
     WHERE (
         (UPPER(batter_name) = UPPER(@batter_name)) OR
         (UPPER(batter_name) = UPPER(@batter_reversed)) OR
@@ -720,13 +720,14 @@ def run_mlb_agent(query: str) -> dict:
     from .agents.batter_agents import BatterAgent
     from .agents.pitcher_agents import PitcherAgent
     from .agents.matchup_agent import MatchupAgent
+    from .agents.strategy_agent import StrategyAgent
 
     # Step 2: Route query
     supervisor = SupervisorAgent()
     agent_type = supervisor.route_query(query)
 
     logger.info(f"Supervisor routed to: {agent_type}", query=query, agent_type=agent_type)
-    
+
     # Step 3: Initialize model
     model = ChatGoogleGenerativeAI(
         model="gemini-2.0-flash",
@@ -746,6 +747,9 @@ def run_mlb_agent(query: str) -> dict:
         result = agent.run(query)
     elif agent_type == "stats":
         agent = StatsAgent(model=model)
+        result = agent.run(query)
+    elif agent_type == "strategy":
+        agent = StrategyAgent(model=model)
         result = agent.run(query)
     else: # fallback to stats at this point
         logger.warning(f"Unknown agent type: '{agent_type}', falling back to StatsAgent")
@@ -796,6 +800,7 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
     from .agents.batter_agents import BatterAgent
     from .agents.pitcher_agents import PitcherAgent
     from .agents.matchup_agent import MatchupAgent
+    from .agents.strategy_agent import StrategyAgent
 
     # Step 2: Route query
     supervisor = SupervisorAgent()
@@ -808,7 +813,7 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
         "agent_type": agent_type,
         "message": f"{agent_type}エージェントにルーティングしました"
     }
-    
+
     # Step 3: Initialize model
     model = ChatGoogleGenerativeAI(
         model="gemini-2.0-flash",
@@ -825,6 +830,8 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
         agent = PitcherAgent(model=model)
     elif agent_type == "stats":
         agent = StatsAgent(model=model)
+    elif agent_type == "strategy":
+        agent = StrategyAgent(model=model)
     else:
         stream_logger.warning(f"Unknown agent type: '{agent_type}', falling back to StatsAgent")
         agent = StatsAgent(model=model)
@@ -852,7 +859,9 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
         "chartType": "",
         "chartConfig": None,
         "isMatchupCard": False,
-        "matchupData": None
+        "matchupData": None,
+        # StrategyAgent用（他エージェントでは無視される）
+        "parallel_results": {},
     }
     
     # astream_events は async なので、ループで await する
@@ -880,7 +889,9 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
             "chartData": final_result.get("chartData"),
             "chartConfig": final_result.get("chartConfig"),
             "isMatchupCard": final_result.get("isMatchupCard", False),
-            "matchupData": final_result.get("matchupData")
+            "matchupData": final_result.get("matchupData"),
+            "isStrategyReport": final_result.get("isStrategyReport", False),
+            "strategyData": final_result.get("strategyData", None),
         }
         return
 
@@ -890,19 +901,32 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
         # ノード開始イベント
         if event_type == "on_chain_start":
             node_name = event.get("name", "")
-            if node_name in ["oracle", "executor", "synthesizer", "reflection"]:
+            if node_name in ["oracle", "executor", "synthesizer", "reflection",
+                             "planner", "parallel_executor", "aggregator", "strategist"]:
                 current_node = node_name
                 node_labels = {
+                    # 既存エージェントノード
                     "oracle": "質問を分析しています",
                     "executor": "データを取得しています",
                     "synthesizer": "回答を生成しています",
-                    "reflection": "🔄 エラーを分析し、修正を試みています"
+                    "reflection": "エラーを分析し、修正を試みています",
+                    # StrategyAgentノード
+                    "planner": "分析計画を立てています",
+                    "parallel_executor": "データを並列取得しています",
+                    "aggregator": "データを集約・検証しています",
+                    "strategist": "戦略レポートを生成しています",
                 }
                 node_details = {
+                    # 既存エージェントノード
                     "oracle": "ユーザーの質問を理解し、必要なツールを選択",
                     "executor": "BigQueryからMLBデータを取得",
                     "synthesizer": "取得したデータを基に最終レポートを作成",
-                    "reflection": "エラー原因を特定し、クエリを修正して再試行"
+                    "reflection": "エラー原因を特定し、クエリを修正して再試行",
+                    # StrategyAgentノード
+                    "planner": "打者・投手・対戦傾向の収集対象を決定",
+                    "parallel_executor": "4つのデータソースから並列でデータを取得",
+                    "aggregator": "並列取得結果を検証し、次の処理を判断",
+                    "strategist": "収集データを統合し、戦略分析レポートを作成",
                 }
 
                 # Reflectionノードの場合、リトライ回数も送信
@@ -975,7 +999,8 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
         # ノード終了イベント
         elif event_type == "on_chain_end":
             node_name = event.get("name", "")
-            if node_name in ["oracle", "executor", "synthesizer", "reflection"]:
+            if node_name in ["oracle", "executor", "synthesizer", "reflection",
+                             "planner", "parallel_executor", "aggregator", "strategist"]:
                 yield {
                     "type": "state_update",
                     "node": node_name,
@@ -1002,7 +1027,9 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
             "chartData": None,
             "chartConfig": None,
             "isMatchupCard": False,
-            "matchupData": None
+            "matchupData": None,
+            "isStrategyReport": agent_type == "strategy",
+            "strategyData": None,
         }
     else:
         # 蓄積された答えがない場合は agent.run() を実行
@@ -1020,7 +1047,9 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
             "chartData": final_result.get("chartData"),
             "chartConfig": final_result.get("chartConfig"),
             "isMatchupCard": final_result.get("isMatchupCard", False),
-            "matchupData": final_result.get("matchupData")
+            "matchupData": final_result.get("matchupData"),
+            "isStrategyReport": final_result.get("isStrategyReport", False),
+            "strategyData": final_result.get("strategyData", None),
         }
 
     stream_logger.info(f"✅ Stream execution completed", agent_type=agent_type)

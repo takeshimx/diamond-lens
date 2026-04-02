@@ -28,9 +28,15 @@ const AgentReasoningTracker = ({
 
     const getStepColor = (node, status) => {
         if (status === 'completed') return 'text-green-600 dark:text-green-400';
+        // 既存エージェントノード
         if (node === 'oracle') return 'text-blue-600 dark:text-blue-400';
         if (node === 'executor') return 'text-purple-600 dark:text-purple-400';
         if (node === 'synthesizer') return 'text-orange-600 dark:text-orange-400';
+        // StrategyAgentノード
+        if (node === 'planner') return 'text-indigo-600 dark:text-indigo-400';
+        if (node === 'parallel_executor') return 'text-violet-600 dark:text-violet-400';
+        if (node === 'aggregator') return 'text-teal-600 dark:text-teal-400';
+        if (node === 'strategist') return 'text-amber-600 dark:text-amber-400';
         return 'text-gray-600 dark:text-gray-400';
     };
 

@@ -95,19 +95,19 @@ QUERY_TYPE_CONFIG = {
     },
     "pitching_splits": {
         "inning": {
-            "table_id": "view_pitcher_summary_25_by_inning",
+            "table_id": "view_pitcher_summary_by_inning",
             "year_col": "game_year",
             "player_col": "pitcher_name",
             "available_metrics": ["pitch_count", "avg_release_speed", "avg_spin_rate", "whiff_rate", "hard_hit_rate", "avg_pfx_x", "avg_pfx_z", "avg_release_extension", "zone_rate", "avg_woba_against"]
         },
         "count_situation": {
-            "table_id": "view_pitcher_summary_25_by_count_situation",
+            "table_id": "view_pitcher_summary_by_count_situation",
             "year_col": "game_year",
             "player_col": "pitcher_name",
             "available_metrics": ["pitch_count", "avg_release_speed", "avg_spin_rate", "whiff_rate", "hard_hit_rate", "avg_pfx_x", "avg_pfx_z", "avg_release_extension", "zone_rate", "avg_woba_against"]
         },
         "runner_situation": {
-            "table_id": "view_pitcher_summary_25_by_runner_situation",
+            "table_id": "view_pitcher_summary_by_runner_situation",
             "year_col": "game_year",
             "player_col": "pitcher_name",
             "available_metrics": ["pitch_count", "avg_release_speed", "avg_spin_rate", "whiff_rate", "hard_hit_rate", "avg_pfx_x", "avg_pfx_z", "avg_release_extension", "zone_rate", "avg_woba_against"]

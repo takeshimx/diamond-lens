@@ -20,7 +20,7 @@ class SupervisorAgent:
         )
     
 
-    def route_query(self, query: str) -> Literal["batter", "pitcher", "stats", "matchup"]:
+    def route_query(self, query: str) -> Literal["batter", "pitcher", "stats", "matchup", "strategy"]:
         """
         Analyze query and route to appropriate agent.
 
@@ -38,7 +38,7 @@ class SupervisorAgent:
         agent_type = response.content.strip().lower()
 
         # Validation
-        if agent_type not in ["batter", "pitcher", "stats", "matchup"]:
+        if agent_type not in ["batter", "pitcher", "stats", "matchup", "strategy"]:
             return "stats"
 
         return agent_type

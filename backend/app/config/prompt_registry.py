@@ -18,7 +18,9 @@ PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 ACTIVE_VERSIONS: Dict[str, str] = {
     "parse_query": "v1",
     "generate_response": "v1",
-    "routing": "v1",
+    "routing": "v2",
+    "strategy_planner": "v1",
+    "strategy_synthesizer": "v1",
 }
 
 def get_prompt(prompt_name: str, **kwargs) -> str:
