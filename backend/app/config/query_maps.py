@@ -111,6 +111,12 @@ QUERY_TYPE_CONFIG = {
             "year_col": "game_year",
             "player_col": "pitcher_name",
             "available_metrics": ["pitch_count", "avg_release_speed", "avg_spin_rate", "whiff_rate", "hard_hit_rate", "avg_pfx_x", "avg_pfx_z", "avg_release_extension", "zone_rate", "avg_woba_against"]
+        },
+        "batter_stand": {
+            "table_id": "view_pitcher_summary_by_batter_stand",
+            "year_col": "game_year",
+            "player_col": "pitcher_name",
+            "available_metrics": ["pitch_count", "avg_release_speed", "avg_spin_rate", "whiff_rate", "hard_hit_rate", "avg_pfx_x", "avg_pfx_z", "avg_release_extension", "zone_rate", "avg_woba_against"]
         }
     }
 }

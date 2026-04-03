@@ -2626,7 +2626,7 @@ const MLBChatApp = () => {
         </div>
       ) : !user ? (
         // ===== ログイン画面 =====
-        <div className="flex items-center justify-center h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-black transition-colors duration-200">
+        <div className="fixed inset-0 flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-black transition-colors duration-200">
           <div className="bg-white dark:bg-gray-800 p-8 rounded-xl shadow-lg w-full max-w-md transition-colors duration-200">
             {/* ヘッダー */}
             <div className="text-center mb-6">
