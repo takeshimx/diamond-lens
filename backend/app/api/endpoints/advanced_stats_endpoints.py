@@ -11,6 +11,33 @@ service = AdvancedStatsService()
 
 
 # ==============================================================
+# P1: Pitch Tunnel Score
+# ==============================================================
+@router.get("/advanced-stats/pitching/pitch-tunnel/rankings")
+async def get_pitch_tunnel_rankings(
+    season: int = Query(2025, ge=2020, le=2027),
+    limit: int = Query(40, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """
+    P1 Pitch Tunnel Score ランキング
+
+    速球→変化球シーケンスで打者を騙せた割合（deception_rate）の
+    リーグ平均対比 z-score。
+    - deception = swinging_strike + called_strike
+    - score > 0: リーグ平均より騙し力が高い
+    """
+    try:
+        return await service.get_pitch_tunnel_rankings(
+            season=season,
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================
 # P6: Pitch Arsenal Effectiveness
 # ==============================================================
 @router.get("/advanced-stats/pitching/arsenal/rankings")

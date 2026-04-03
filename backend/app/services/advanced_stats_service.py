@@ -14,6 +14,7 @@ settings = get_settings()
 STATCAST_TABLE = settings.get_table_full_name("statcast_master")
 DIM_PLAYERS_TABLE = settings.get_table_full_name("dim_players_latest")
 DIM_TEAMS_TABLE = settings.get_table_full_name("dim_teams")
+TUNNEL_VIEW = settings.get_table_full_name("view_pitch_tunnel_stats")
 
 
 class AdvancedStatsService:
@@ -21,6 +22,115 @@ class AdvancedStatsService:
 
     def __init__(self):
         self.client = get_bq_client()
+
+    # ----------------------------------------------------------
+    # P1: Pitch Tunnel Score
+    # ----------------------------------------------------------
+    async def get_pitch_tunnel_rankings(
+        self,
+        season: int = 2025,
+        limit: int = 40,
+        offset: int = 0,
+    ) -> Dict:
+        """
+        P1 Pitch Tunnel Score ランキング
+
+        BQ View `view_pitch_tunnel_stats` を参照。
+        z-score・集計はView側で完結。サービスはseason絞り込みとページネーションのみ。
+        """
+        # pitcher_id を statcast_master から取得し team を JOIN
+        query = f"""
+            WITH base AS (
+                SELECT v.*,
+                    MIN(s.pitcher) AS pitcher_id
+                FROM `{TUNNEL_VIEW}` v
+                JOIN `{STATCAST_TABLE}` s
+                    ON v.player_name = s.player_name AND s.game_year = @season
+                WHERE v.game_year = @season
+                GROUP BY
+                    v.game_year, v.player_name, v.total_sequences, v.total_deceived,
+                    v.whiffs, v.called_strikes, v.deception_rate_pct,
+                    v.avg_release_diff, v.avg_velocity_diff, v.avg_plate_diff,
+                    v.pitch_tunnel_score
+            )
+            SELECT
+                b.*,
+                tm.abbreviation AS team_abbr
+            FROM base b
+            LEFT JOIN `{DIM_PLAYERS_TABLE}` p ON b.pitcher_id = p.mlbid
+            LEFT JOIN `{DIM_TEAMS_TABLE}` tm ON p.current_team_id = tm.team_id
+            ORDER BY pitch_tunnel_score DESC
+            LIMIT @limit OFFSET @offset
+        """
+
+        # scatter: リリース収束度 vs プレート発散度（トンネリングの本質的可視化）
+        scatter_query = f"""
+            SELECT
+                player_name,
+                avg_release_diff,
+                avg_plate_diff,
+                deception_rate_pct,
+                pitch_tunnel_score
+            FROM `{TUNNEL_VIEW}`
+            WHERE game_year = @season
+            ORDER BY pitch_tunnel_score DESC
+            LIMIT 300
+        """
+
+        params = [
+            ("season", "INT64", season),
+            ("limit", "INT64", limit),
+            ("offset", "INT64", offset),
+        ]
+        scatter_params = [
+            ("season", "INT64", season),
+        ]
+
+        try:
+            scatter_config = self._make_job_config(scatter_params)
+            scatter_df = self.client.query(scatter_query, job_config=scatter_config).to_dataframe()
+            scatter_all = [
+                {
+                    "player_name": row.get("player_name") or "",
+                    "avg_release_diff": float(row["avg_release_diff"]),
+                    "avg_plate_diff": float(row["avg_plate_diff"]),
+                    "deception_rate_pct": float(row["deception_rate_pct"]),
+                    "pitch_tunnel_score": float(row["pitch_tunnel_score"]),
+                }
+                for _, row in scatter_df.iterrows()
+            ]
+            total = len(scatter_all)
+
+            job_config = self._make_job_config(params)
+            df = self.client.query(query, job_config=job_config).to_dataframe()
+            rankings = [
+                {
+                    "player_name": row.get("player_name") or "",
+                    "team": row.get("team_abbr") or "",
+                    "total_sequences": int(row["total_sequences"]),
+                    "total_deceived": int(row["total_deceived"]),
+                    "whiffs": int(row["whiffs"]),
+                    "called_strikes": int(row["called_strikes"]),
+                    "deception_rate_pct": float(row["deception_rate_pct"]),
+                    "avg_release_diff": float(row["avg_release_diff"]),
+                    "avg_velocity_diff": float(row["avg_velocity_diff"]),
+                    "avg_plate_diff": float(row["avg_plate_diff"]),
+                    "pitch_tunnel_score": float(row["pitch_tunnel_score"]),
+                }
+                for _, row in df.iterrows()
+            ]
+
+            return {
+                "rankings": rankings,
+                "scatter_all": scatter_all,
+                "total": total,
+                "metric": "P1_pitch_tunnel",
+                "season": season,
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get pitch tunnel rankings: {e}")
+            raise
 
     # ----------------------------------------------------------
     # P6: Pitch Arsenal Effectiveness

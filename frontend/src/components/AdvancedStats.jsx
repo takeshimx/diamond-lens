@@ -12,7 +12,7 @@ import { useAuth } from '../hooks/useAuth';
 // Metric Definitions — 追加・削除はここだけ
 // ============================================================
 const PITCHING_METRICS = [
-  { id: 'P1', name: 'Pitch Tunnel Score', nameJp: 'ピッチトンネルスコア', question: '最も球の見分けがつきにくい投手は？', apiReady: false },
+  { id: 'P1', name: 'Pitch Tunnel Score', nameJp: 'ピッチトンネルスコア', question: '最も球の見分けがつきにくい投手は？', apiReady: true },
   { id: 'P2', name: 'Pressure Dominance', nameJp: 'プレッシャー支配力', question: '最もプレッシャーに強い投手は？', apiReady: false },
   { id: 'P3', name: 'Stamina Score', nameJp: 'スタミナスコア', question: '最もスタミナのある投手は？', apiReady: false },
   { id: 'P4', name: 'Two-Strike Finisher', nameJp: '2ストライク仕留め力', question: '最も追い込んでから仕留める投手は？', apiReady: false },
@@ -161,6 +161,7 @@ const AdvancedStats = () => {
   // --- Rankings state ---
   const [expandedMetric, setExpandedMetric] = useState(null);
   const [arsenalRankings, setArsenalRankings] = useState(null); // P6 live data (includes pitch_mix)
+  const [pitchTunnelRankings, setPitchTunnelRankings] = useState(null); // P1 live data
 
   // --- Profile state ---
   const [profilePlayerId, setProfilePlayerId] = useState(null);
@@ -207,6 +208,27 @@ const AdvancedStats = () => {
   };
 
   // ============================================================
+  // API Calls — P1 Pitch Tunnel
+  // ============================================================
+  const fetchPitchTunnelRankings = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({ season, limit: 40, offset: 0 });
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${BACKEND_URL}/api/v1/advanced-stats/pitching/pitch-tunnel/rankings?${params}`, { headers });
+      if (!res.ok) throw new Error(`API error: ${res.status}`);
+      const data = await res.json();
+      setPitchTunnelRankings(data);
+    } catch (e) {
+      console.error('Pitch tunnel rankings fetch failed:', e);
+      setError(e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ============================================================
   // API Calls — P6 Arsenal
   // ============================================================
   const fetchArsenalRankings = async () => {
@@ -229,15 +251,31 @@ const AdvancedStats = () => {
     }
   };
 
-  // Fetch P6 on mount and season change
+  // Fetch P1 & P6 on mount and season change
   useEffect(() => {
     if (category === 'pitching') {
+      fetchPitchTunnelRankings();
       fetchArsenalRankings();
     }
   }, [season, category]);
 
   // Build unified rankings data (mix real + dummy)
   const getRankingsForMetric = (metricId) => {
+    if (metricId === 'P1' && pitchTunnelRankings?.rankings) {
+      return pitchTunnelRankings.rankings.map((r, i) => ({
+        id: i,
+        name: r.player_name,
+        team: r.team || '',
+        score: r.pitch_tunnel_score,
+        deception_rate_pct: r.deception_rate_pct,
+        whiffs: r.whiffs,
+        called_strikes: r.called_strikes,
+        total_sequences: r.total_sequences,
+        avg_release_diff: r.avg_release_diff,
+        avg_velocity_diff: r.avg_velocity_diff,
+        avg_plate_diff: r.avg_plate_diff,
+      }));
+    }
     if (metricId === 'P6' && arsenalRankings?.rankings) {
       return arsenalRankings.rankings.map((r) => ({
         id: r.pitcher_id,
@@ -294,6 +332,178 @@ const AdvancedStats = () => {
             ))}
           </div>
         )}
+      </div>
+    );
+  };
+
+  // ============================================================
+  // P1 Pitch Tunnel Score — Metric Detail
+  // ============================================================
+  const PitchTunnelDetailView = () => {
+    const rawData = getRankingsForMetric('P1');
+    const metric = PITCHING_METRICS.find((m) => m.id === 'P1');
+    const scatterData = pitchTunnelRankings?.scatter_all || [];
+
+    const [sortKey, setSortKey] = React.useState('score');
+    const [sortDir, setSortDir] = React.useState('desc');
+
+    const handleSort = (key) => {
+      if (sortKey === key) {
+        setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+      } else {
+        setSortKey(key);
+        setSortDir('desc');
+      }
+    };
+
+    const data = [...rawData].sort((a, b) => {
+      const av = a[sortKey] ?? 0;
+      const bv = b[sortKey] ?? 0;
+      return sortDir === 'desc' ? bv - av : av - bv;
+    });
+
+    const topN = new Set(rawData.slice(0, 5).map((r) => r.name));
+
+    const SortIcon = ({ col }) => {
+      if (sortKey !== col) return <span className="text-gray-600 ml-0.5">⇅</span>;
+      return <span className="text-blue-400 ml-0.5">{sortDir === 'desc' ? '↓' : '↑'}</span>;
+    };
+
+    const SortTh = ({ col, label, right = true }) => (
+      <th
+        onClick={() => handleSort(col)}
+        className={`${right ? 'text-right' : 'text-left'} text-gray-400 py-2 px-2 cursor-pointer hover:text-white select-none transition-colors`}
+      >
+        {label}<SortIcon col={col} />
+      </th>
+    );
+
+    const getTunnelScoreColor = (score) => {
+      if (score >= 1.5) return 'text-green-400';
+      if (score >= 0.5) return 'text-emerald-400';
+      if (score >= 0)   return 'text-yellow-400';
+      return 'text-orange-400';
+    };
+
+    return (
+      <div className="space-y-4">
+        <button onClick={() => setExpandedMetric(null)}
+          className="flex items-center gap-1 text-gray-400 hover:text-white text-sm transition-colors">
+          <ChevronLeft className="w-4 h-4" /> Back to Overview
+        </button>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-bold text-white">{metric.id}. {metric.name} ({metric.nameJp})</h3>
+            <p className="text-sm text-gray-400 mt-0.5">
+              速球→変化球シーケンスで打者を騙せた割合（空振り＋見逃しストライク）のリーグ平均対比 z-score
+            </p>
+          </div>
+          <button onClick={fetchPitchTunnelRankings}
+            className="flex items-center gap-1.5 text-gray-400 hover:text-white text-xs transition-colors">
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+          {/* Left: Rankings Table */}
+          <div className="xl:col-span-2 bg-gray-800/50 border border-gray-700 rounded-xl p-4 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-700">
+                  <th className="text-left text-gray-400 py-2 px-2 w-8">#</th>
+                  <SortTh col="name"               label="Pitcher"     right={false} />
+                  <th className="text-left text-gray-400 py-2 px-2">Team</th>
+                  <SortTh col="total_sequences"    label="Seqs" />
+                  <SortTh col="deception_rate_pct" label="Deception%" />
+                  <SortTh col="whiffs"             label="Whiffs" />
+                  <SortTh col="called_strikes"     label="Called K" />
+                  <SortTh col="avg_release_diff"   label="Rel Diff" />
+                  <SortTh col="avg_velocity_diff"  label="Vel Diff" />
+                  <SortTh col="avg_plate_diff"     label="Plate Diff" />
+                  <SortTh col="score"              label="Score" />
+                </tr>
+              </thead>
+              <tbody>
+                {data.map((r, i) => (
+                  <tr key={i} className="border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors">
+                    <td className="py-2 px-2 text-gray-500 font-medium">{i + 1}</td>
+                    <td className="py-2 px-2 text-white font-medium">{r.name}</td>
+                    <td className="py-2 px-2 text-gray-400 text-xs">{r.team}</td>
+                    <td className="py-2 px-2 text-right text-gray-400 font-mono">{r.total_sequences?.toLocaleString()}</td>
+                    <td className="py-2 px-2 text-right text-cyan-400 font-mono">{r.deception_rate_pct?.toFixed(1)}%</td>
+                    <td className="py-2 px-2 text-right text-gray-300 font-mono">{r.whiffs}</td>
+                    <td className="py-2 px-2 text-right text-gray-300 font-mono">{r.called_strikes}</td>
+                    <td className="py-2 px-2 text-right text-gray-500 font-mono text-xs">{r.avg_release_diff?.toFixed(3)}</td>
+                    <td className="py-2 px-2 text-right text-gray-500 font-mono text-xs">{r.avg_velocity_diff?.toFixed(3)}</td>
+                    <td className="py-2 px-2 text-right text-gray-500 font-mono text-xs">{r.avg_plate_diff?.toFixed(3)}</td>
+                    <td className={`py-2 px-2 text-right font-bold font-mono ${getTunnelScoreColor(r.score)}`}>
+                      {r.score >= 0 ? '+' : ''}{r.score?.toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Right: Scatter + Info */}
+          <div className="space-y-4">
+            <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-1">
+                <h4 className="text-sm font-medium text-gray-300">Release Diff vs Plate Diff</h4>
+                <span className="text-[10px] text-gray-500">{scatterData.length} pitchers</span>
+              </div>
+              <p className="text-[10px] text-gray-500 mb-2">
+                左下 = リリース収束↑ / 上 = プレート発散↑ → 理想は <span className="text-indigo-400">左上</span>
+              </p>
+              <ResponsiveContainer width="100%" height={280}>
+                <ScatterChart margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                  <XAxis type="number" dataKey="avg_release_diff" name="Release Diff"
+                    stroke="#9ca3af" tick={{ fontSize: 10 }}
+                    label={{ value: 'Release Diff (lower = tighter)', position: 'insideBottom', offset: -12, fill: '#6b7280', fontSize: 10 }} />
+                  <YAxis type="number" dataKey="avg_plate_diff" name="Plate Diff"
+                    stroke="#9ca3af" tick={{ fontSize: 10 }}
+                    label={{ value: 'Plate Diff (higher = more break)', angle: -90, position: 'insideLeft', fill: '#6b7280', fontSize: 10 }} />
+                  <Tooltip content={<ChartTooltip />} cursor={{ strokeDasharray: '3 3' }} />
+                  <Scatter data={scatterData} fill="#6366f1">
+                    {scatterData.map((entry, i) => (
+                      <Cell key={i}
+                        fill={topN.has(entry.player_name) ? '#f59e0b' : '#6366f1'}
+                        fillOpacity={topN.has(entry.player_name) ? 0.9 : 0.5}
+                        r={topN.has(entry.player_name) ? 5 : 3} />
+                    ))}
+                  </Scatter>
+                </ScatterChart>
+              </ResponsiveContainer>
+              <div className="flex items-center gap-3 mt-1.5">
+                <div className="flex items-center gap-1">
+                  <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                  <span className="text-gray-500 text-[10px]">Top 5</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 opacity-50" />
+                  <span className="text-gray-500 text-[10px]">Others</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+              <h4 className="text-sm font-medium text-gray-300 mb-2">Calculation Details</h4>
+              <ul className="text-xs text-gray-400 space-y-1">
+                <li>算出ロジック</li>
+                <li className="ml-3">• 対象: FB (FF/SI/FC) → 変化球 (SL/ST/CH/FS/CU)</li>
+                <li className="ml-3">• deception = swinging_strike + called_strike</li>
+                <li className="ml-3">• Score = z-score(deception_rate)</li>
+                <li className="mt-2">参考指標（スコア外）</li>
+                <li className="ml-3 font-mono text-gray-500">• Rel Diff: リリース収束度</li>
+                <li className="ml-3 font-mono text-gray-500">• Vel Diff: 速度ベクトル収束度</li>
+                <li className="ml-3 font-mono text-gray-500">• Plate Diff: プレート発散度</li>
+                <li className="mt-2">フィルタ: 最低 100 シーケンス以上</li>
+              </ul>
+            </div>
+          </div>
+        </div>
       </div>
     );
   };
@@ -469,6 +679,11 @@ const AdvancedStats = () => {
   // RANKINGS VIEW
   // ============================================================
   const RankingsView = () => {
+    // P1 expanded → dedicated detail view
+    if (expandedMetric === 'P1' && category === 'pitching') {
+      return <PitchTunnelDetailView />;
+    }
+
     // P6 expanded → dedicated detail view
     if (expandedMetric === 'P6' && category === 'pitching') {
       return <ArsenalDetailView />;
@@ -533,19 +748,19 @@ const AdvancedStats = () => {
         {isLoading && (
           <div className="flex items-center gap-2 text-gray-400 text-sm">
             <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500" />
-            P6 Arsenal データ読み込み中...
+            データ読み込み中...
           </div>
         )}
         {error && (
           <div className="bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg px-4 py-2 text-sm">
-            P6 API Error: {error}
+            API Error: {error}
           </div>
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {metrics.map((metric) => {
             const data = getRankingsForMetric(metric.id).slice(0, 5);
-            const isLive = metric.apiReady && metric.id === 'P6' && arsenalRankings;
+            const isLive = (metric.id === 'P1' && !!pitchTunnelRankings) || (metric.id === 'P6' && !!arsenalRankings);
             return (
               <div key={metric.id} className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
                 <div className="flex items-center justify-between mb-3">
@@ -578,7 +793,11 @@ const AdvancedStats = () => {
                       <span className="text-gray-500 text-xs font-medium w-4">{i + 1}</span>
                       <span className="text-white text-sm font-medium flex-1 truncate">{r.name}</span>
                       <span className="text-gray-500 text-xs">{r.team}</span>
-                      {metric.id === 'P6' ? (
+                      {metric.id === 'P1' ? (
+                        <span className="text-sm font-bold w-16 text-right text-indigo-400 font-mono">
+                          {r.score >= 0 ? '+' : ''}{r.score?.toFixed(2)}
+                        </span>
+                      ) : metric.id === 'P6' ? (
                         <span className="text-sm font-bold w-16 text-right text-amber-400 font-mono">{r.score?.toFixed(3)}</span>
                       ) : (
                         <>
