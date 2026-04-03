@@ -14,7 +14,9 @@ settings = get_settings()
 STATCAST_TABLE = settings.get_table_full_name("statcast_master")
 DIM_PLAYERS_TABLE = settings.get_table_full_name("dim_players_latest")
 DIM_TEAMS_TABLE = settings.get_table_full_name("dim_teams")
-TUNNEL_VIEW = settings.get_table_full_name("view_pitch_tunnel_stats")
+TUNNEL_VIEW   = settings.get_table_full_name("view_pitch_tunnel_stats")
+FINISHER_VIEW = settings.get_table_full_name("view_pitch_2strikes_finisher_score")
+STAMINA_VIEW  = settings.get_table_full_name("view_pitch_stamina_score")
 
 
 class AdvancedStatsService:
@@ -130,6 +132,197 @@ class AdvancedStatsService:
 
         except Exception as e:
             logger.error(f"Failed to get pitch tunnel rankings: {e}")
+            raise
+
+    # ----------------------------------------------------------
+    # P4: Two-Strike Finisher Score
+    # ----------------------------------------------------------
+    async def get_finisher_rankings(
+        self,
+        season: int = 2025,
+        limit: int = 40,
+        offset: int = 0,
+    ) -> Dict:
+        """
+        P4 Two-Strike Finisher Score ランキング
+
+        BQ View `view_pitch_2strikes_finisher_score` を参照。
+        view 側で dim_players_latest・dim_teams と JOIN 済みのため、
+        サービス側は season 絞り込みとページネーションのみ。
+        """
+        query = f"""
+            SELECT
+                pitcher,
+                player_name,
+                abbreviation AS team_abbr,
+                total_2_strike_pitches,
+                primary_finishing_pitch,
+                whiff_rate,
+                put_away_woba,
+                finisher_score
+            FROM `{FINISHER_VIEW}`
+            WHERE game_year = @season
+            ORDER BY finisher_score DESC
+            LIMIT @limit OFFSET @offset
+        """
+
+        scatter_query = f"""
+            SELECT
+                player_name,
+                whiff_rate,
+                put_away_woba,
+                finisher_score
+            FROM `{FINISHER_VIEW}`
+            WHERE game_year = @season
+            ORDER BY finisher_score DESC
+            LIMIT 200
+        """
+
+        params = [
+            ("season", "INT64", season),
+            ("limit", "INT64", limit),
+            ("offset", "INT64", offset),
+        ]
+        scatter_params = [("season", "INT64", season)]
+
+        try:
+            scatter_config = self._make_job_config(scatter_params)
+            scatter_df = self.client.query(scatter_query, job_config=scatter_config).to_dataframe()
+            scatter_all = [
+                {
+                    "player_name": row.get("player_name") or "",
+                    "whiff_rate": float(row["whiff_rate"]),
+                    "put_away_woba": float(row["put_away_woba"]),
+                    "finisher_score": float(row["finisher_score"]),
+                }
+                for _, row in scatter_df.iterrows()
+            ]
+            total = len(scatter_all)
+
+            job_config = self._make_job_config(params)
+            df = self.client.query(query, job_config=job_config).to_dataframe()
+            rankings = [
+                {
+                    "pitcher_id": int(row["pitcher"]),
+                    "player_name": row.get("player_name") or "",
+                    "team": row.get("team_abbr") or "",
+                    "total_2_strike_pitches": int(row["total_2_strike_pitches"]),
+                    "primary_finishing_pitch": row.get("primary_finishing_pitch") or "",
+                    "whiff_rate": float(row["whiff_rate"]),
+                    "put_away_woba": float(row["put_away_woba"]),
+                    "finisher_score": float(row["finisher_score"]),
+                }
+                for _, row in df.iterrows()
+            ]
+
+            return {
+                "rankings": rankings,
+                "scatter_all": scatter_all,
+                "total": total,
+                "metric": "P4_two_strike_finisher",
+                "season": season,
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get finisher rankings: {e}")
+            raise
+
+    # ----------------------------------------------------------
+    # P3: Stamina Score
+    # ----------------------------------------------------------
+    async def get_stamina_rankings(
+        self,
+        season: int = 2025,
+        limit: int = 40,
+        offset: int = 0,
+    ) -> Dict:
+        """
+        P3 Stamina Score ランキング
+
+        BQ View `view_pitch_stamina_score` を参照。
+        view 側で dim_players_master・dim_teams と JOIN 済み。
+        """
+        query = f"""
+            SELECT
+                pitcher,
+                player_name,
+                team_abbr,
+                games,
+                ip,
+                avg_speed_slope,
+                avg_spin_slope,
+                run_exp_1st,
+                run_exp_3rd_plus,
+                tto_delta,
+                stamina_score
+            FROM `{STAMINA_VIEW}`
+            WHERE game_year = @season
+            ORDER BY stamina_score DESC
+            LIMIT @limit OFFSET @offset
+        """
+
+        scatter_query = f"""
+            SELECT
+                player_name,
+                avg_speed_slope,
+                tto_delta,
+                stamina_score
+            FROM `{STAMINA_VIEW}`
+            WHERE game_year = @season
+            ORDER BY stamina_score DESC
+            LIMIT 200
+        """
+
+        params = [
+            ("season", "INT64", season),
+            ("limit",  "INT64", limit),
+            ("offset", "INT64", offset),
+        ]
+        scatter_params = [("season", "INT64", season)]
+
+        try:
+            scatter_config = self._make_job_config(scatter_params)
+            scatter_df = self.client.query(scatter_query, job_config=scatter_config).to_dataframe()
+            scatter_all = [
+                {
+                    "player_name":    row.get("player_name") or "",
+                    "avg_speed_slope": float(row["avg_speed_slope"]),
+                    "tto_delta":       float(row["tto_delta"]),
+                    "stamina_score":   float(row["stamina_score"]),
+                }
+                for _, row in scatter_df.iterrows()
+            ]
+            total = len(scatter_all)
+
+            job_config = self._make_job_config(params)
+            df = self.client.query(query, job_config=job_config).to_dataframe()
+            rankings = [
+                {
+                    "pitcher_id":      int(row["pitcher"]),
+                    "player_name":     row.get("player_name") or "",
+                    "team":            row.get("team_abbr") or "",
+                    "games":           int(row["games"]),
+                    "ip":              float(row["ip"]),
+                    "avg_speed_slope": float(row["avg_speed_slope"]),
+                    "avg_spin_slope":  float(row["avg_spin_slope"]),
+                    "run_exp_1st":     float(row["run_exp_1st"]),
+                    "run_exp_3rd_plus":float(row["run_exp_3rd_plus"]),
+                    "tto_delta":       float(row["tto_delta"]),
+                    "stamina_score":   float(row["stamina_score"]),
+                }
+                for _, row in df.iterrows()
+            ]
+
+            return {
+                "rankings":   rankings,
+                "scatter_all": scatter_all,
+                "total":      total,
+                "metric":     "P3_stamina",
+                "season":     season,
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get stamina rankings: {e}")
             raise
 
     # ----------------------------------------------------------

@@ -14,8 +14,8 @@ import { useAuth } from '../hooks/useAuth';
 const PITCHING_METRICS = [
   { id: 'P1', name: 'Pitch Tunnel Score', nameJp: 'ピッチトンネルスコア', question: '最も球の見分けがつきにくい投手は？', apiReady: true },
   { id: 'P2', name: 'Pressure Dominance', nameJp: 'プレッシャー支配力', question: '最もプレッシャーに強い投手は？', apiReady: false },
-  { id: 'P3', name: 'Stamina Score', nameJp: 'スタミナスコア', question: '最もスタミナのある投手は？', apiReady: false },
-  { id: 'P4', name: 'Two-Strike Finisher', nameJp: '2ストライク仕留め力', question: '最も追い込んでから仕留める投手は？', apiReady: false },
+  { id: 'P3', name: 'Stamina Score', nameJp: 'スタミナスコア', question: '最もスタミナのある投手は？', apiReady: true },
+  { id: 'P4', name: 'Two-Strike Finisher', nameJp: '2ストライク仕留め力', question: '最も追い込んでから仕留める投手は？', apiReady: true },
   { id: 'P5', name: 'Command Precision', nameJp: 'コマンド精度', question: '最もコントロールの良い投手は？', apiReady: false },
   { id: 'P6', name: 'Arsenal Effectiveness', nameJp: '球種構成効果', question: '最も多彩で効果的な球種構成は？', apiReady: true },
   { id: 'P7', name: 'First-Pitch Strike', nameJp: '初球ストライク支配力', question: '初球の支配力が最も高い投手は？', apiReady: false },
@@ -162,6 +162,8 @@ const AdvancedStats = () => {
   const [expandedMetric, setExpandedMetric] = useState(null);
   const [arsenalRankings, setArsenalRankings] = useState(null); // P6 live data (includes pitch_mix)
   const [pitchTunnelRankings, setPitchTunnelRankings] = useState(null); // P1 live data
+  const [finisherRankings, setFinisherRankings] = useState(null); // P4 live data
+  const [staminaRankings, setStaminaRankings]   = useState(null); // P3 live data
 
   // --- Profile state ---
   const [profilePlayerId, setProfilePlayerId] = useState(null);
@@ -251,10 +253,54 @@ const AdvancedStats = () => {
     }
   };
 
-  // Fetch P1 & P6 on mount and season change
+  // ============================================================
+  // API Calls — P3 Stamina Score
+  // ============================================================
+  const fetchStaminaRankings = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({ season, limit: 40, offset: 0 });
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${BACKEND_URL}/api/v1/advanced-stats/pitching/stamina/rankings?${params}`, { headers });
+      if (!res.ok) throw new Error(`API error: ${res.status}`);
+      const data = await res.json();
+      setStaminaRankings(data);
+    } catch (e) {
+      console.error('Stamina rankings fetch failed:', e);
+      setError(e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ============================================================
+  // API Calls — P4 Two-Strike Finisher
+  // ============================================================
+  const fetchFinisherRankings = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({ season, limit: 40, offset: 0 });
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${BACKEND_URL}/api/v1/advanced-stats/pitching/finisher/rankings?${params}`, { headers });
+      if (!res.ok) throw new Error(`API error: ${res.status}`);
+      const data = await res.json();
+      setFinisherRankings(data);
+    } catch (e) {
+      console.error('Finisher rankings fetch failed:', e);
+      setError(e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Fetch P1, P3, P4 & P6 on mount and season change
   useEffect(() => {
     if (category === 'pitching') {
       fetchPitchTunnelRankings();
+      fetchStaminaRankings();
+      fetchFinisherRankings();
       fetchArsenalRankings();
     }
   }, [season, category]);
@@ -274,6 +320,33 @@ const AdvancedStats = () => {
         avg_release_diff: r.avg_release_diff,
         avg_velocity_diff: r.avg_velocity_diff,
         avg_plate_diff: r.avg_plate_diff,
+      }));
+    }
+    if (metricId === 'P3' && staminaRankings?.rankings) {
+      return staminaRankings.rankings.map((r) => ({
+        id: r.pitcher_id,
+        name: r.player_name,
+        team: r.team || '',
+        score: r.stamina_score,
+        games: r.games,
+        ip: r.ip,
+        avg_speed_slope: r.avg_speed_slope,
+        avg_spin_slope: r.avg_spin_slope,
+        run_exp_1st: r.run_exp_1st,
+        run_exp_3rd_plus: r.run_exp_3rd_plus,
+        tto_delta: r.tto_delta,
+      }));
+    }
+    if (metricId === 'P4' && finisherRankings?.rankings) {
+      return finisherRankings.rankings.map((r) => ({
+        id: r.pitcher_id,
+        name: r.player_name,
+        team: r.team || '',
+        score: r.finisher_score,
+        whiff_rate: r.whiff_rate,
+        put_away_woba: r.put_away_woba,
+        total_2_strike_pitches: r.total_2_strike_pitches,
+        primary_finishing_pitch: r.primary_finishing_pitch,
       }));
     }
     if (metricId === 'P6' && arsenalRankings?.rankings) {
@@ -676,12 +749,357 @@ const AdvancedStats = () => {
   };
 
   // ============================================================
+  // P3 Stamina Score — Metric Detail
+  // ============================================================
+  const StaminaDetailView = () => {
+    const rawData = getRankingsForMetric('P3');
+    const metric  = PITCHING_METRICS.find((m) => m.id === 'P3');
+    const scatterData = staminaRankings?.scatter_all || [];
+    const topN = new Set(rawData.slice(0, 5).map((r) => r.name));
+
+    const [sortKey, setSortKey] = React.useState('score');
+    const [sortDir, setSortDir] = React.useState('desc');
+
+    const handleSort = (key) => {
+      if (sortKey === key) setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+      else { setSortKey(key); setSortDir('desc'); }
+    };
+
+    // avg_speed_slope / avg_spin_slope は 0 に近いほど良い（降順でソート時は逆転）
+    const slopeKeys = new Set(['avg_speed_slope', 'avg_spin_slope']);
+    const data = [...rawData].sort((a, b) => {
+      const av = a[sortKey] ?? 0;
+      const bv = b[sortKey] ?? 0;
+      const inv = slopeKeys.has(sortKey);
+      return (sortDir === 'desc') !== inv ? bv - av : av - bv;
+    });
+
+    const SortIcon = ({ col }) => {
+      if (sortKey !== col) return <span className="text-gray-600 ml-0.5">⇅</span>;
+      return <span className="text-blue-400 ml-0.5">{sortDir === 'desc' ? '↓' : '↑'}</span>;
+    };
+    const SortTh = ({ col, label, right = true }) => (
+      <th onClick={() => handleSort(col)}
+        className={`${right ? 'text-right' : 'text-left'} text-gray-400 py-2 px-2 cursor-pointer hover:text-white select-none transition-colors`}>
+        {label}<SortIcon col={col} />
+      </th>
+    );
+
+    const getSlopeColor = (v) => {
+      if (v >= -0.005) return 'text-green-400';
+      if (v >= -0.015) return 'text-emerald-400';
+      if (v >= -0.03)  return 'text-yellow-400';
+      return 'text-orange-400';
+    };
+
+    return (
+      <div className="space-y-4">
+        <button onClick={() => setExpandedMetric(null)}
+          className="flex items-center gap-1 text-gray-400 hover:text-white text-sm transition-colors">
+          <ChevronLeft className="w-4 h-4" /> Back to Overview
+        </button>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-bold text-white">{metric.id}. {metric.name} ({metric.nameJp})</h3>
+            <p className="text-sm text-gray-400 mt-0.5">
+              球速・回転数の投球数対比減衰スロープ（70%）と打順3巡目以降の run expectancy 差分（30%）の合成スコア
+            </p>
+          </div>
+          <button onClick={fetchStaminaRankings}
+            className="flex items-center gap-1.5 text-gray-400 hover:text-white text-xs transition-colors">
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+          {/* Left: Rankings Table */}
+          <div className="xl:col-span-2 bg-gray-800/50 border border-gray-700 rounded-xl p-4 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-700">
+                  <th className="text-left text-gray-400 py-2 px-2 w-8">#</th>
+                  <SortTh col="name"            label="Pitcher"       right={false} />
+                  <th className="text-left text-gray-400 py-2 px-2">Team</th>
+                  <SortTh col="ip"              label="IP" />
+                  <SortTh col="avg_speed_slope" label="Spd Slope" />
+                  <SortTh col="avg_spin_slope"  label="Spin Slope" />
+                  <SortTh col="run_exp_1st"     label="RE 1st TTO" />
+                  <SortTh col="run_exp_3rd_plus" label="RE 3rd+ TTO" />
+                  <SortTh col="tto_delta"       label="TTO Δ" />
+                  <SortTh col="score"           label="Score" />
+                </tr>
+              </thead>
+              <tbody>
+                {data.map((r, i) => (
+                  <tr key={i} className="border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors">
+                    <td className="py-2 px-2 text-gray-500 font-medium">{i + 1}</td>
+                    <td className="py-2 px-2 text-white font-medium">{r.name}</td>
+                    <td className="py-2 px-2 text-gray-400 text-xs">{r.team}</td>
+                    <td className="py-2 px-2 text-right text-gray-300 font-mono">{r.ip?.toFixed(1)}</td>
+                    <td className={`py-2 px-2 text-right font-mono text-xs ${getSlopeColor(r.avg_speed_slope)}`}>{r.avg_speed_slope?.toFixed(4)}</td>
+                    <td className={`py-2 px-2 text-right font-mono text-xs ${getSlopeColor(r.avg_spin_slope)}`}>{r.avg_spin_slope?.toFixed(3)}</td>
+                    <td className="py-2 px-2 text-right text-gray-400 font-mono text-xs">{r.run_exp_1st?.toFixed(4)}</td>
+                    <td className="py-2 px-2 text-right text-gray-400 font-mono text-xs">{r.run_exp_3rd_plus?.toFixed(4)}</td>
+                    <td className="py-2 px-2 text-right text-cyan-400 font-mono">{r.tto_delta?.toFixed(4)}</td>
+                    <td className="py-2 px-2 text-right font-bold font-mono text-emerald-400">{r.score?.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Right: Scatter + Info */}
+          <div className="space-y-4">
+            <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-1">
+                <h4 className="text-sm font-medium text-gray-300">Speed Decay vs TTO Delta</h4>
+                <span className="text-[10px] text-gray-500">{scatterData.length} pitchers</span>
+              </div>
+              <p className="text-[10px] text-gray-500 mb-2">
+                理想は <span className="text-green-400">右上</span>（球速維持 ＋ TTO差なし）
+              </p>
+              <ResponsiveContainer width="100%" height={280}>
+                <ScatterChart margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                  <XAxis type="number" dataKey="avg_speed_slope" name="Speed Slope"
+                    tickFormatter={(v) => v.toFixed(3)}
+                    stroke="#9ca3af" tick={{ fontSize: 10 }}
+                    label={{ value: 'Speed Slope (→ 0 = better)', position: 'insideBottom', offset: -12, fill: '#6b7280', fontSize: 10 }} />
+                  <YAxis type="number" dataKey="tto_delta" name="TTO Delta"
+                    tickFormatter={(v) => v.toFixed(3)}
+                    stroke="#9ca3af" tick={{ fontSize: 10 }}
+                    label={{ value: 'TTO Δ (higher = better)', angle: -90, position: 'insideLeft', fill: '#6b7280', fontSize: 10 }} />
+                  <Tooltip content={<ChartTooltip />} cursor={{ strokeDasharray: '3 3' }} />
+                  <Scatter data={scatterData}>
+                    {scatterData.map((entry, i) => (
+                      <Cell key={i}
+                        fill={topN.has(entry.player_name) ? '#f59e0b' : '#10b981'}
+                        fillOpacity={topN.has(entry.player_name) ? 0.9 : 0.45}
+                        r={topN.has(entry.player_name) ? 5 : 3} />
+                    ))}
+                  </Scatter>
+                </ScatterChart>
+              </ResponsiveContainer>
+              <div className="flex items-center gap-3 mt-1.5">
+                <div className="flex items-center gap-1">
+                  <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                  <span className="text-gray-500 text-[10px]">Top 5</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 opacity-50" />
+                  <span className="text-gray-500 text-[10px]">Others</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+              <h4 className="text-sm font-medium text-gray-300 mb-2">Calculation Details</h4>
+              <ul className="text-xs text-gray-400 space-y-1">
+                <li>算出ロジック</li>
+                <li className="ml-3">• Speed Slope: pitch_number vs release_speed の線形回帰傾き</li>
+                <li className="ml-3">• Spin Slope: pitch_number vs release_spin_rate の線形回帰傾き</li>
+                <li className="ml-3">• TTO Δ: 3巡目以降 − 1巡目の delta_pitcher_run_exp</li>
+                <li className="ml-3">• Score = Speed Z×0.4 + Spin Z×0.3 + TTO Z×0.3</li>
+                <li className="mt-2">入力カラム</li>
+                <li className="ml-3 font-mono text-gray-500">release_speed, release_spin_rate, pitch_number, n_thruorder_pitcher</li>
+                <li className="mt-2">フィルタ: 100 IP 以上</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ============================================================
+  // P4 Two-Strike Finisher — Metric Detail
+  // ============================================================
+  const FinisherDetailView = () => {
+    const rawData = getRankingsForMetric('P4');
+    const metric = PITCHING_METRICS.find((m) => m.id === 'P4');
+    const scatterData = finisherRankings?.scatter_all || [];
+    const topN = new Set(rawData.slice(0, 5).map((r) => r.name));
+
+    const [sortKey, setSortKey] = React.useState('score');
+    const [sortDir, setSortDir] = React.useState('desc');
+
+    const handleSort = (key) => {
+      if (sortKey === key) {
+        setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+      } else {
+        setSortKey(key);
+        setSortDir('desc');
+      }
+    };
+
+    const data = [...rawData].sort((a, b) => {
+      const av = a[sortKey] ?? 0;
+      const bv = b[sortKey] ?? 0;
+      // put_away_woba は小さいほど良いので昇順・降順を反転
+      const inv = sortKey === 'put_away_woba';
+      return (sortDir === 'desc') !== inv ? bv - av : av - bv;
+    });
+
+    const SortIcon = ({ col }) => {
+      if (sortKey !== col) return <span className="text-gray-600 ml-0.5">⇅</span>;
+      return <span className="text-blue-400 ml-0.5">{sortDir === 'desc' ? '↓' : '↑'}</span>;
+    };
+    const SortTh = ({ col, label, right = true }) => (
+      <th
+        onClick={() => handleSort(col)}
+        className={`${right ? 'text-right' : 'text-left'} text-gray-400 py-2 px-2 cursor-pointer hover:text-white select-none transition-colors`}
+      >
+        {label}<SortIcon col={col} />
+      </th>
+    );
+
+    const getFinisherColor = (score) => {
+      if (score >= 1.2) return 'text-green-400';
+      if (score >= 0.8) return 'text-emerald-400';
+      if (score >= 0.4) return 'text-yellow-400';
+      return 'text-orange-400';
+    };
+
+    return (
+      <div className="space-y-4">
+        <button onClick={() => setExpandedMetric(null)}
+          className="flex items-center gap-1 text-gray-400 hover:text-white text-sm transition-colors">
+          <ChevronLeft className="w-4 h-4" /> Back to Overview
+        </button>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-bold text-white">{metric.id}. {metric.name} ({metric.nameJp})</h3>
+            <p className="text-sm text-gray-400 mt-0.5">
+              2ストライク時の Whiff Rate（50%）と被 wOBA の低さ（50%）を合成した決め球力スコア
+            </p>
+          </div>
+          <button onClick={fetchFinisherRankings}
+            className="flex items-center gap-1.5 text-gray-400 hover:text-white text-xs transition-colors">
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+          {/* Left: Rankings Table */}
+          <div className="xl:col-span-2 bg-gray-800/50 border border-gray-700 rounded-xl p-4 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-700">
+                  <th className="text-left text-gray-400 py-2 px-2 w-8">#</th>
+                  <SortTh col="name"                   label="Pitcher"        right={false} />
+                  <th className="text-left text-gray-400 py-2 px-2">Team</th>
+                  <SortTh col="total_2_strike_pitches" label="2K Pitches" />
+                  <th className="text-left text-gray-400 py-2 px-2">Primary Pitch</th>
+                  <SortTh col="whiff_rate"             label="Whiff%" />
+                  <SortTh col="put_away_woba"          label="Put Away wOBA" />
+                  <SortTh col="score"                  label="Score" />
+                </tr>
+              </thead>
+              <tbody>
+                {data.map((r, i) => (
+                  <tr key={i} className="border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors">
+                    <td className="py-2 px-2 text-gray-500 font-medium">{i + 1}</td>
+                    <td className="py-2 px-2 text-white font-medium">{r.name}</td>
+                    <td className="py-2 px-2 text-gray-400 text-xs">{r.team}</td>
+                    <td className="py-2 px-2 text-right text-gray-300 font-mono">{r.total_2_strike_pitches?.toLocaleString()}</td>
+                    <td className="py-2 px-2">
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-medium"
+                        style={{ backgroundColor: `${getPitchColor(r.primary_finishing_pitch)}22`, color: getPitchColor(r.primary_finishing_pitch) }}>
+                        {r.primary_finishing_pitch || '—'}
+                      </span>
+                    </td>
+                    <td className="py-2 px-2 text-right text-cyan-400 font-mono">{r.whiff_rate != null ? `${(r.whiff_rate * 100).toFixed(1)}%` : '—'}</td>
+                    <td className="py-2 px-2 text-right text-amber-400 font-mono">{r.put_away_woba?.toFixed(3)}</td>
+                    <td className={`py-2 px-2 text-right font-bold font-mono ${getFinisherColor(r.score)}`}>
+                      {r.score?.toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Right: Scatter + Info */}
+          <div className="space-y-4">
+            <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-1">
+                <h4 className="text-sm font-medium text-gray-300">Whiff% vs Put Away wOBA</h4>
+                <span className="text-[10px] text-gray-500">{scatterData.length} pitchers</span>
+              </div>
+              <p className="text-[10px] text-gray-500 mb-2">
+                理想は <span className="text-green-400">右下</span>（Whiff% 高い ＋ wOBA 低い）
+              </p>
+              <ResponsiveContainer width="100%" height={280}>
+                <ScatterChart margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                  <XAxis type="number" dataKey="whiff_rate" name="Whiff Rate"
+                    tickFormatter={(v) => `${(v * 100).toFixed(0)}%`}
+                    stroke="#9ca3af" tick={{ fontSize: 10 }}
+                    label={{ value: 'Whiff% (higher = better)', position: 'insideBottom', offset: -12, fill: '#6b7280', fontSize: 10 }} />
+                  <YAxis type="number" dataKey="put_away_woba" name="Put Away wOBA"
+                    stroke="#9ca3af" tick={{ fontSize: 10 }}
+                    label={{ value: 'Put Away wOBA (lower = better)', angle: -90, position: 'insideLeft', fill: '#6b7280', fontSize: 10 }} />
+                  <Tooltip content={<ChartTooltip />} cursor={{ strokeDasharray: '3 3' }} />
+                  <Scatter data={scatterData}>
+                    {scatterData.map((entry, i) => (
+                      <Cell key={i}
+                        fill={topN.has(entry.player_name) ? '#f59e0b' : '#22d3ee'}
+                        fillOpacity={topN.has(entry.player_name) ? 0.9 : 0.45}
+                        r={topN.has(entry.player_name) ? 5 : 3} />
+                    ))}
+                  </Scatter>
+                </ScatterChart>
+              </ResponsiveContainer>
+              <div className="flex items-center gap-3 mt-1.5">
+                <div className="flex items-center gap-1">
+                  <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                  <span className="text-gray-500 text-[10px]">Top 5</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 opacity-50" />
+                  <span className="text-gray-500 text-[10px]">Others</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+              <h4 className="text-sm font-medium text-gray-300 mb-2">Calculation Details</h4>
+              <ul className="text-xs text-gray-400 space-y-1">
+                <li>算出ロジック</li>
+                <li className="ml-3">• 対象: 2ストライクカウント時の全投球</li>
+                <li className="ml-3">• Whiff Rate: 空振り / スイング数</li>
+                <li className="ml-3">• Put Away wOBA: 2K時の被 wOBA 平均（低いほど良）</li>
+                <li className="ml-3">• Score = Whiff Rate × 0.5 + (1 − wOBA) Z-score × 0.5</li>
+                <li className="mt-2">入力カラム</li>
+                <li className="ml-3 font-mono text-gray-500">strikes, description, woba_value</li>
+                <li className="mt-2">フィルタ: 最低 100 球（2K）以上</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ============================================================
   // RANKINGS VIEW
   // ============================================================
   const RankingsView = () => {
     // P1 expanded → dedicated detail view
     if (expandedMetric === 'P1' && category === 'pitching') {
       return <PitchTunnelDetailView />;
+    }
+
+    // P3 expanded → dedicated detail view
+    if (expandedMetric === 'P3' && category === 'pitching') {
+      return <StaminaDetailView />;
+    }
+
+    // P4 expanded → dedicated detail view
+    if (expandedMetric === 'P4' && category === 'pitching') {
+      return <FinisherDetailView />;
     }
 
     // P6 expanded → dedicated detail view
@@ -760,7 +1178,7 @@ const AdvancedStats = () => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {metrics.map((metric) => {
             const data = getRankingsForMetric(metric.id).slice(0, 5);
-            const isLive = (metric.id === 'P1' && !!pitchTunnelRankings) || (metric.id === 'P6' && !!arsenalRankings);
+            const isLive = (metric.id === 'P1' && !!pitchTunnelRankings) || (metric.id === 'P3' && !!staminaRankings) || (metric.id === 'P4' && !!finisherRankings) || (metric.id === 'P6' && !!arsenalRankings);
             return (
               <div key={metric.id} className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
                 <div className="flex items-center justify-between mb-3">
@@ -797,6 +1215,10 @@ const AdvancedStats = () => {
                         <span className="text-sm font-bold w-16 text-right text-indigo-400 font-mono">
                           {r.score >= 0 ? '+' : ''}{r.score?.toFixed(2)}
                         </span>
+                      ) : metric.id === 'P3' ? (
+                        <span className="text-sm font-bold w-16 text-right text-emerald-400 font-mono">{r.score?.toFixed(2)}</span>
+                      ) : metric.id === 'P4' ? (
+                        <span className="text-sm font-bold w-16 text-right text-cyan-400 font-mono">{r.score?.toFixed(2)}</span>
                       ) : metric.id === 'P6' ? (
                         <span className="text-sm font-bold w-16 text-right text-amber-400 font-mono">{r.score?.toFixed(3)}</span>
                       ) : (

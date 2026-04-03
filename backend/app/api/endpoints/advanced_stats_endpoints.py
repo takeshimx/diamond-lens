@@ -38,6 +38,55 @@ async def get_pitch_tunnel_rankings(
 
 
 # ==============================================================
+# P3: Stamina Score
+# ==============================================================
+@router.get("/advanced-stats/pitching/stamina/rankings")
+async def get_stamina_rankings(
+    season: int = Query(2025, ge=2020, le=2027),
+    limit: int = Query(40, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """
+    P3 Stamina Score ランキング
+
+    球速・回転数の投球数に対する減衰スロープ（40%+30%）と
+    打順巡目別 run expectancy 差分（30%）の合成スコア。
+    """
+    try:
+        return await service.get_stamina_rankings(
+            season=season,
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================
+# P4: Two-Strike Finisher Score
+# ==============================================================
+@router.get("/advanced-stats/pitching/finisher/rankings")
+async def get_finisher_rankings(
+    season: int = Query(2025, ge=2020, le=2027),
+    limit: int = Query(40, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """
+    P4 Two-Strike Finisher Score ランキング
+
+    2ストライク時の whiff_rate と被 wOBA から算出した合成スコア。
+    """
+    try:
+        return await service.get_finisher_rankings(
+            season=season,
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================
 # P6: Pitch Arsenal Effectiveness
 # ==============================================================
 @router.get("/advanced-stats/pitching/arsenal/rankings")
