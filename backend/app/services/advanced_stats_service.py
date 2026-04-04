@@ -17,6 +17,7 @@ DIM_TEAMS_TABLE = settings.get_table_full_name("dim_teams")
 TUNNEL_VIEW   = settings.get_table_full_name("view_pitch_tunnel_stats")
 FINISHER_VIEW = settings.get_table_full_name("view_pitch_2strikes_finisher_score")
 STAMINA_VIEW  = settings.get_table_full_name("view_pitch_stamina_score")
+ARSENAL_VIEW  = settings.get_table_full_name("view_pitch_arsenal_effectiveness")
 
 
 class AdvancedStatsService:
@@ -40,27 +41,22 @@ class AdvancedStatsService:
         BQ View `view_pitch_tunnel_stats` を参照。
         z-score・集計はView側で完結。サービスはseason絞り込みとページネーションのみ。
         """
-        # pitcher_id を statcast_master から取得し team を JOIN
         query = f"""
-            WITH base AS (
-                SELECT v.*,
-                    MIN(s.pitcher) AS pitcher_id
-                FROM `{TUNNEL_VIEW}` v
-                JOIN `{STATCAST_TABLE}` s
-                    ON v.player_name = s.player_name AND s.game_year = @season
-                WHERE v.game_year = @season
-                GROUP BY
-                    v.game_year, v.player_name, v.total_sequences, v.total_deceived,
-                    v.whiffs, v.called_strikes, v.deception_rate_pct,
-                    v.avg_release_diff, v.avg_velocity_diff, v.avg_plate_diff,
-                    v.pitch_tunnel_score
-            )
             SELECT
-                b.*,
-                tm.abbreviation AS team_abbr
-            FROM base b
-            LEFT JOIN `{DIM_PLAYERS_TABLE}` p ON b.pitcher_id = p.mlbid
-            LEFT JOIN `{DIM_TEAMS_TABLE}` tm ON p.current_team_id = tm.team_id
+                pitcher,
+                player_name,
+                team_abbr,
+                total_sequences,
+                total_deceived,
+                whiffs,
+                called_strikes,
+                deception_rate_pct,
+                avg_release_diff,
+                avg_velocity_diff,
+                avg_plate_diff,
+                pitch_tunnel_score
+            FROM `{TUNNEL_VIEW}`
+            WHERE game_year = @season
             ORDER BY pitch_tunnel_score DESC
             LIMIT @limit OFFSET @offset
         """
@@ -107,6 +103,7 @@ class AdvancedStatsService:
             df = self.client.query(query, job_config=job_config).to_dataframe()
             rankings = [
                 {
+                    "pitcher_id": int(row["pitcher"]),
                     "player_name": row.get("player_name") or "",
                     "team": row.get("team_abbr") or "",
                     "total_sequences": int(row["total_sequences"]),
@@ -154,7 +151,7 @@ class AdvancedStatsService:
             SELECT
                 pitcher,
                 player_name,
-                abbreviation AS team_abbr,
+                team_abbr,
                 total_2_strike_pitches,
                 primary_finishing_pitch,
                 whiff_rate,
@@ -331,7 +328,6 @@ class AdvancedStatsService:
     async def get_arsenal_rankings(
         self,
         season: int = 2024,
-        min_pitches: int = 100,
         limit: int = 50,
         offset: int = 0,
         team: str = "All",
@@ -339,57 +335,21 @@ class AdvancedStatsService:
         """
         P6 Pitch Arsenal Effectiveness ランキング
 
-        Shannon entropy (多様性) × 球種別 delta_pitcher_run_exp (効果)
+        BQ View `view_pitch_arsenal_effectiveness` を参照。
+        Shannon entropy・集計・dim joinはView側で完結。
         """
-        team_filter = "AND tm.team_name = @team" if team != "All" else ""
+        team_filter = "AND team_abbr = @team" if team != "All" else ""
 
         query = f"""
-            WITH pitcher_totals AS (
-                SELECT
-                    pitcher AS pitcher_id,
-                    COUNT(*) AS total_pitches
-                FROM `{STATCAST_TABLE}`
-                WHERE game_year = @season
-                    AND pitch_type IS NOT NULL
-                    AND delta_pitcher_run_exp IS NOT NULL
-                GROUP BY 1
-                HAVING total_pitches >= @min_pitches
-            ),
-            pitch_type_stats AS (
-                SELECT
-                    t.pitcher_id,
-                    s.pitch_name,
-                    COUNT(*) AS type_count,
-                    SAFE_DIVIDE(COUNT(*), t.total_pitches) AS p_i,
-                    AVG(s.delta_pitcher_run_exp) AS avg_pitch_run_exp,
-                    SUM(s.delta_pitcher_run_exp) AS total_pitch_run_exp
-                FROM `{STATCAST_TABLE}` s
-                JOIN pitcher_totals t ON s.pitcher = t.pitcher_id
-                WHERE s.game_year = @season
-                    AND s.pitch_type IS NOT NULL
-                    AND s.delta_pitcher_run_exp IS NOT NULL
-                GROUP BY t.pitcher_id, s.pitch_name, t.total_pitches
-            ),
-            entropy_calc AS (
-                SELECT
-                    pitcher_id,
-                    SUM(-(p_i * LN(p_i))) AS diversity_score,
-                    SUM(total_pitch_run_exp) AS total_effectiveness
-                FROM pitch_type_stats
-                GROUP BY 1
-            )
             SELECT
-                e.pitcher_id AS pitcher,
-                p.full_name AS player_name,
-                tm.abbreviation AS team_abbr,
-                tm.team_name,
-                ROUND(e.diversity_score, 4) AS diversity_score,
-                ROUND(e.total_effectiveness, 4) AS effectiveness_score,
-                ROUND(e.diversity_score * e.total_effectiveness, 4) AS synthetic_score
-            FROM entropy_calc e
-            LEFT JOIN `{DIM_PLAYERS_TABLE}` p ON e.pitcher_id = p.mlbid
-            LEFT JOIN `{DIM_TEAMS_TABLE}` tm ON p.current_team_id = tm.team_id
-            WHERE e.total_effectiveness > 0
+                pitcher,
+                player_name,
+                team_abbr,
+                diversity_score,
+                effectiveness_score,
+                synthetic_score
+            FROM `{ARSENAL_VIEW}`
+            WHERE game_year = @season
             {team_filter}
             ORDER BY synthetic_score DESC
             LIMIT @limit OFFSET @offset
@@ -397,62 +357,26 @@ class AdvancedStatsService:
 
         params = [
             ("season", "INT64", season),
-            ("min_pitches", "INT64", min_pitches),
             ("limit", "INT64", limit),
             ("offset", "INT64", offset),
         ]
         if team != "All":
             params.append(("team", "STRING", team))
 
-        # Scatter query — returns ALL qualifying pitchers (no LIMIT)
-        # Also used for total count
         scatter_query = f"""
-            WITH pitcher_totals AS (
-                SELECT pitcher AS pitcher_id, COUNT(*) AS total_pitches
-                FROM `{STATCAST_TABLE}`
-                WHERE game_year = @season
-                    AND pitch_type IS NOT NULL
-                    AND delta_pitcher_run_exp IS NOT NULL
-                GROUP BY 1
-                HAVING total_pitches >= @min_pitches
-            ),
-            pitch_type_stats AS (
-                SELECT t.pitcher_id,
-                    SAFE_DIVIDE(COUNT(*), t.total_pitches) AS p_i,
-                    SUM(s.delta_pitcher_run_exp) AS total_pitch_run_exp
-                FROM `{STATCAST_TABLE}` s
-                JOIN pitcher_totals t ON s.pitcher = t.pitcher_id
-                WHERE s.game_year = @season
-                    AND s.pitch_type IS NOT NULL
-                    AND s.delta_pitcher_run_exp IS NOT NULL
-                GROUP BY t.pitcher_id, s.pitch_name, t.total_pitches
-            ),
-            entropy_calc AS (
-                SELECT pitcher_id,
-                    SUM(-(p_i * LN(p_i))) AS diversity_score,
-                    SUM(total_pitch_run_exp) AS total_effectiveness
-                FROM pitch_type_stats
-                GROUP BY 1
-            )
             SELECT
-                e.pitcher_id,
-                p.full_name AS player_name,
-                ROUND(e.diversity_score, 4) AS diversity_score,
-                ROUND(e.total_effectiveness, 4) AS effectiveness_score,
-                ROUND(e.diversity_score * e.total_effectiveness, 4) AS synthetic_score
-            FROM entropy_calc e
-            LEFT JOIN `{DIM_PLAYERS_TABLE}` p ON e.pitcher_id = p.mlbid
-            {"LEFT JOIN `" + DIM_TEAMS_TABLE + "` tm ON p.current_team_id = tm.team_id" if team != "All" else ""}
-            WHERE e.total_effectiveness > 0
+                player_name,
+                diversity_score,
+                effectiveness_score,
+                synthetic_score
+            FROM `{ARSENAL_VIEW}`
+            WHERE game_year = @season
             {team_filter}
             ORDER BY synthetic_score DESC
             LIMIT 100
         """
 
-        scatter_params = [
-            ("season", "INT64", season),
-            ("min_pitches", "INT64", min_pitches),
-        ]
+        scatter_params = [("season", "INT64", season)]
         if team != "All":
             scatter_params.append(("team", "STRING", team))
 

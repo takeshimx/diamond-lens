@@ -92,10 +92,9 @@ async def get_finisher_rankings(
 @router.get("/advanced-stats/pitching/arsenal/rankings")
 async def get_arsenal_rankings(
     season: int = Query(2024, ge=2020, le=2027),
-    min_pitches: int = Query(100, ge=0, le=5000, description="最低投球数フィルタ"),
     limit: int = Query(40, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    team: str = Query("All", description="チーム名フィルタ (All = 全チーム)"),
+    team: str = Query("All", description="チーム略称フィルタ (All = 全チーム)"),
 ):
     """
     P6 Pitch Arsenal Effectiveness ランキング
@@ -108,7 +107,6 @@ async def get_arsenal_rankings(
     try:
         return await service.get_arsenal_rankings(
             season=season,
-            min_pitches=min_pitches,
             limit=limit,
             offset=offset,
             team=team,
