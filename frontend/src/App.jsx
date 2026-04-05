@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import AgentReasoningTracker from './components/AgentReasoningTracker.jsx';
-import { Send, TrendingUp, User, Bot, Activity, MessageCircle, Zap, Settings, Users, AlertTriangle, Brain, Target, Trash2, LogOut, ThumbsUp, ThumbsDown, BarChart3, Radio } from 'lucide-react';
+import { Send, TrendingUp, User, Bot, Activity, MessageCircle, Zap, Settings, Users, AlertTriangle, Brain, Target, Trash2, LogOut, ThumbsUp, ThumbsDown, BarChart3, Radio, Menu } from 'lucide-react';
 import SimpleChatChart from './components/ChatChart.jsx';
 import QuickQuestions from './components/QuickQuestions.jsx';
 import CustomQueryBuilder from './components/CustomQueryBuilder.jsx';
@@ -65,6 +65,7 @@ const MLBChatApp = () => {
 
   // UIモード管理のstate
   const [uiMode, setUiMode] = useState('chat'); // 'chat', 'quick', 'custom', 'statistics', 'segmentation', 'fatigue', 'pitcher-whiff'
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   // Quick Questions result state
   const [quickResult, setQuickResult] = useState(null);
@@ -2674,203 +2675,89 @@ const MLBChatApp = () => {
         </div>
       ) : (
         // ===== メインチャットインターフェース =====
-        <>
-          {/* ===== ヘッダーセクション ===== */}
-          <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 sm:px-6 py-4 transition-colors duration-200">
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-8">
-              <div className="flex items-center gap-3">
-                {/* アプリアイコン */}
-                <div className="p-2 bg-blue-600 rounded-lg">
-                  <Activity className="w-6 h-6 text-white" />
-                </div>
-                {/* アプリタイトルと説明 */}
-                <div>
-                  <div className="flex items-center gap-3">
-                    <h1 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent dark:from-blue-400 dark:to-purple-400 transition-all duration-200">Diamond Lens</h1>
-                    {/* 会話履歴クリアボタン */}
-                    {uiMode === 'chat' && sessionId && (
-                      <button
-                        onClick={handleClearHistory}
-                        className="p-2 text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 transition-colors duration-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
-                        title="会話履歴をクリア"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                  <div className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">MLB Stats Assistant</div>
-                  <p className="text-sm text-gray-600 dark:text-gray-300 transition-colors duration-200">
-                    {uiMode === 'chat' && 'MLBの統計データについて質問してください'}
-                    {uiMode === 'quick' && 'よく使われる質問をワンクリックで実行'}
-                    {uiMode === 'custom' && 'カスタムクエリを作成して詳細な分析を実行'}
-                    {uiMode === 'statistics' && '統計分析モデルを使用してチームの勝率を予測'}
-                    {uiMode === 'segmentation' && 'K-meansクラスタリングで選手タイプを分析'}
-                  </p>
-                </div>
+        <div className="flex flex-row flex-1 min-h-0 overflow-hidden">
+          {/* モバイルオーバーレイ */}
+          {sidebarOpen && (
+            <div className="fixed inset-0 z-20 bg-black/60 md:hidden" onClick={() => setSidebarOpen(false)} />
+          )}
+          {/* ===== サイドバー ===== */}
+          <aside className={`fixed inset-y-0 left-0 z-30 flex flex-col bg-gray-900 border-r border-gray-700 transition-all duration-300 md:relative md:translate-x-0 ${sidebarOpen ? 'translate-x-0 w-56' : '-translate-x-full md:translate-x-0 md:w-14'}`}>
+            <div className="flex items-center gap-3 px-3 h-14 border-b border-gray-700 flex-shrink-0">
+              <div className="p-1.5 bg-blue-600 rounded-lg flex-shrink-0">
+                <Activity className="w-4 h-4 text-white" />
               </div>
-
-              {/* モード切り替えボタン */}
-              <div className="flex flex-col sm:flex-row bg-gray-100 dark:bg-gray-700 rounded-lg p-1.5 gap-1 transition-colors duration-200">
+              {sidebarOpen && <span className="font-bold text-white text-sm truncate">Diamond Lens</span>}
+            </div>
+            <nav className="flex-1 py-2 flex flex-col gap-0.5 px-2 overflow-y-auto scrollbar-none">
+              {[
+                { mode: 'chat', icon: MessageCircle, label: 'チャット' },
+                { mode: 'quick', icon: Zap, label: 'クイック質問' },
+                { mode: 'custom', icon: Settings, label: 'カスタムクエリ' },
+                { mode: 'statistics', icon: Activity, label: '統計分析' },
+                { mode: 'segmentation', icon: Users, label: '選手分類' },
+                { mode: 'stuff-plus', icon: Target, label: '球質評価' },
+                { mode: 'advanced-stats', icon: BarChart3, label: 'Advanced Stats' },
+                { mode: 'live', icon: Radio, label: '試合速報' },
+              ].map(({ mode, icon: Icon, label }) => (
                 <button
+                  key={mode}
                   onClick={() => {
-                    setUiMode('chat');
-                    setQuickResult(null); // Clear quick result when switching to chat
-                    setCustomResult(null); // Clear custom result when switching to chat
-                  }}
-                  className={`px-4 py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center sm:justify-start gap-2 min-w-0 w-full sm:w-auto ${uiMode === 'chat'
-                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
-                    }`}
-                >
-                  <MessageCircle className="w-4 h-4 flex-shrink-0" />
-                  <span className="truncate">チャット</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setUiMode('quick');
-                    setCustomResult(null); // Clear custom result when switching to quick
-                    // Keep quick result when switching to quick mode
-                  }}
-                  className={`px-4 py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center sm:justify-start gap-2 min-w-0 w-full sm:w-auto ${uiMode === 'quick'
-                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
-                    }`}
-                >
-                  <Zap className="w-4 h-4 flex-shrink-0" />
-                  <span className="truncate">クイック質問</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setUiMode('custom');
-                    setQuickResult(null); // Clear quick result when switching to custom
-                    // Keep custom result when switching to custom mode
-                  }}
-                  className={`px-4 py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center sm:justify-start gap-2 min-w-0 w-full sm:w-auto ${uiMode === 'custom'
-                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
-                    }`}
-                >
-                  <Settings className="w-4 h-4 flex-shrink-0" />
-                  <span className="truncate">カスタムクエリ</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setUiMode('statistics');
+                    setUiMode(mode);
                     setQuickResult(null);
                     setCustomResult(null);
+                    if (window.innerWidth < 768) setSidebarOpen(false);
                   }}
-                  className={`px-4 py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center sm:justify-start gap-2 min-w-0 w-full sm:w-auto ${uiMode === 'statistics'
-                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
-                    }`}
+                  title={!sidebarOpen ? label : undefined}
+                  className={`flex items-center gap-3 px-2 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 w-full ${sidebarOpen ? '' : 'justify-center'} ${uiMode === mode ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
                 >
-                  <Activity className="w-4 h-4 flex-shrink-0" />
-                  <span className="truncate">統計分析</span>
+                  <Icon className="w-4 h-4 flex-shrink-0" />
+                  {sidebarOpen && <span className="truncate">{label}</span>}
                 </button>
-                <button
-                  onClick={() => {
-                    setUiMode('segmentation');
-                    setQuickResult(null);
-                    setCustomResult(null);
-                  }}
-                  className={`px-4 py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center sm:justify-start gap-2 min-w-0 w-full sm:w-auto ${uiMode === 'segmentation'
-                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
-                    }`}
-                >
-                  <Users className="w-4 h-4 flex-shrink-0" />
-                  <span className="truncate">選手分類</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setUiMode('stuff-plus');
-                    setQuickResult(null);
-                    setCustomResult(null);
-                  }}
-                  className={`px-4 py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center sm:justify-start gap-2 min-w-0 w-full sm:w-auto ${uiMode === 'stuff-plus'
-                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
-                    }`}
-                >
-                  <Target className="w-4 h-4 flex-shrink-0" />
-                  <span className="truncate">球質評価</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setUiMode('advanced-stats');
-                    setQuickResult(null);
-                    setCustomResult(null);
-                  }}
-                  className={`px-4 py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center sm:justify-start gap-2 min-w-0 w-full sm:w-auto ${uiMode === 'advanced-stats'
-                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
-                    }`}
-                >
-                  <BarChart3 className="w-4 h-4 flex-shrink-0" />
-                  <span className="truncate">Advanced Stats</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setUiMode('live');
-                    setQuickResult(null);
-                    setCustomResult(null);
-                  }}
-                  className={`px-4 py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center sm:justify-start gap-2 min-w-0 w-full sm:w-auto ${uiMode === 'live'
-                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
-                    }`}
-                >
-                  <Radio className="w-4 h-4 flex-shrink-0" />
-                  <span className="truncate">試合速報</span>
-                </button>
-
-                {/* 疲労分析 - 一時無効化 */}
-                {/* <button
-                  onClick={() => {
-                    setUiMode('fatigue');
-                    setQuickResult(null);
-                    setCustomResult(null);
-                  }}
-                  className={`px-4 py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center sm:justify-start gap-2 min-w-0 w-full sm:w-auto ${
-                    uiMode === 'fatigue'
-                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
-                  }`}
-                >
-                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                  <span className="truncate">疲労分析</span>
-                </button> */}
-
-                {/* Whiff予測 - 実戦価値が限定的なため一時無効化 */}
-                {/* <button
-                  onClick={() => {
-                    setUiMode('pitcher-whiff');
-                    setQuickResult(null);
-                    setCustomResult(null);
-                  }}
-                  className={`px-4 py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-200 flex items-center justify-center sm:justify-start gap-2 min-w-0 w-full sm:w-auto ${
-                    uiMode === 'pitcher-whiff'
-                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
-                  }`}
-                >
-                  <Target className="w-4 h-4 flex-shrink-0" />
-                  <span className="truncate">Whiff予測</span>
-                </button> */}
-
-              </div>
-
-              {/* ログアウトボタン */}
+              ))}
+            </nav>
+            <div className="border-t border-gray-700 p-2 flex-shrink-0">
               <button
                 onClick={logout}
-                className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-200"
-                title="ログアウト"
+                title={!sidebarOpen ? 'ログアウト' : undefined}
+                className={`flex items-center gap-3 px-2 py-2.5 rounded-lg text-sm text-gray-400 hover:text-red-400 hover:bg-gray-700 transition-colors w-full ${sidebarOpen ? '' : 'justify-center'}`}
               >
-                <LogOut className="w-4 h-4" />
-                <span className="hidden sm:inline">ログアウト</span>
+                <LogOut className="w-4 h-4 flex-shrink-0" />
+                {sidebarOpen && <span>ログアウト</span>}
               </button>
             </div>
-          </div>
+          </aside>
+          {/* ===== メインカラム ===== */}
+          <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+            {/* トップバー */}
+            <div className="flex items-center gap-3 px-4 h-14 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex-shrink-0 transition-colors duration-200">
+              <button
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex-shrink-0"
+              >
+                <Menu className="w-5 h-5" />
+              </button>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
+                  {uiMode === 'chat' && 'MLBの統計データについて質問してください'}
+                  {uiMode === 'quick' && 'よく使われる質問をワンクリックで実行'}
+                  {uiMode === 'custom' && 'カスタムクエリを作成して詳細な分析を実行'}
+                  {uiMode === 'statistics' && '統計分析モデルを使用してチームの勝率を予測'}
+                  {uiMode === 'segmentation' && 'K-meansクラスタリングで選手タイプを分析'}
+                  {uiMode === 'stuff-plus' && '球質（Stuff+）評価'}
+                  {uiMode === 'advanced-stats' && 'Advanced Stats Rankings'}
+                  {uiMode === 'live' && '進行中の試合をリアルタイム表示'}
+                </p>
+              </div>
+              {uiMode === 'chat' && sessionId && (
+                <button
+                  onClick={handleClearHistory}
+                  className="p-1.5 text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 transition-colors rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 flex-shrink-0"
+                  title="会話履歴をクリア"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+            </div>
 
           {/* ===== メインコンテンツエリア ===== */}
           <div className="flex-1 overflow-y-auto">
@@ -3226,7 +3113,8 @@ const MLBChatApp = () => {
               </div>
             </div>
           )}
-        </>
+          </div>
+        </div>
       )}
     </div>
   );
