@@ -20,7 +20,7 @@ httpx # For async HTTP requests
 # 会話履歴・エージェント機能用
 redis
 langchain
-langchain-google-genai
+langchain-google-genai==4.2.0
 langgraph
 
 firebase-admin
