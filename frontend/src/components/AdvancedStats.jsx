@@ -1,145 +1,27 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useMemo } from 'react';
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  ScatterChart, Scatter,
-  LineChart, Line, Legend, Cell,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
-import { BarChart3, User, GitCompare, TrendingUp, ChevronRight, ChevronLeft, Search, RefreshCw } from 'lucide-react';
+import { BarChart3, User, GitCompare, TrendingUp, Search } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 
-// ============================================================
-// Metric Definitions — 追加・削除はここだけ
-// ============================================================
-const PITCHING_METRICS = [
-  { id: 'P1', name: 'Pitch Tunnel Score', nameJp: 'ピッチトンネルスコア', question: '最も球の見分けがつきにくい投手は？', apiReady: true },
-  { id: 'P2', name: 'Pressure Dominance', nameJp: 'プレッシャー支配力', question: '最もプレッシャーに強い投手は？', apiReady: false },
-  { id: 'P3', name: 'Stamina Score', nameJp: 'スタミナスコア', question: '最もスタミナのある投手は？', apiReady: true },
-  { id: 'P4', name: 'Two-Strike Finisher', nameJp: '2ストライク仕留め力', question: '最も追い込んでから仕留める投手は？', apiReady: true },
-  { id: 'P5', name: 'Command Precision', nameJp: 'コマンド精度', question: '最もコントロールの良い投手は？', apiReady: false },
-  { id: 'P6', name: 'Arsenal Effectiveness', nameJp: '球種構成効果', question: '最も多彩で効果的な球種構成は？', apiReady: true },
-  { id: 'P7', name: 'First-Pitch Strike', nameJp: '初球ストライク支配力', question: '初球の支配力が最も高い投手は？', apiReady: false },
-];
-
-const BATTING_METRICS = [
-  { id: 'B1', name: 'Swing Efficiency', nameJp: 'スイング効率', question: '最も効率的なスイングをする打者は？', apiReady: false },
-  { id: 'B2', name: 'Plate Discipline', nameJp: '選球眼スコア', question: '最も選球眼の良い打者は？', apiReady: false },
-  { id: 'B3', name: 'Clutch Hitting', nameJp: 'クラッチ打撃', question: '最もチャンスに強い打者は？', apiReady: false },
-  { id: 'B4', name: 'Contact Consistency', nameJp: 'コンタクト一貫性', question: '最もコンタクトの質が安定している打者は？', apiReady: false },
-  { id: 'B5', name: 'Adjustment Ability', nameJp: '対応力', question: '同一投手への対応力が最も高い打者は？', apiReady: false },
-  { id: 'B6', name: 'Spray Mastery', nameJp: '打球方向マスタリー', question: '最も広角に打ち分けられる打者は？', apiReady: false },
-  { id: 'B7', name: 'Power Under Pressure', nameJp: 'プレッシャー下パワー', question: 'チャンスで最も長打力を発揮する打者は？', apiReady: false },
-];
-
-// ============================================================
-// Dummy Data (API未接続の指標用)
-// ============================================================
-const DUMMY_PITCHERS = [
-  { id: 1, name: 'Shohei Ohtani', team: 'LAD' },
-  { id: 2, name: 'Gerrit Cole', team: 'NYY' },
-  { id: 3, name: 'Corbin Burns', team: 'BAL' },
-  { id: 4, name: 'Zack Wheeler', team: 'PHI' },
-  { id: 5, name: 'Paul Skenes', team: 'PIT' },
-  { id: 6, name: 'Chris Sale', team: 'ATL' },
-  { id: 7, name: 'Spencer Strider', team: 'ATL' },
-  { id: 8, name: 'Logan Webb', team: 'SF' },
-  { id: 9, name: 'Tarik Skubal', team: 'DET' },
-  { id: 10, name: 'Dylan Cease', team: 'SD' },
-];
-
-const DUMMY_BATTERS = [
-  { id: 101, name: 'Shohei Ohtani', team: 'LAD' },
-  { id: 102, name: 'Aaron Judge', team: 'NYY' },
-  { id: 103, name: 'Mookie Betts', team: 'LAD' },
-  { id: 104, name: 'Ronald Acuna Jr.', team: 'ATL' },
-  { id: 105, name: 'Juan Soto', team: 'NYM' },
-  { id: 106, name: 'Freddie Freeman', team: 'LAD' },
-  { id: 107, name: 'Corey Seager', team: 'TEX' },
-  { id: 108, name: 'Trea Turner', team: 'PHI' },
-  { id: 109, name: 'Marcus Semien', team: 'TEX' },
-  { id: 110, name: 'Bobby Witt Jr.', team: 'KC' },
-];
-
-const seededRandom = (seed) => {
-  let s = seed;
-  return () => { s = (s * 16807 + 0) % 2147483647; return (s - 1) / 2147483646; };
-};
-
-const generateDummyRankings = (metrics, players) => {
-  const result = {};
-  metrics.forEach((metric) => {
-    if (metric.apiReady) return; // API接続済みはスキップ
-    const rng = seededRandom(metric.id.charCodeAt(0) * 100 + metric.id.charCodeAt(1));
-    const ranked = players
-      .map((p) => ({ ...p, score: Math.round((60 + rng() * 35) * 10) / 10 }))
-      .sort((a, b) => b.score - a.score);
-    result[metric.id] = ranked;
-  });
-  return result;
-};
-
-const generateDummyProfile = (metrics, playerId) => {
-  const rng = seededRandom(playerId * 7);
-  return metrics.map((m) => ({
-    metricId: m.id, metricName: m.name, metricNameJp: m.nameJp,
-    score: Math.round((65 + rng() * 30) * 10) / 10,
-    rank: Math.floor(rng() * 20) + 1, leagueAvg: 75,
-  }));
-};
-
-const generateDummyTrends = (metrics, playerId) => {
-  const rng = seededRandom(playerId * 13);
-  return [2021, 2022, 2023, 2024].map((year) => {
-    const row = { season: year };
-    metrics.forEach((m) => { row[m.id] = Math.round((65 + rng() * 30) * 10) / 10; });
-    return row;
-  });
-};
-
-// ============================================================
-// Color / Chart Helpers
-// ============================================================
-const PITCH_TYPE_COLORS = {
-  '4-Seam Fastball': '#ef4444', 'Sinker': '#f97316', 'Cutter': '#eab308',
-  'Slider': '#3b82f6', 'Sweeper': '#6366f1', 'Curveball': '#8b5cf6',
-  'Changeup': '#22c55e', 'Split-Finger': '#14b8a6', 'Knuckle Curve': '#a855f7',
-  'Slurve': '#ec4899', 'Screwball': '#f43f5e', 'Knuckleball': '#64748b',
-};
-const getPitchColor = (name) => PITCH_TYPE_COLORS[name] || '#6b7280';
-
-const getScoreColor = (score) => {
-  if (score >= 90) return 'text-green-400';
-  if (score >= 80) return 'text-emerald-400';
-  if (score >= 70) return 'text-yellow-400';
-  return 'text-orange-400';
-};
-const getBarFill = (score) => {
-  if (score >= 90) return '#22c55e';
-  if (score >= 80) return '#10b981';
-  if (score >= 70) return '#eab308';
-  return '#f97316';
-};
-
-const RADAR_COLORS = ['#3b82f6', '#ef4444', '#6b7280'];
-const LINE_COLORS = ['#3b82f6', '#8b5cf6', '#22c55e', '#ef4444', '#eab308', '#ec4899', '#06b6d4'];
+import AdvancedStatsPitching from './AdvancedStatsPitching';
+import AdvancedStatsBatting  from './AdvancedStatsBatting';
+import {
+  PITCHING_METRICS, BATTING_METRICS,
+  DUMMY_PITCHERS, DUMMY_BATTERS,
+  generateDummyProfile, generateDummyTrends,
+  getScoreColor, getBarFill,
+  RADAR_COLORS, LINE_COLORS,
+  getBackendUrl,
+} from './advancedStatsConstants';
 
 // ============================================================
 // Main Component
 // ============================================================
 const AdvancedStats = () => {
   const { getIdToken } = useAuth();
-
-  // --- Backend URL ---
-  const getBackendUrl = () => {
-    if (window.location.hostname.includes('run.app')) {
-      return 'https://mlb-diamond-lens-api-907924272679.asia-northeast1.run.app';
-    }
-    const currentUrl = window.location.href;
-    if (currentUrl.includes('app.github.dev')) {
-      return currentUrl.replace('-5173.app.github.dev', '-8000.app.github.dev').split('?')[0];
-    }
-    return 'http://localhost:8000';
-  };
   const BACKEND_URL = getBackendUrl();
 
   const getAuthHeaders = async () => {
@@ -152,57 +34,33 @@ const AdvancedStats = () => {
   };
 
   // --- Shared state ---
-  const [view, setView] = useState('rankings');
+  const [view, setView]         = useState('rankings');
   const [category, setCategory] = useState('pitching');
-  const [season, setSeason] = useState(2025);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
-
-  // --- Rankings state ---
-  const [expandedMetric, setExpandedMetric] = useState(null);
-  const [arsenalRankings, setArsenalRankings] = useState(null); // P6 live data (includes pitch_mix)
-  const [pitchTunnelRankings, setPitchTunnelRankings] = useState(null); // P1 live data
-  const [finisherRankings, setFinisherRankings] = useState(null); // P4 live data
-  const [staminaRankings, setStaminaRankings]   = useState(null); // P3 live data
+  const [season, setSeason]     = useState(2025);
 
   // --- Profile state ---
   const [profilePlayerId, setProfilePlayerId] = useState(null);
-  const [profileSearch, setProfileSearch] = useState('');
+  const [profileSearch, setProfileSearch]     = useState('');
 
   // --- Compare state ---
-  const [comparePlayerA, setComparePlayerA] = useState(null);
-  const [comparePlayerB, setComparePlayerB] = useState(null);
-  const [compareSearchA, setCompareSearchA] = useState('');
-  const [compareSearchB, setCompareSearchB] = useState('');
+  const [comparePlayerA, setComparePlayerA]   = useState(null);
+  const [comparePlayerB, setComparePlayerB]   = useState(null);
+  const [compareSearchA, setCompareSearchA]   = useState('');
+  const [compareSearchB, setCompareSearchB]   = useState('');
 
   // --- Trends state ---
-  const [trendsPlayerId, setTrendsPlayerId] = useState(null);
-  const [trendsSearch, setTrendsSearch] = useState('');
+  const [trendsPlayerId, setTrendsPlayerId]             = useState(null);
+  const [trendsSearch, setTrendsSearch]                 = useState('');
   const [trendsSelectedMetrics, setTrendsSelectedMetrics] = useState([]);
 
   // --- Derived ---
   const metrics = category === 'pitching' ? PITCHING_METRICS : BATTING_METRICS;
-  const players = category === 'pitching' ? DUMMY_PITCHERS : DUMMY_BATTERS;
-  const dummyRankingsData = useMemo(() => generateDummyRankings(metrics, players), [category, season]);
+  const players = category === 'pitching' ? DUMMY_PITCHERS  : DUMMY_BATTERS;
+  const profileData  = useMemo(() => (profilePlayerId  ? generateDummyProfile(metrics, profilePlayerId)  : null), [profilePlayerId,  category]);
+  const compareDataA = useMemo(() => (comparePlayerA   ? generateDummyProfile(metrics, comparePlayerA)   : null), [comparePlayerA,   category]);
+  const compareDataB = useMemo(() => (comparePlayerB   ? generateDummyProfile(metrics, comparePlayerB)   : null), [comparePlayerB,   category]);
+  const trendsData   = useMemo(() => (trendsPlayerId   ? generateDummyTrends(metrics, trendsPlayerId)    : null), [trendsPlayerId,   category]);
 
-  const profileData = useMemo(
-    () => (profilePlayerId ? generateDummyProfile(metrics, profilePlayerId) : null),
-    [profilePlayerId, category]
-  );
-  const compareDataA = useMemo(
-    () => (comparePlayerA ? generateDummyProfile(metrics, comparePlayerA) : null),
-    [comparePlayerA, category]
-  );
-  const compareDataB = useMemo(
-    () => (comparePlayerB ? generateDummyProfile(metrics, comparePlayerB) : null),
-    [comparePlayerB, category]
-  );
-  const trendsData = useMemo(
-    () => (trendsPlayerId ? generateDummyTrends(metrics, trendsPlayerId) : null),
-    [trendsPlayerId, category]
-  );
-
-  // --- Helpers ---
   const getPlayer = (id) => players.find((p) => p.id === id);
   const filteredPlayers = (query) => {
     if (!query || query.length < 1) return [];
@@ -210,161 +68,7 @@ const AdvancedStats = () => {
   };
 
   // ============================================================
-  // API Calls — P1 Pitch Tunnel
-  // ============================================================
-  const fetchPitchTunnelRankings = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams({ season, limit: 40, offset: 0 });
-      const headers = await getAuthHeaders();
-      const res = await fetch(`${BACKEND_URL}/api/v1/advanced-stats/pitching/pitch-tunnel/rankings?${params}`, { headers });
-      if (!res.ok) throw new Error(`API error: ${res.status}`);
-      const data = await res.json();
-      setPitchTunnelRankings(data);
-    } catch (e) {
-      console.error('Pitch tunnel rankings fetch failed:', e);
-      setError(e.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // ============================================================
-  // API Calls — P6 Arsenal
-  // ============================================================
-  const fetchArsenalRankings = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams({
-        season, min_pitches: 100, limit: 40, offset: 0,
-      });
-      const headers = await getAuthHeaders();
-      const res = await fetch(`${BACKEND_URL}/api/v1/advanced-stats/pitching/arsenal/rankings?${params}`, { headers });
-      if (!res.ok) throw new Error(`API error: ${res.status}`);
-      const data = await res.json();
-      setArsenalRankings(data);
-    } catch (e) {
-      console.error('Arsenal rankings fetch failed:', e);
-      setError(e.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // ============================================================
-  // API Calls — P3 Stamina Score
-  // ============================================================
-  const fetchStaminaRankings = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams({ season, limit: 40, offset: 0 });
-      const headers = await getAuthHeaders();
-      const res = await fetch(`${BACKEND_URL}/api/v1/advanced-stats/pitching/stamina/rankings?${params}`, { headers });
-      if (!res.ok) throw new Error(`API error: ${res.status}`);
-      const data = await res.json();
-      setStaminaRankings(data);
-    } catch (e) {
-      console.error('Stamina rankings fetch failed:', e);
-      setError(e.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // ============================================================
-  // API Calls — P4 Two-Strike Finisher
-  // ============================================================
-  const fetchFinisherRankings = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams({ season, limit: 40, offset: 0 });
-      const headers = await getAuthHeaders();
-      const res = await fetch(`${BACKEND_URL}/api/v1/advanced-stats/pitching/finisher/rankings?${params}`, { headers });
-      if (!res.ok) throw new Error(`API error: ${res.status}`);
-      const data = await res.json();
-      setFinisherRankings(data);
-    } catch (e) {
-      console.error('Finisher rankings fetch failed:', e);
-      setError(e.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Fetch P1, P3, P4 & P6 on mount and season change
-  useEffect(() => {
-    if (category === 'pitching') {
-      fetchPitchTunnelRankings();
-      fetchStaminaRankings();
-      fetchFinisherRankings();
-      fetchArsenalRankings();
-    }
-  }, [season, category]);
-
-  // Build unified rankings data (mix real + dummy)
-  const getRankingsForMetric = (metricId) => {
-    if (metricId === 'P1' && pitchTunnelRankings?.rankings) {
-      return pitchTunnelRankings.rankings.map((r, i) => ({
-        id: i,
-        name: r.player_name,
-        team: r.team || '',
-        score: r.pitch_tunnel_score,
-        deception_rate_pct: r.deception_rate_pct,
-        whiffs: r.whiffs,
-        called_strikes: r.called_strikes,
-        total_sequences: r.total_sequences,
-        avg_release_diff: r.avg_release_diff,
-        avg_velocity_diff: r.avg_velocity_diff,
-        avg_plate_diff: r.avg_plate_diff,
-      }));
-    }
-    if (metricId === 'P3' && staminaRankings?.rankings) {
-      return staminaRankings.rankings.map((r) => ({
-        id: r.pitcher_id,
-        name: r.player_name,
-        team: r.team || '',
-        score: r.stamina_score,
-        games: r.games,
-        ip: r.ip,
-        avg_speed_slope: r.avg_speed_slope,
-        avg_spin_slope: r.avg_spin_slope,
-        run_exp_1st: r.run_exp_1st,
-        run_exp_3rd_plus: r.run_exp_3rd_plus,
-        tto_delta: r.tto_delta,
-      }));
-    }
-    if (metricId === 'P4' && finisherRankings?.rankings) {
-      return finisherRankings.rankings.map((r) => ({
-        id: r.pitcher_id,
-        name: r.player_name,
-        team: r.team || '',
-        score: r.finisher_score,
-        whiff_rate: r.whiff_rate,
-        put_away_woba: r.put_away_woba,
-        total_2_strike_pitches: r.total_2_strike_pitches,
-        primary_finishing_pitch: r.primary_finishing_pitch,
-      }));
-    }
-    if (metricId === 'P6' && arsenalRankings?.rankings) {
-      return arsenalRankings.rankings.map((r) => ({
-        id: r.pitcher_id,
-        name: r.player_name,
-        team: r.team || '',
-        score: r.synthetic_score,
-        diversity_score: r.diversity_score,
-        effectiveness_score: r.effectiveness_score,
-        pitch_mix: r.pitch_mix || [],
-      }));
-    }
-    return dummyRankingsData[metricId] || [];
-  };
-
-  // ============================================================
-  // Sub-components
+  // Shared sub-components
   // ============================================================
   const ChartTooltip = ({ active, payload }) => {
     if (!active || !payload || !payload.length) return null;
@@ -410,851 +114,14 @@ const AdvancedStats = () => {
   };
 
   // ============================================================
-  // P1 Pitch Tunnel Score — Metric Detail
-  // ============================================================
-  const PitchTunnelDetailView = () => {
-    const rawData = getRankingsForMetric('P1');
-    const metric = PITCHING_METRICS.find((m) => m.id === 'P1');
-    const scatterData = pitchTunnelRankings?.scatter_all || [];
-
-    const [sortKey, setSortKey] = React.useState('score');
-    const [sortDir, setSortDir] = React.useState('desc');
-
-    const handleSort = (key) => {
-      if (sortKey === key) {
-        setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
-      } else {
-        setSortKey(key);
-        setSortDir('desc');
-      }
-    };
-
-    const data = [...rawData].sort((a, b) => {
-      const av = a[sortKey] ?? 0;
-      const bv = b[sortKey] ?? 0;
-      return sortDir === 'desc' ? bv - av : av - bv;
-    });
-
-    const topN = new Set(rawData.slice(0, 5).map((r) => r.name));
-
-    const SortIcon = ({ col }) => {
-      if (sortKey !== col) return <span className="text-gray-600 ml-0.5">⇅</span>;
-      return <span className="text-blue-400 ml-0.5">{sortDir === 'desc' ? '↓' : '↑'}</span>;
-    };
-
-    const SortTh = ({ col, label, right = true }) => (
-      <th
-        onClick={() => handleSort(col)}
-        className={`${right ? 'text-right' : 'text-left'} text-gray-400 py-2 px-2 cursor-pointer hover:text-white select-none transition-colors`}
-      >
-        {label}<SortIcon col={col} />
-      </th>
-    );
-
-    const getTunnelScoreColor = (score) => {
-      if (score >= 1.5) return 'text-green-400';
-      if (score >= 0.5) return 'text-emerald-400';
-      if (score >= 0)   return 'text-yellow-400';
-      return 'text-orange-400';
-    };
-
-    return (
-      <div className="space-y-4">
-        <button onClick={() => setExpandedMetric(null)}
-          className="flex items-center gap-1 text-gray-400 hover:text-white text-sm transition-colors">
-          <ChevronLeft className="w-4 h-4" /> Back to Overview
-        </button>
-
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-bold text-white">{metric.id}. {metric.name} ({metric.nameJp})</h3>
-            <p className="text-sm text-gray-400 mt-0.5">
-              速球→変化球シーケンスで打者を騙せた割合（空振り＋見逃しストライク）のリーグ平均対比 z-score
-            </p>
-          </div>
-          <button onClick={fetchPitchTunnelRankings}
-            className="flex items-center gap-1.5 text-gray-400 hover:text-white text-xs transition-colors">
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-          {/* Left: Rankings Table */}
-          <div className="xl:col-span-2 bg-gray-800/50 border border-gray-700 rounded-xl p-4 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-700">
-                  <th className="text-left text-gray-400 py-2 px-2 w-8">#</th>
-                  <SortTh col="name"               label="Pitcher"     right={false} />
-                  <th className="text-left text-gray-400 py-2 px-2">Team</th>
-                  <SortTh col="total_sequences"    label="Seqs" />
-                  <SortTh col="deception_rate_pct" label="Deception%" />
-                  <SortTh col="whiffs"             label="Whiffs" />
-                  <SortTh col="called_strikes"     label="Called K" />
-                  <SortTh col="avg_release_diff"   label="Rel Diff" />
-                  <SortTh col="avg_velocity_diff"  label="Vel Diff" />
-                  <SortTh col="avg_plate_diff"     label="Plate Diff" />
-                  <SortTh col="score"              label="Score" />
-                </tr>
-              </thead>
-              <tbody>
-                {data.map((r, i) => (
-                  <tr key={i} className="border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors">
-                    <td className="py-2 px-2 text-gray-500 font-medium">{i + 1}</td>
-                    <td className="py-2 px-2 text-white font-medium">{r.name}</td>
-                    <td className="py-2 px-2 text-gray-400 text-xs">{r.team}</td>
-                    <td className="py-2 px-2 text-right text-gray-400 font-mono">{r.total_sequences?.toLocaleString()}</td>
-                    <td className="py-2 px-2 text-right text-cyan-400 font-mono">{r.deception_rate_pct?.toFixed(1)}%</td>
-                    <td className="py-2 px-2 text-right text-gray-300 font-mono">{r.whiffs}</td>
-                    <td className="py-2 px-2 text-right text-gray-300 font-mono">{r.called_strikes}</td>
-                    <td className="py-2 px-2 text-right text-gray-500 font-mono text-xs">{r.avg_release_diff?.toFixed(3)}</td>
-                    <td className="py-2 px-2 text-right text-gray-500 font-mono text-xs">{r.avg_velocity_diff?.toFixed(3)}</td>
-                    <td className="py-2 px-2 text-right text-gray-500 font-mono text-xs">{r.avg_plate_diff?.toFixed(3)}</td>
-                    <td className={`py-2 px-2 text-right font-bold font-mono ${getTunnelScoreColor(r.score)}`}>
-                      {r.score >= 0 ? '+' : ''}{r.score?.toFixed(2)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Right: Scatter + Info */}
-          <div className="space-y-4">
-            <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
-              <div className="flex items-center justify-between mb-1">
-                <h4 className="text-sm font-medium text-gray-300">Release Diff vs Plate Diff</h4>
-                <span className="text-[10px] text-gray-500">{scatterData.length} pitchers</span>
-              </div>
-              <p className="text-[10px] text-gray-500 mb-2">
-                左下 = リリース収束↑ / 上 = プレート発散↑ → 理想は <span className="text-indigo-400">左上</span>
-              </p>
-              <ResponsiveContainer width="100%" height={280}>
-                <ScatterChart margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis type="number" dataKey="avg_release_diff" name="Release Diff"
-                    stroke="#9ca3af" tick={{ fontSize: 10 }}
-                    label={{ value: 'Release Diff (lower = tighter)', position: 'insideBottom', offset: -12, fill: '#6b7280', fontSize: 10 }} />
-                  <YAxis type="number" dataKey="avg_plate_diff" name="Plate Diff"
-                    stroke="#9ca3af" tick={{ fontSize: 10 }}
-                    label={{ value: 'Plate Diff (higher = more break)', angle: -90, position: 'insideLeft', fill: '#6b7280', fontSize: 10 }} />
-                  <Tooltip content={<ChartTooltip />} cursor={{ strokeDasharray: '3 3' }} />
-                  <Scatter data={scatterData} fill="#6366f1">
-                    {scatterData.map((entry, i) => (
-                      <Cell key={i}
-                        fill={topN.has(entry.player_name) ? '#f59e0b' : '#6366f1'}
-                        fillOpacity={topN.has(entry.player_name) ? 0.9 : 0.5}
-                        r={topN.has(entry.player_name) ? 5 : 3} />
-                    ))}
-                  </Scatter>
-                </ScatterChart>
-              </ResponsiveContainer>
-              <div className="flex items-center gap-3 mt-1.5">
-                <div className="flex items-center gap-1">
-                  <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                  <span className="text-gray-500 text-[10px]">Top 5</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 opacity-50" />
-                  <span className="text-gray-500 text-[10px]">Others</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
-              <h4 className="text-sm font-medium text-gray-300 mb-2">Calculation Details</h4>
-              <ul className="text-xs text-gray-400 space-y-1">
-                <li>算出ロジック</li>
-                <li className="ml-3">• 対象: FB (FF/SI/FC) → 変化球 (SL/ST/CH/FS/CU)</li>
-                <li className="ml-3">• deception = swinging_strike + called_strike</li>
-                <li className="ml-3">• Score = z-score(deception_rate)</li>
-                <li className="mt-2">参考指標（スコア外）</li>
-                <li className="ml-3 font-mono text-gray-500">• Rel Diff: リリース収束度</li>
-                <li className="ml-3 font-mono text-gray-500">• Vel Diff: 速度ベクトル収束度</li>
-                <li className="ml-3 font-mono text-gray-500">• Plate Diff: プレート発散度</li>
-                <li className="mt-2">フィルタ: 最低 100 シーケンス以上</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // ============================================================
-  // P6 Arsenal Expanded View — Metric Detail
-  // ============================================================
-  const ArsenalDetailView = () => {
-    const data = getRankingsForMetric('P6');
-    const metric = PITCHING_METRICS.find((m) => m.id === 'P6');
-
-    // Scatter data — use scatter_all (all qualifying pitchers) from API
-    const scatterData = arsenalRankings?.scatter_all || data.map((r) => ({
-      player_name: r.name,
-      diversity_score: r.diversity_score,
-      effectiveness_score: r.effectiveness_score,
-      synthetic_score: r.score,
-    }));
-    const topN = new Set(data.slice(0, 5).map((r) => r.name));
-
-    return (
-      <div className="space-y-4">
-        <button onClick={() => setExpandedMetric(null)}
-          className="flex items-center gap-1 text-gray-400 hover:text-white text-sm transition-colors">
-          <ChevronLeft className="w-4 h-4" /> Back to Overview
-        </button>
-
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-bold text-white">{metric.id}. {metric.name} ({metric.nameJp})</h3>
-            <p className="text-sm text-gray-400 mt-0.5">
-              Logic: 球種使用率のシャノンエントロピー（多様性）と各球種の得点抑止力（delta_pitcher_run_exp）の複合
-            </p>
-          </div>
-          <button onClick={fetchArsenalRankings}
-            className="flex items-center gap-1.5 text-gray-400 hover:text-white text-xs transition-colors">
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-          {/* Left: Rankings Table */}
-          <div className="xl:col-span-2 bg-gray-800/50 border border-gray-700 rounded-xl p-4">
-            {/* Pitch type legend — above column headers */}
-            <div className="mb-2 flex flex-wrap gap-x-3 gap-y-1">
-              {Object.entries(PITCH_TYPE_COLORS).map(([name, color]) => (
-                <div key={name} className="flex items-center gap-1">
-                  <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: color }} />
-                  <span className="text-gray-500 text-[10px]">{name}</span>
-                </div>
-              ))}
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-700">
-                    <th className="text-left text-gray-400 py-2 px-2 w-8">#</th>
-                    <th className="text-left text-gray-400 py-2 px-2">Pitcher</th>
-                    <th className="text-left text-gray-400 py-2 px-2">Team</th>
-                    <th className="text-right text-gray-400 py-2 px-2">Diversity (H)</th>
-                    <th className="text-right text-gray-400 py-2 px-2">Effectiveness</th>
-                    <th className="text-right text-gray-400 py-2 px-2">Synthetic</th>
-                    <th className="text-left text-gray-400 py-2 px-2 min-w-[200px]">Pitch Type Mix</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.map((r, i) => {
-                    const mix = r.pitch_mix;
-                    return (
-                      <tr key={r.id} className="border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors">
-                        <td className="py-2 px-2 text-gray-500 font-medium">{i + 1}</td>
-                        <td className="py-2 px-2 text-white font-medium">{r.name}</td>
-                        <td className="py-2 px-2 text-gray-400">{r.team}</td>
-                        <td className="py-2 px-2 text-right text-cyan-400 font-mono">{r.diversity_score?.toFixed(4)}</td>
-                        <td className="py-2 px-2 text-right text-amber-400 font-mono">{r.effectiveness_score?.toFixed(4)}</td>
-                        <td className={`py-2 px-2 text-right font-bold ${getScoreColor(r.score * 10)}`}>{r.score?.toFixed(4)}</td>
-                        <td className="py-2 px-2">
-                          {mix && mix.length > 0 ? (
-                            <div className="relative">
-                              {/* Visual bar (overflow-hidden for rounded corners) */}
-                              <div className="flex h-3 rounded-full overflow-hidden">
-                                {mix.map((p) => (
-                                  <div key={p.pitch_name}
-                                    style={{ width: `${p.usage_pct * 100}%`, backgroundColor: getPitchColor(p.pitch_name) }} />
-                                ))}
-                              </div>
-                              {/* Hover overlay (no overflow-hidden — tooltip escapes) */}
-                              <div className="absolute inset-0 flex h-3">
-                                {mix.map((p) => (
-                                  <div key={p.pitch_name} className="relative group/pitch h-full"
-                                    style={{ width: `${p.usage_pct * 100}%` }}>
-                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 bg-gray-900 border border-gray-600 rounded text-[10px] text-white whitespace-nowrap opacity-0 group-hover/pitch:opacity-100 pointer-events-none transition-opacity z-50 shadow-lg">
-                                      <span style={{ color: getPitchColor(p.pitch_name) }}>{p.pitch_name}</span>: {(p.usage_pct * 100).toFixed(1)}%
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ) : (
-                            <span className="text-gray-600 text-xs">—</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-          </div>
-
-          {/* Right: Scatter + Info */}
-          <div className="space-y-4">
-            {/* Diversity vs Effectiveness Scatter — ALL qualifying pitchers */}
-            <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="text-sm font-medium text-gray-300">Diversity vs Effectiveness</h4>
-                <span className="text-[10px] text-gray-500">{scatterData.length} pitchers</span>
-              </div>
-              <ResponsiveContainer width="100%" height={280}>
-                <ScatterChart margin={{ top: 10, right: 10, left: 0, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis type="number" dataKey="diversity_score" name="Diversity (H)"
-                    stroke="#9ca3af" tick={{ fontSize: 10 }} domain={[0, 2]}
-                    label={{ value: 'Diversity (H)', position: 'insideBottom', offset: -3, fill: '#6b7280', fontSize: 10 }} />
-                  <YAxis type="number" dataKey="effectiveness_score" name="Effectiveness"
-                    stroke="#9ca3af" tick={{ fontSize: 10 }}
-                    label={{ value: 'Effectiveness', angle: -90, position: 'insideLeft', fill: '#6b7280', fontSize: 10 }} />
-                  <Tooltip content={<ChartTooltip />} cursor={{ strokeDasharray: '3 3' }} />
-                  <Scatter data={scatterData} fill="#8b5cf6" fillOpacity={0.6}>
-                    {scatterData.map((entry, i) => (
-                      <Cell key={i}
-                        fill={topN.has(entry.player_name) ? '#f59e0b' : '#8b5cf6'}
-                        fillOpacity={topN.has(entry.player_name) ? 0.9 : 0.5}
-                        r={topN.has(entry.player_name) ? 5 : 3} />
-                    ))}
-                  </Scatter>
-                </ScatterChart>
-              </ResponsiveContainer>
-              <div className="flex items-center gap-3 mt-1.5">
-                <div className="flex items-center gap-1">
-                  <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                  <span className="text-gray-500 text-[10px]">Top 5</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-2.5 h-2.5 rounded-full bg-purple-500 opacity-50" />
-                  <span className="text-gray-500 text-[10px]">Others</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Calculation Details */}
-            <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
-              <h4 className="text-sm font-medium text-gray-300 mb-2">Calculation Details</h4>
-              <ul className="text-xs text-gray-400 space-y-1">
-                <li>算出ロジック</li>
-                <li className="ml-3">• Diversity: Shannon Entropy H = -Σ p(i) × ln(p(i))</li>
-                <li className="ml-3">• Effectiveness: Σ delta_pitcher_run_exp</li>
-                <li className="ml-3">• Synthetic: H × Effectiveness</li>
-                <li className="mt-2">入力カラム</li>
-                <li className="ml-3 font-mono text-gray-500">pitch_type, delta_pitcher_run_exp, woba_value</li>
-                <li className="mt-2">フィルタ: 最低 100 球以上, effectiveness &gt; 0</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // ============================================================
-  // P3 Stamina Score — Metric Detail
-  // ============================================================
-  const StaminaDetailView = () => {
-    const rawData = getRankingsForMetric('P3');
-    const metric  = PITCHING_METRICS.find((m) => m.id === 'P3');
-    const scatterData = staminaRankings?.scatter_all || [];
-    const topN = new Set(rawData.slice(0, 5).map((r) => r.name));
-
-    const [sortKey, setSortKey] = React.useState('score');
-    const [sortDir, setSortDir] = React.useState('desc');
-
-    const handleSort = (key) => {
-      if (sortKey === key) setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
-      else { setSortKey(key); setSortDir('desc'); }
-    };
-
-    // avg_speed_slope / avg_spin_slope は 0 に近いほど良い（降順でソート時は逆転）
-    const slopeKeys = new Set(['avg_speed_slope', 'avg_spin_slope']);
-    const data = [...rawData].sort((a, b) => {
-      const av = a[sortKey] ?? 0;
-      const bv = b[sortKey] ?? 0;
-      const inv = slopeKeys.has(sortKey);
-      return (sortDir === 'desc') !== inv ? bv - av : av - bv;
-    });
-
-    const SortIcon = ({ col }) => {
-      if (sortKey !== col) return <span className="text-gray-600 ml-0.5">⇅</span>;
-      return <span className="text-blue-400 ml-0.5">{sortDir === 'desc' ? '↓' : '↑'}</span>;
-    };
-    const SortTh = ({ col, label, right = true }) => (
-      <th onClick={() => handleSort(col)}
-        className={`${right ? 'text-right' : 'text-left'} text-gray-400 py-2 px-2 cursor-pointer hover:text-white select-none transition-colors`}>
-        {label}<SortIcon col={col} />
-      </th>
-    );
-
-    const getSlopeColor = (v) => {
-      if (v >= -0.005) return 'text-green-400';
-      if (v >= -0.015) return 'text-emerald-400';
-      if (v >= -0.03)  return 'text-yellow-400';
-      return 'text-orange-400';
-    };
-
-    return (
-      <div className="space-y-4">
-        <button onClick={() => setExpandedMetric(null)}
-          className="flex items-center gap-1 text-gray-400 hover:text-white text-sm transition-colors">
-          <ChevronLeft className="w-4 h-4" /> Back to Overview
-        </button>
-
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-bold text-white">{metric.id}. {metric.name} ({metric.nameJp})</h3>
-            <p className="text-sm text-gray-400 mt-0.5">
-              球速・回転数の投球数対比減衰スロープ（70%）と打順3巡目以降の run expectancy 差分（30%）の合成スコア
-            </p>
-          </div>
-          <button onClick={fetchStaminaRankings}
-            className="flex items-center gap-1.5 text-gray-400 hover:text-white text-xs transition-colors">
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-          {/* Left: Rankings Table */}
-          <div className="xl:col-span-2 bg-gray-800/50 border border-gray-700 rounded-xl p-4 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-700">
-                  <th className="text-left text-gray-400 py-2 px-2 w-8">#</th>
-                  <SortTh col="name"            label="Pitcher"       right={false} />
-                  <th className="text-left text-gray-400 py-2 px-2">Team</th>
-                  <SortTh col="ip"              label="IP" />
-                  <SortTh col="avg_speed_slope" label="Spd Slope" />
-                  <SortTh col="avg_spin_slope"  label="Spin Slope" />
-                  <SortTh col="run_exp_1st"     label="RE 1st TTO" />
-                  <SortTh col="run_exp_3rd_plus" label="RE 3rd+ TTO" />
-                  <SortTh col="tto_delta"       label="TTO Δ" />
-                  <SortTh col="score"           label="Score" />
-                </tr>
-              </thead>
-              <tbody>
-                {data.map((r, i) => (
-                  <tr key={i} className="border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors">
-                    <td className="py-2 px-2 text-gray-500 font-medium">{i + 1}</td>
-                    <td className="py-2 px-2 text-white font-medium">{r.name}</td>
-                    <td className="py-2 px-2 text-gray-400 text-xs">{r.team}</td>
-                    <td className="py-2 px-2 text-right text-gray-300 font-mono">{r.ip?.toFixed(1)}</td>
-                    <td className={`py-2 px-2 text-right font-mono text-xs ${getSlopeColor(r.avg_speed_slope)}`}>{r.avg_speed_slope?.toFixed(4)}</td>
-                    <td className={`py-2 px-2 text-right font-mono text-xs ${getSlopeColor(r.avg_spin_slope)}`}>{r.avg_spin_slope?.toFixed(3)}</td>
-                    <td className="py-2 px-2 text-right text-gray-400 font-mono text-xs">{r.run_exp_1st?.toFixed(4)}</td>
-                    <td className="py-2 px-2 text-right text-gray-400 font-mono text-xs">{r.run_exp_3rd_plus?.toFixed(4)}</td>
-                    <td className="py-2 px-2 text-right text-cyan-400 font-mono">{r.tto_delta?.toFixed(4)}</td>
-                    <td className="py-2 px-2 text-right font-bold font-mono text-emerald-400">{r.score?.toFixed(2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Right: Scatter + Info */}
-          <div className="space-y-4">
-            <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
-              <div className="flex items-center justify-between mb-1">
-                <h4 className="text-sm font-medium text-gray-300">Speed Decay vs TTO Delta</h4>
-                <span className="text-[10px] text-gray-500">{scatterData.length} pitchers</span>
-              </div>
-              <p className="text-[10px] text-gray-500 mb-2">
-                理想は <span className="text-green-400">右上</span>（球速維持 ＋ TTO差なし）
-              </p>
-              <ResponsiveContainer width="100%" height={280}>
-                <ScatterChart margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis type="number" dataKey="avg_speed_slope" name="Speed Slope"
-                    tickFormatter={(v) => v.toFixed(3)}
-                    stroke="#9ca3af" tick={{ fontSize: 10 }}
-                    label={{ value: 'Speed Slope (→ 0 = better)', position: 'insideBottom', offset: -12, fill: '#6b7280', fontSize: 10 }} />
-                  <YAxis type="number" dataKey="tto_delta" name="TTO Delta"
-                    tickFormatter={(v) => v.toFixed(3)}
-                    stroke="#9ca3af" tick={{ fontSize: 10 }}
-                    label={{ value: 'TTO Δ (higher = better)', angle: -90, position: 'insideLeft', fill: '#6b7280', fontSize: 10 }} />
-                  <Tooltip content={<ChartTooltip />} cursor={{ strokeDasharray: '3 3' }} />
-                  <Scatter data={scatterData}>
-                    {scatterData.map((entry, i) => (
-                      <Cell key={i}
-                        fill={topN.has(entry.player_name) ? '#f59e0b' : '#10b981'}
-                        fillOpacity={topN.has(entry.player_name) ? 0.9 : 0.45}
-                        r={topN.has(entry.player_name) ? 5 : 3} />
-                    ))}
-                  </Scatter>
-                </ScatterChart>
-              </ResponsiveContainer>
-              <div className="flex items-center gap-3 mt-1.5">
-                <div className="flex items-center gap-1">
-                  <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                  <span className="text-gray-500 text-[10px]">Top 5</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 opacity-50" />
-                  <span className="text-gray-500 text-[10px]">Others</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
-              <h4 className="text-sm font-medium text-gray-300 mb-2">Calculation Details</h4>
-              <ul className="text-xs text-gray-400 space-y-1">
-                <li>算出ロジック</li>
-                <li className="ml-3">• Speed Slope: pitch_number vs release_speed の線形回帰傾き</li>
-                <li className="ml-3">• Spin Slope: pitch_number vs release_spin_rate の線形回帰傾き</li>
-                <li className="ml-3">• TTO Δ: 3巡目以降 − 1巡目の delta_pitcher_run_exp</li>
-                <li className="ml-3">• Score = Speed Z×0.4 + Spin Z×0.3 + TTO Z×0.3</li>
-                <li className="mt-2">入力カラム</li>
-                <li className="ml-3 font-mono text-gray-500">release_speed, release_spin_rate, pitch_number, n_thruorder_pitcher</li>
-                <li className="mt-2">フィルタ: 100 IP 以上</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // ============================================================
-  // P4 Two-Strike Finisher — Metric Detail
-  // ============================================================
-  const FinisherDetailView = () => {
-    const rawData = getRankingsForMetric('P4');
-    const metric = PITCHING_METRICS.find((m) => m.id === 'P4');
-    const scatterData = finisherRankings?.scatter_all || [];
-    const topN = new Set(rawData.slice(0, 5).map((r) => r.name));
-
-    const [sortKey, setSortKey] = React.useState('score');
-    const [sortDir, setSortDir] = React.useState('desc');
-
-    const handleSort = (key) => {
-      if (sortKey === key) {
-        setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
-      } else {
-        setSortKey(key);
-        setSortDir('desc');
-      }
-    };
-
-    const data = [...rawData].sort((a, b) => {
-      const av = a[sortKey] ?? 0;
-      const bv = b[sortKey] ?? 0;
-      // put_away_woba は小さいほど良いので昇順・降順を反転
-      const inv = sortKey === 'put_away_woba';
-      return (sortDir === 'desc') !== inv ? bv - av : av - bv;
-    });
-
-    const SortIcon = ({ col }) => {
-      if (sortKey !== col) return <span className="text-gray-600 ml-0.5">⇅</span>;
-      return <span className="text-blue-400 ml-0.5">{sortDir === 'desc' ? '↓' : '↑'}</span>;
-    };
-    const SortTh = ({ col, label, right = true }) => (
-      <th
-        onClick={() => handleSort(col)}
-        className={`${right ? 'text-right' : 'text-left'} text-gray-400 py-2 px-2 cursor-pointer hover:text-white select-none transition-colors`}
-      >
-        {label}<SortIcon col={col} />
-      </th>
-    );
-
-    const getFinisherColor = (score) => {
-      if (score >= 1.2) return 'text-green-400';
-      if (score >= 0.8) return 'text-emerald-400';
-      if (score >= 0.4) return 'text-yellow-400';
-      return 'text-orange-400';
-    };
-
-    return (
-      <div className="space-y-4">
-        <button onClick={() => setExpandedMetric(null)}
-          className="flex items-center gap-1 text-gray-400 hover:text-white text-sm transition-colors">
-          <ChevronLeft className="w-4 h-4" /> Back to Overview
-        </button>
-
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-bold text-white">{metric.id}. {metric.name} ({metric.nameJp})</h3>
-            <p className="text-sm text-gray-400 mt-0.5">
-              2ストライク時の Whiff Rate（50%）と被 wOBA の低さ（50%）を合成した決め球力スコア
-            </p>
-          </div>
-          <button onClick={fetchFinisherRankings}
-            className="flex items-center gap-1.5 text-gray-400 hover:text-white text-xs transition-colors">
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-          {/* Left: Rankings Table */}
-          <div className="xl:col-span-2 bg-gray-800/50 border border-gray-700 rounded-xl p-4 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-700">
-                  <th className="text-left text-gray-400 py-2 px-2 w-8">#</th>
-                  <SortTh col="name"                   label="Pitcher"        right={false} />
-                  <th className="text-left text-gray-400 py-2 px-2">Team</th>
-                  <SortTh col="total_2_strike_pitches" label="2K Pitches" />
-                  <th className="text-left text-gray-400 py-2 px-2">Primary Pitch</th>
-                  <SortTh col="whiff_rate"             label="Whiff%" />
-                  <SortTh col="put_away_woba"          label="Put Away wOBA" />
-                  <SortTh col="score"                  label="Score" />
-                </tr>
-              </thead>
-              <tbody>
-                {data.map((r, i) => (
-                  <tr key={i} className="border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors">
-                    <td className="py-2 px-2 text-gray-500 font-medium">{i + 1}</td>
-                    <td className="py-2 px-2 text-white font-medium">{r.name}</td>
-                    <td className="py-2 px-2 text-gray-400 text-xs">{r.team}</td>
-                    <td className="py-2 px-2 text-right text-gray-300 font-mono">{r.total_2_strike_pitches?.toLocaleString()}</td>
-                    <td className="py-2 px-2">
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-medium"
-                        style={{ backgroundColor: `${getPitchColor(r.primary_finishing_pitch)}22`, color: getPitchColor(r.primary_finishing_pitch) }}>
-                        {r.primary_finishing_pitch || '—'}
-                      </span>
-                    </td>
-                    <td className="py-2 px-2 text-right text-cyan-400 font-mono">{r.whiff_rate != null ? `${(r.whiff_rate * 100).toFixed(1)}%` : '—'}</td>
-                    <td className="py-2 px-2 text-right text-amber-400 font-mono">{r.put_away_woba?.toFixed(3)}</td>
-                    <td className={`py-2 px-2 text-right font-bold font-mono ${getFinisherColor(r.score)}`}>
-                      {r.score?.toFixed(2)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Right: Scatter + Info */}
-          <div className="space-y-4">
-            <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
-              <div className="flex items-center justify-between mb-1">
-                <h4 className="text-sm font-medium text-gray-300">Whiff% vs Put Away wOBA</h4>
-                <span className="text-[10px] text-gray-500">{scatterData.length} pitchers</span>
-              </div>
-              <p className="text-[10px] text-gray-500 mb-2">
-                理想は <span className="text-green-400">右下</span>（Whiff% 高い ＋ wOBA 低い）
-              </p>
-              <ResponsiveContainer width="100%" height={280}>
-                <ScatterChart margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis type="number" dataKey="whiff_rate" name="Whiff Rate"
-                    tickFormatter={(v) => `${(v * 100).toFixed(0)}%`}
-                    stroke="#9ca3af" tick={{ fontSize: 10 }}
-                    label={{ value: 'Whiff% (higher = better)', position: 'insideBottom', offset: -12, fill: '#6b7280', fontSize: 10 }} />
-                  <YAxis type="number" dataKey="put_away_woba" name="Put Away wOBA"
-                    stroke="#9ca3af" tick={{ fontSize: 10 }}
-                    label={{ value: 'Put Away wOBA (lower = better)', angle: -90, position: 'insideLeft', fill: '#6b7280', fontSize: 10 }} />
-                  <Tooltip content={<ChartTooltip />} cursor={{ strokeDasharray: '3 3' }} />
-                  <Scatter data={scatterData}>
-                    {scatterData.map((entry, i) => (
-                      <Cell key={i}
-                        fill={topN.has(entry.player_name) ? '#f59e0b' : '#22d3ee'}
-                        fillOpacity={topN.has(entry.player_name) ? 0.9 : 0.45}
-                        r={topN.has(entry.player_name) ? 5 : 3} />
-                    ))}
-                  </Scatter>
-                </ScatterChart>
-              </ResponsiveContainer>
-              <div className="flex items-center gap-3 mt-1.5">
-                <div className="flex items-center gap-1">
-                  <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                  <span className="text-gray-500 text-[10px]">Top 5</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 opacity-50" />
-                  <span className="text-gray-500 text-[10px]">Others</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
-              <h4 className="text-sm font-medium text-gray-300 mb-2">Calculation Details</h4>
-              <ul className="text-xs text-gray-400 space-y-1">
-                <li>算出ロジック</li>
-                <li className="ml-3">• 対象: 2ストライクカウント時の全投球</li>
-                <li className="ml-3">• Whiff Rate: 空振り / スイング数</li>
-                <li className="ml-3">• Put Away wOBA: 2K時の被 wOBA 平均（低いほど良）</li>
-                <li className="ml-3">• Score = Whiff Rate × 0.5 + (1 − wOBA) Z-score × 0.5</li>
-                <li className="mt-2">入力カラム</li>
-                <li className="ml-3 font-mono text-gray-500">strikes, description, woba_value</li>
-                <li className="mt-2">フィルタ: 最低 100 球（2K）以上</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // ============================================================
-  // RANKINGS VIEW
-  // ============================================================
-  const RankingsView = () => {
-    // P1 expanded → dedicated detail view
-    if (expandedMetric === 'P1' && category === 'pitching') {
-      return <PitchTunnelDetailView />;
-    }
-
-    // P3 expanded → dedicated detail view
-    if (expandedMetric === 'P3' && category === 'pitching') {
-      return <StaminaDetailView />;
-    }
-
-    // P4 expanded → dedicated detail view
-    if (expandedMetric === 'P4' && category === 'pitching') {
-      return <FinisherDetailView />;
-    }
-
-    // P6 expanded → dedicated detail view
-    if (expandedMetric === 'P6' && category === 'pitching') {
-      return <ArsenalDetailView />;
-    }
-
-    // Other metric expanded → generic table
-    if (expandedMetric) {
-      const metric = metrics.find((m) => m.id === expandedMetric);
-      const data = getRankingsForMetric(expandedMetric);
-      return (
-        <div className="space-y-4">
-          <button onClick={() => setExpandedMetric(null)}
-            className="flex items-center gap-1 text-gray-400 hover:text-white text-sm transition-colors">
-            <ChevronLeft className="w-4 h-4" /> Back to Overview
-          </button>
-          <div>
-            <h3 className="text-lg font-bold text-white">{metric.id}. {metric.name}</h3>
-            <p className="text-sm text-gray-400">{metric.question}</p>
-            {!metric.apiReady && (
-              <span className="inline-block mt-1 px-2 py-0.5 bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 text-[10px] rounded">
-                Dummy Data — API未接続
-              </span>
-            )}
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-700">
-                  <th className="text-left text-gray-400 py-2 px-3 w-12">#</th>
-                  <th className="text-left text-gray-400 py-2 px-3">Player</th>
-                  <th className="text-left text-gray-400 py-2 px-3">Team</th>
-                  <th className="text-right text-gray-400 py-2 px-3">Score</th>
-                  <th className="text-left text-gray-400 py-2 px-3 w-48"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.map((r, i) => (
-                  <tr key={r.id} className="border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors">
-                    <td className="py-2.5 px-3 text-gray-500 font-medium">{i + 1}</td>
-                    <td className="py-2.5 px-3 text-white font-medium">{r.name}</td>
-                    <td className="py-2.5 px-3 text-gray-400">{r.team}</td>
-                    <td className={`py-2.5 px-3 text-right font-bold ${getScoreColor(r.score)}`}>{r.score}</td>
-                    <td className="py-2.5 px-3">
-                      <div className="w-full bg-gray-700 rounded-full h-2">
-                        <div className="h-2 rounded-full transition-all"
-                          style={{ width: `${Math.min((r.score / 100) * 100, 100)}%`, backgroundColor: getBarFill(r.score) }} />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      );
-    }
-
-    // Overview — card grid
-    return (
-      <div className="space-y-4">
-        {/* Loading / Error */}
-        {isLoading && (
-          <div className="flex items-center gap-2 text-gray-400 text-sm">
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500" />
-            データ読み込み中...
-          </div>
-        )}
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg px-4 py-2 text-sm">
-            API Error: {error}
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {metrics.map((metric) => {
-            const data = getRankingsForMetric(metric.id).slice(0, 5);
-            const isLive = (metric.id === 'P1' && !!pitchTunnelRankings) || (metric.id === 'P3' && !!staminaRankings) || (metric.id === 'P4' && !!finisherRankings) || (metric.id === 'P6' && !!arsenalRankings);
-            return (
-              <div key={metric.id} className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h4 className="text-white font-semibold text-sm">{metric.id}: {metric.name}</h4>
-                      {isLive ? (
-                        <span className="px-1.5 py-0.5 bg-green-500/10 border border-green-500/20 text-green-400 text-[9px] rounded">LIVE</span>
-                      ) : !metric.apiReady ? (
-                        <span className="px-1.5 py-0.5 bg-gray-500/10 border border-gray-500/20 text-gray-500 text-[9px] rounded">DUMMY</span>
-                      ) : null}
-                    </div>
-                    <p className="text-gray-500 text-xs mt-0.5">{metric.question}</p>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  {data.map((r, i) => (
-                    <div key={r.id}
-                      className="flex items-center gap-3 hover:bg-gray-700/30 rounded-lg px-2 py-1 cursor-pointer transition-colors"
-                      onClick={() => {
-                        if (metric.apiReady) {
-                          setExpandedMetric(metric.id);
-                        } else {
-                          setProfilePlayerId(r.id);
-                          setProfileSearch(r.name);
-                          setView('profile');
-                        }
-                      }}>
-                      <span className="text-gray-500 text-xs font-medium w-4">{i + 1}</span>
-                      <span className="text-white text-sm font-medium flex-1 truncate">{r.name}</span>
-                      <span className="text-gray-500 text-xs">{r.team}</span>
-                      {metric.id === 'P1' ? (
-                        <span className="text-sm font-bold w-16 text-right text-indigo-400 font-mono">
-                          {r.score >= 0 ? '+' : ''}{r.score?.toFixed(2)}
-                        </span>
-                      ) : metric.id === 'P3' ? (
-                        <span className="text-sm font-bold w-16 text-right text-emerald-400 font-mono">{r.score?.toFixed(2)}</span>
-                      ) : metric.id === 'P4' ? (
-                        <span className="text-sm font-bold w-16 text-right text-cyan-400 font-mono">{r.score?.toFixed(2)}</span>
-                      ) : metric.id === 'P6' ? (
-                        <span className="text-sm font-bold w-16 text-right text-amber-400 font-mono">{r.score?.toFixed(3)}</span>
-                      ) : (
-                        <>
-                          <span className={`text-sm font-bold w-12 text-right ${getScoreColor(r.score)}`}>{r.score}</span>
-                          <div className="w-20 bg-gray-700 rounded-full h-1.5">
-                            <div className="h-1.5 rounded-full"
-                              style={{ width: `${Math.min((r.score / 100) * 100, 100)}%`, backgroundColor: getBarFill(r.score) }} />
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                <button onClick={() => setExpandedMetric(metric.id)}
-                  className="mt-3 flex items-center gap-1 text-blue-400 hover:text-blue-300 text-xs font-medium transition-colors">
-                  View Full Rankings <ChevronRight className="w-3 h-3" />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
-
-  // ============================================================
   // PROFILE VIEW (dummy for now)
   // ============================================================
   const ProfileView = () => {
-    const player = getPlayer(profilePlayerId);
+    const player   = getPlayer(profilePlayerId);
     const radarData = profileData
       ? profileData.map((d) => ({ metric: d.metricId, score: d.score, leagueAvg: d.leagueAvg, fullMark: 100 }))
       : [];
-    const strengths = profileData ? [...profileData].sort((a, b) => a.rank - b.rank).slice(0, 2) : [];
+    const strengths  = profileData ? [...profileData].sort((a, b) => a.rank - b.rank).slice(0, 2)  : [];
     const weaknesses = profileData ? [...profileData].sort((a, b) => b.rank - a.rank).slice(0, 2) : [];
 
     return (
@@ -1381,7 +248,7 @@ const AdvancedStats = () => {
               <h4 className="text-sm font-medium text-gray-300 mb-3">Metric Comparison</h4>
               <div className="space-y-2">
                 {compareDataA.map((a, i) => {
-                  const b = compareDataB[i];
+                  const b    = compareDataB[i];
                   const diff = a.score - b.score;
                   return (
                     <div key={a.metricId} className="flex items-center gap-2">
@@ -1511,10 +378,10 @@ const AdvancedStats = () => {
                   </thead>
                   <tbody>
                     {trendsSelectedMetrics.map((metricId) => {
-                      const m = metrics.find((x) => x.id === metricId);
+                      const m      = metrics.find((x) => x.id === metricId);
                       const latest = trendsData[trendsData.length - 1]?.[metricId];
-                      const prev = trendsData[trendsData.length - 2]?.[metricId];
-                      const yoy = latest != null && prev != null ? latest - prev : null;
+                      const prev   = trendsData[trendsData.length - 2]?.[metricId];
+                      const yoy    = latest != null && prev != null ? latest - prev : null;
                       return (
                         <tr key={metricId} className="border-b border-gray-700/50">
                           <td className="py-2 px-3 text-gray-300">{metricId} {m?.nameJp}</td>
@@ -1541,10 +408,10 @@ const AdvancedStats = () => {
   // Main Render
   // ============================================================
   const SUB_TABS = [
-    { key: 'rankings', label: 'Rankings', icon: BarChart3 },
-    { key: 'profile', label: 'Profile', icon: User },
-    { key: 'compare', label: 'Compare', icon: GitCompare },
-    { key: 'trends', label: 'Trends', icon: TrendingUp },
+    { key: 'rankings', label: 'Rankings',  icon: BarChart3   },
+    { key: 'profile',  label: 'Profile',   icon: User        },
+    { key: 'compare',  label: 'Compare',   icon: GitCompare  },
+    { key: 'trends',   label: 'Trends',    icon: TrendingUp  },
   ];
 
   return (
@@ -1577,14 +444,16 @@ const AdvancedStats = () => {
         </div>
 
         <div className="flex rounded-lg overflow-hidden border border-gray-600">
-          <button onClick={() => { setCategory('pitching'); setExpandedMetric(null); }}
+          <button onClick={() => setCategory('pitching')}
             className={`px-3 py-1.5 text-sm font-medium transition-all ${
-              category === 'pitching' ? 'bg-blue-600 text-white shadow-[0_0_12px_rgba(59,130,246,0.5)]'
+              category === 'pitching'
+                ? 'bg-blue-600 text-white shadow-[0_0_12px_rgba(59,130,246,0.5)]'
                 : 'bg-gray-700 text-gray-500 hover:bg-gray-600 hover:text-gray-300'
             }`}>Pitching</button>
-          <button onClick={() => { setCategory('batting'); setExpandedMetric(null); }}
+          <button onClick={() => setCategory('batting')}
             className={`px-3 py-1.5 text-sm font-medium transition-all ${
-              category === 'batting' ? 'bg-purple-600 text-white shadow-[0_0_12px_rgba(147,51,234,0.5)]'
+              category === 'batting'
+                ? 'bg-purple-600 text-white shadow-[0_0_12px_rgba(147,51,234,0.5)]'
                 : 'bg-gray-700 text-gray-500 hover:bg-gray-600 hover:text-gray-300'
             }`}>Batting</button>
         </div>
@@ -1601,10 +470,15 @@ const AdvancedStats = () => {
       </div>
 
       {/* Content */}
-      {view === 'rankings' && RankingsView()}
-      {view === 'profile' && ProfileView()}
-      {view === 'compare' && CompareView()}
-      {view === 'trends' && TrendsView()}
+      {view === 'rankings' && category === 'pitching' && (
+        <AdvancedStatsPitching season={season} getAuthHeaders={getAuthHeaders} BACKEND_URL={BACKEND_URL} />
+      )}
+      {view === 'rankings' && category === 'batting' && (
+        <AdvancedStatsBatting season={season} getAuthHeaders={getAuthHeaders} BACKEND_URL={BACKEND_URL} />
+      )}
+      {view === 'profile'  && <ProfileView />}
+      {view === 'compare'  && <CompareView />}
+      {view === 'trends'   && <TrendsView />}
     </div>
   );
 };

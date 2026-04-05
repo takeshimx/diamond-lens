@@ -2,6 +2,7 @@
 Advanced Stats Ranking サービス
 Statcast pitch-level データから投手・打者の高度指標を算出
 """
+import asyncio
 import logging
 from typing import Dict, List
 
@@ -18,6 +19,10 @@ TUNNEL_VIEW   = settings.get_table_full_name("view_pitch_tunnel_stats")
 FINISHER_VIEW = settings.get_table_full_name("view_pitch_2strikes_finisher_score")
 STAMINA_VIEW  = settings.get_table_full_name("view_pitch_stamina_score")
 ARSENAL_VIEW  = settings.get_table_full_name("view_pitch_arsenal_effectiveness")
+PRESSURE_VIEW          = settings.get_table_full_name("view_pitch_pressure_dominance_sp")
+PLATE_DISCIPLINE_VIEW      = settings.get_table_full_name("view_batter_plate_discipline_score")
+CLUTCH_HITTING_VIEW        = settings.get_table_full_name("view_batter_clutch_hitting")
+CONTACT_CONSISTENCY_VIEW   = settings.get_table_full_name("view_batter_contact_consistency")
 
 
 class AdvancedStatsService:
@@ -86,7 +91,11 @@ class AdvancedStatsService:
 
         try:
             scatter_config = self._make_job_config(scatter_params)
-            scatter_df = self.client.query(scatter_query, job_config=scatter_config).to_dataframe()
+            job_config = self._make_job_config(params)
+            scatter_df, df = await asyncio.gather(
+                asyncio.to_thread(lambda: self.client.query(scatter_query, job_config=scatter_config).to_dataframe()),
+                asyncio.to_thread(lambda: self.client.query(query, job_config=job_config).to_dataframe()),
+            )
             scatter_all = [
                 {
                     "player_name": row.get("player_name") or "",
@@ -99,8 +108,6 @@ class AdvancedStatsService:
             ]
             total = len(scatter_all)
 
-            job_config = self._make_job_config(params)
-            df = self.client.query(query, job_config=job_config).to_dataframe()
             rankings = [
                 {
                     "pitcher_id": int(row["pitcher"]),
@@ -129,6 +136,103 @@ class AdvancedStatsService:
 
         except Exception as e:
             logger.error(f"Failed to get pitch tunnel rankings: {e}")
+            raise
+
+    # ----------------------------------------------------------
+    # P2: Pressure Dominance Index
+    # ----------------------------------------------------------
+    async def get_pressure_rankings(
+        self,
+        season: int = 2025,
+        limit: int = 40,
+        offset: int = 0,
+    ) -> Dict:
+        """
+        P2 Pressure Dominance Index ランキング（先発投手限定）
+
+        BQ View `view_pitch_pressure_dominance_sp` を参照。
+        高LI(上位25%)時と低LI時の delta_pitcher_run_exp を比較し、
+        プレッシャー下での投球パフォーマンスをZスコアで合成。
+        """
+        query = f"""
+            SELECT
+                pitcher,
+                player_name,
+                team,
+                total_pitches,
+                high_li_pitches,
+                high_li_run_exp,
+                low_li_run_exp,
+                pressure_delta,
+                pressure_dominance_index
+            FROM `{PRESSURE_VIEW}`
+            WHERE game_year = @season
+            ORDER BY pressure_dominance_index DESC
+            LIMIT @limit OFFSET @offset
+        """
+
+        scatter_query = f"""
+            SELECT
+                player_name,
+                high_li_run_exp,
+                pressure_delta,
+                pressure_dominance_index
+            FROM `{PRESSURE_VIEW}`
+            WHERE game_year = @season
+            ORDER BY pressure_dominance_index DESC
+            LIMIT 200
+        """
+
+        params = [
+            ("season", "INT64", season),
+            ("limit",  "INT64", limit),
+            ("offset", "INT64", offset),
+        ]
+        scatter_params = [("season", "INT64", season)]
+
+        try:
+            scatter_config = self._make_job_config(scatter_params)
+            job_config = self._make_job_config(params)
+            scatter_df, df = await asyncio.gather(
+                asyncio.to_thread(lambda: self.client.query(scatter_query, job_config=scatter_config).to_dataframe()),
+                asyncio.to_thread(lambda: self.client.query(query, job_config=job_config).to_dataframe()),
+            )
+            scatter_all = [
+                {
+                    "player_name":              row.get("player_name") or "",
+                    "high_li_run_exp":          float(row["high_li_run_exp"]),
+                    "pressure_delta":           float(row["pressure_delta"]),
+                    "pressure_dominance_index": float(row["pressure_dominance_index"]),
+                }
+                for _, row in scatter_df.iterrows()
+            ]
+            total = len(scatter_all)
+
+            rankings = [
+                {
+                    "pitcher_id":               int(row["pitcher"]),
+                    "player_name":              row.get("player_name") or "",
+                    "team":                     row.get("team") or "",
+                    "total_pitches":            int(row["total_pitches"]),
+                    "high_li_pitches":          int(row["high_li_pitches"]),
+                    "high_li_run_exp":          float(row["high_li_run_exp"]),
+                    "low_li_run_exp":           float(row["low_li_run_exp"]),
+                    "pressure_delta":           float(row["pressure_delta"]),
+                    "pressure_dominance_index": float(row["pressure_dominance_index"]),
+                }
+                for _, row in df.iterrows()
+            ]
+
+            return {
+                "rankings":   rankings,
+                "scatter_all": scatter_all,
+                "total":      total,
+                "metric":     "P2_pressure_dominance",
+                "season":     season,
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get pressure dominance rankings: {e}")
             raise
 
     # ----------------------------------------------------------
@@ -184,7 +288,11 @@ class AdvancedStatsService:
 
         try:
             scatter_config = self._make_job_config(scatter_params)
-            scatter_df = self.client.query(scatter_query, job_config=scatter_config).to_dataframe()
+            job_config = self._make_job_config(params)
+            scatter_df, df = await asyncio.gather(
+                asyncio.to_thread(lambda: self.client.query(scatter_query, job_config=scatter_config).to_dataframe()),
+                asyncio.to_thread(lambda: self.client.query(query, job_config=job_config).to_dataframe()),
+            )
             scatter_all = [
                 {
                     "player_name": row.get("player_name") or "",
@@ -196,8 +304,6 @@ class AdvancedStatsService:
             ]
             total = len(scatter_all)
 
-            job_config = self._make_job_config(params)
-            df = self.client.query(query, job_config=job_config).to_dataframe()
             rankings = [
                 {
                     "pitcher_id": int(row["pitcher"]),
@@ -279,7 +385,11 @@ class AdvancedStatsService:
 
         try:
             scatter_config = self._make_job_config(scatter_params)
-            scatter_df = self.client.query(scatter_query, job_config=scatter_config).to_dataframe()
+            job_config = self._make_job_config(params)
+            scatter_df, df = await asyncio.gather(
+                asyncio.to_thread(lambda: self.client.query(scatter_query, job_config=scatter_config).to_dataframe()),
+                asyncio.to_thread(lambda: self.client.query(query, job_config=job_config).to_dataframe()),
+            )
             scatter_all = [
                 {
                     "player_name":    row.get("player_name") or "",
@@ -291,8 +401,6 @@ class AdvancedStatsService:
             ]
             total = len(scatter_all)
 
-            job_config = self._make_job_config(params)
-            df = self.client.query(query, job_config=job_config).to_dataframe()
             rankings = [
                 {
                     "pitcher_id":      int(row["pitcher"]),
@@ -381,9 +489,13 @@ class AdvancedStatsService:
             scatter_params.append(("team", "STRING", team))
 
         try:
-            # Fetch scatter (all qualifying pitchers) + derive total
             scatter_config = self._make_job_config(scatter_params)
-            scatter_df = self.client.query(scatter_query, job_config=scatter_config).to_dataframe()
+            job_config = self._make_job_config(params)
+            # scatter と ranking を並列実行
+            scatter_df, df = await asyncio.gather(
+                asyncio.to_thread(lambda: self.client.query(scatter_query, job_config=scatter_config).to_dataframe()),
+                asyncio.to_thread(lambda: self.client.query(query, job_config=job_config).to_dataframe()),
+            )
 
             scatter_all = []
             for _, row in scatter_df.iterrows():
@@ -394,10 +506,6 @@ class AdvancedStatsService:
                     "synthetic_score": float(row["synthetic_score"]),
                 })
             total = len(scatter_all)
-
-            # Fetch top-N rankings (with player name, team, pitch_mix)
-            job_config = self._make_job_config(params)
-            df = self.client.query(query, job_config=job_config).to_dataframe()
 
             rankings = []
             pitcher_ids = []
@@ -416,7 +524,7 @@ class AdvancedStatsService:
 
             # --- Batch fetch pitch mix for all ranked pitchers (single query) ---
             if pitcher_ids:
-                pitch_mix_map = self._fetch_batch_pitch_mix(pitcher_ids, season)
+                pitch_mix_map = await asyncio.to_thread(self._fetch_batch_pitch_mix, pitcher_ids, season)
                 for r in rankings:
                     r["pitch_mix"] = pitch_mix_map.get(r["pitcher_id"], [])
 
@@ -490,6 +598,306 @@ class AdvancedStatsService:
             raise
 
     # ----------------------------------------------------------
+    # B2: Plate Discipline Score
+    # ----------------------------------------------------------
+    async def get_plate_discipline_rankings(
+        self,
+        season: int = 2025,
+        limit: int = 40,
+        offset: int = 0,
+    ) -> Dict:
+        """
+        B2 Plate Discipline Score ランキング
+
+        BQ View `view_batter_plate_discipline_score` を参照。
+        O-Swing%(35%) + Z-Swing%(35%) + avg_decision_value(30%) の合成Zスコア。
+        """
+        query = f"""
+            SELECT
+                batter,
+                player_name,
+                team,
+                total_pitches,
+                o_swing_pct,
+                z_swing_pct,
+                o_take_pct,
+                z_take_pct,
+                avg_decision_value,
+                plate_discipline_score
+            FROM `{PLATE_DISCIPLINE_VIEW}`
+            WHERE game_year = @season
+            ORDER BY plate_discipline_score DESC
+            LIMIT @limit OFFSET @offset
+        """
+
+        scatter_query = f"""
+            SELECT
+                player_name,
+                o_swing_pct,
+                z_swing_pct,
+                plate_discipline_score
+            FROM `{PLATE_DISCIPLINE_VIEW}`
+            WHERE game_year = @season
+            ORDER BY plate_discipline_score DESC
+            LIMIT 300
+        """
+
+        params = [
+            ("season", "INT64", season),
+            ("limit",  "INT64", limit),
+            ("offset", "INT64", offset),
+        ]
+        scatter_params = [("season", "INT64", season)]
+
+        try:
+            scatter_config = self._make_job_config(scatter_params)
+            job_config = self._make_job_config(params)
+            scatter_df, df = await asyncio.gather(
+                asyncio.to_thread(lambda: self.client.query(scatter_query, job_config=scatter_config).to_dataframe()),
+                asyncio.to_thread(lambda: self.client.query(query, job_config=job_config).to_dataframe()),
+            )
+            scatter_all = [
+                {
+                    "player_name":           row.get("player_name") or "",
+                    "o_swing_pct":           float(row["o_swing_pct"]),
+                    "z_swing_pct":           float(row["z_swing_pct"]),
+                    "plate_discipline_score": float(row["plate_discipline_score"]),
+                }
+                for _, row in scatter_df.iterrows()
+            ]
+            total = len(scatter_all)
+
+            rankings = [
+                {
+                    "batter_id":             int(row["batter"]),
+                    "player_name":           row.get("player_name") or "",
+                    "team":                  row.get("team") or "",
+                    "total_pitches":         int(row["total_pitches"]),
+                    "o_swing_pct":           float(row["o_swing_pct"]),
+                    "z_swing_pct":           float(row["z_swing_pct"]),
+                    "o_take_pct":            float(row["o_take_pct"]),
+                    "z_take_pct":            float(row["z_take_pct"]),
+                    "avg_decision_value":    float(row["avg_decision_value"]),
+                    "plate_discipline_score": float(row["plate_discipline_score"]),
+                }
+                for _, row in df.iterrows()
+            ]
+
+            return {
+                "rankings":    rankings,
+                "scatter_all": scatter_all,
+                "total":       total,
+                "metric":      "B2_plate_discipline",
+                "season":      season,
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get plate discipline rankings: {e}")
+            raise
+
+    # ----------------------------------------------------------
+    # B3: Clutch Hitting Index
+    # ----------------------------------------------------------
+    async def get_clutch_rankings(
+        self,
+        season: int = 2025,
+        limit: int = 40,
+        offset: int = 0,
+    ) -> Dict:
+        """
+        B3 Clutch Hitting Index ランキング
+
+        BQ View `view_batter_clutch_hitting` を参照。
+        高LI(上位25%)時の wOBA - 全体wOBA = clutch_index の合成Zスコア。
+        """
+        query = f"""
+            SELECT
+                batter,
+                player_name,
+                team,
+                total_pa,
+                high_li_pa,
+                woba_overall,
+                woba_high_li,
+                ba_overall,
+                ba_high_li,
+                clutch_index,
+                clutch_hitting_score
+            FROM `{CLUTCH_HITTING_VIEW}`
+            WHERE game_year = @season
+            ORDER BY clutch_hitting_score DESC
+            LIMIT @limit OFFSET @offset
+        """
+
+        scatter_query = f"""
+            SELECT
+                player_name,
+                woba_overall,
+                woba_high_li,
+                clutch_index,
+                clutch_hitting_score
+            FROM `{CLUTCH_HITTING_VIEW}`
+            WHERE game_year = @season
+            ORDER BY clutch_hitting_score DESC
+            LIMIT 300
+        """
+
+        params = [
+            ("season", "INT64", season),
+            ("limit",  "INT64", limit),
+            ("offset", "INT64", offset),
+        ]
+        scatter_params = [("season", "INT64", season)]
+
+        try:
+            scatter_config = self._make_job_config(scatter_params)
+            job_config = self._make_job_config(params)
+            scatter_df, df = await asyncio.gather(
+                asyncio.to_thread(lambda: self.client.query(scatter_query, job_config=scatter_config).to_dataframe()),
+                asyncio.to_thread(lambda: self.client.query(query, job_config=job_config).to_dataframe()),
+            )
+            scatter_all = [
+                {
+                    "player_name":          row.get("player_name") or "",
+                    "woba_overall":         float(row["woba_overall"]),
+                    "woba_high_li":         float(row["woba_high_li"]),
+                    "clutch_index":         float(row["clutch_index"]),
+                    "clutch_hitting_score": float(row["clutch_hitting_score"]),
+                }
+                for _, row in scatter_df.iterrows()
+            ]
+            total = len(scatter_all)
+
+            rankings = [
+                {
+                    "batter_id":            int(row["batter"]),
+                    "player_name":          row.get("player_name") or "",
+                    "team":                 row.get("team") or "",
+                    "total_pa":             int(row["total_pa"]),
+                    "high_li_pa":           int(row["high_li_pa"]),
+                    "woba_overall":         float(row["woba_overall"]),
+                    "woba_high_li":         float(row["woba_high_li"]),
+                    "ba_overall":           float(row["ba_overall"]) if row["ba_overall"] is not None else None,
+                    "ba_high_li":           float(row["ba_high_li"]) if row["ba_high_li"] is not None else None,
+                    "clutch_index":         float(row["clutch_index"]),
+                    "clutch_hitting_score": float(row["clutch_hitting_score"]),
+                }
+                for _, row in df.iterrows()
+            ]
+
+            return {
+                "rankings":    rankings,
+                "scatter_all": scatter_all,
+                "total":       total,
+                "metric":      "B3_clutch_hitting",
+                "season":      season,
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get clutch rankings: {e}")
+            raise
+
+    # ----------------------------------------------------------
+    # B4: Contact Consistency Score
+    # ----------------------------------------------------------
+    async def get_contact_consistency_rankings(
+        self,
+        season: int = 2025,
+        limit: int = 40,
+        offset: int = 0,
+    ) -> Dict:
+        """
+        B4 Contact Consistency Score ランキング
+
+        BQ View `view_batter_contact_consistency` を参照。
+        xwOBAのCV(変動係数)逆転(35%) + 平均xwOBA(35%) +
+        ハードヒット率(20%) + スウィートスポット率(10%) の合成Zスコア。
+        再Zスコア化済み: 100 + Z*15 (OPS+/wRC+と同等スケール)
+        """
+        query = f"""
+            SELECT
+                batter,
+                player_name,
+                team,
+                bbip,
+                avg_xwoba,
+                stddev_xwoba,
+                cv_xwoba,
+                hard_hit_pct,
+                sweet_spot_pct,
+                contact_consistency_score
+            FROM `{CONTACT_CONSISTENCY_VIEW}`
+            WHERE game_year = @season
+            ORDER BY contact_consistency_score DESC
+            LIMIT @limit OFFSET @offset
+        """
+
+        scatter_query = f"""
+            SELECT
+                player_name,
+                avg_xwoba,
+                cv_xwoba,
+                contact_consistency_score
+            FROM `{CONTACT_CONSISTENCY_VIEW}`
+            WHERE game_year = @season
+            ORDER BY contact_consistency_score DESC
+            LIMIT 300
+        """
+
+        params = [
+            ("season", "INT64", season),
+            ("limit",  "INT64", limit),
+            ("offset", "INT64", offset),
+        ]
+        scatter_params = [("season", "INT64", season)]
+
+        try:
+            scatter_config = self._make_job_config(scatter_params)
+            job_config = self._make_job_config(params)
+            scatter_df, df = await asyncio.gather(
+                asyncio.to_thread(lambda: self.client.query(scatter_query, job_config=scatter_config).to_dataframe()),
+                asyncio.to_thread(lambda: self.client.query(query, job_config=job_config).to_dataframe()),
+            )
+            scatter_all = [
+                {
+                    "player_name":               row.get("player_name") or "",
+                    "avg_xwoba":                 float(row["avg_xwoba"]),
+                    "cv_xwoba":                  float(row["cv_xwoba"]),
+                    "contact_consistency_score": float(row["contact_consistency_score"]),
+                }
+                for _, row in scatter_df.iterrows()
+            ]
+            total = len(scatter_all)
+
+            rankings = [
+                {
+                    "batter_id":                 int(row["batter"]),
+                    "player_name":               row.get("player_name") or "",
+                    "team":                      row.get("team") or "",
+                    "bbip":                      int(row["bbip"]),
+                    "avg_xwoba":                 float(row["avg_xwoba"]),
+                    "stddev_xwoba":              float(row["stddev_xwoba"]),
+                    "cv_xwoba":                  float(row["cv_xwoba"]),
+                    "hard_hit_pct":              float(row["hard_hit_pct"]),
+                    "sweet_spot_pct":            float(row["sweet_spot_pct"]),
+                    "contact_consistency_score": float(row["contact_consistency_score"]),
+                }
+                for _, row in df.iterrows()
+            ]
+
+            return {
+                "rankings":    rankings,
+                "scatter_all": scatter_all,
+                "total":       total,
+                "metric":      "B4_contact_consistency",
+                "season":      season,
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get contact consistency rankings: {e}")
+            raise
+
+    # ----------------------------------------------------------
     # 検索（投手名オートコンプリート）— dim_players_latest 使用
     # ----------------------------------------------------------
     async def search_pitchers(
@@ -520,7 +928,9 @@ class AdvancedStatsService:
         ])
 
         try:
-            df = self.client.query(query, job_config=job_config).to_dataframe()
+            df = await asyncio.to_thread(
+                lambda: self.client.query(query, job_config=job_config).to_dataframe()
+            )
             results = []
             seen = set()
             for _, row in df.iterrows():

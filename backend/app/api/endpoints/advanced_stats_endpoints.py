@@ -11,6 +11,33 @@ service = AdvancedStatsService()
 
 
 # ==============================================================
+# P2: Pressure Dominance Index
+# ==============================================================
+@router.get("/advanced-stats/pitching/pressure-dominance/rankings")
+async def get_pressure_rankings(
+    season: int = Query(2025, ge=2020, le=2027),
+    limit: int = Query(40, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """
+    P2 Pressure Dominance Index ランキング（先発投手限定）
+
+    高レバレッジ状況(LI上位25%)での delta_pitcher_run_exp と
+    低LI時との差分を合成したZスコア。
+    - score > 0: プレッシャー下でリーグ平均より強い
+    - 先発投手のみ対象（月単位SP判定でフィルタ済み）
+    """
+    try:
+        return await service.get_pressure_rankings(
+            season=season,
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================
 # P1: Pitch Tunnel Score
 # ==============================================================
 @router.get("/advanced-stats/pitching/pitch-tunnel/rankings")
@@ -129,6 +156,84 @@ async def get_arsenal_pitch_mix(
         return await service.get_arsenal_pitch_mix(
             pitcher_id=pitcher_id,
             season=season,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================
+# B2: Plate Discipline Score
+# ==============================================================
+@router.get("/advanced-stats/batting/plate-discipline/rankings")
+async def get_plate_discipline_rankings(
+    season: int = Query(2025, ge=2020, le=2027),
+    limit: int = Query(40, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """
+    B2 Plate Discipline Score ランキング
+
+    O-Swing%(ゾーン外スイング率) × Z-Swing%(ゾーン内スイング率) ×
+    avg_decision_value(判断価値) の合成Zスコア。
+    - score > 0: リーグ平均より選球眼が良い
+    """
+    try:
+        return await service.get_plate_discipline_rankings(
+            season=season,
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================
+# B3: Clutch Hitting Index
+# ==============================================================
+@router.get("/advanced-stats/batting/clutch/rankings")
+async def get_clutch_rankings(
+    season: int = Query(2025, ge=2020, le=2027),
+    limit: int = Query(40, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """
+    B3 Clutch Hitting Index ランキング
+
+    高レバレッジ(LI上位25%)時の wOBA と全体wOBAの差分を合成Zスコア化。
+    - score > 100: チャンスに強い
+    - score < 100: チャンスに弱い
+    """
+    try:
+        return await service.get_clutch_rankings(
+            season=season,
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================
+# B4: Contact Consistency Score
+# ==============================================================
+@router.get("/advanced-stats/batting/contact-consistency/rankings")
+async def get_contact_consistency_rankings(
+    season: int = Query(2025, ge=2020, le=2027),
+    limit: int = Query(40, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """
+    B4 Contact Consistency Score ランキング
+
+    xwOBAの変動係数(CV)逆転(35%) + 平均xwOBA(35%) +
+    ハードヒット率(20%) + スウィートスポット率(10%) の合成Zスコア。
+    再Zスコア化済み: 100 + Z*15 (OPS+/wRC+と同等スケール)
+    """
+    try:
+        return await service.get_contact_consistency_rankings(
+            season=season,
+            limit=limit,
+            offset=offset,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
