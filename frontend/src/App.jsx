@@ -2623,7 +2623,7 @@ const MLBChatApp = () => {
 
   // ===== メインUIレンダリング =====
   return (
-    <div className="flex flex-col h-screen bg-white dark:bg-gray-900 transition-colors duration-200" data-theme-test>
+    <div className="flex flex-col h-screen w-full bg-white dark:bg-gray-900 transition-colors duration-200" data-theme-test>
       {authLoading ? (
         // ===== 認証状態確認中 =====
         <div className="flex items-center justify-center h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-black">

@@ -987,8 +987,16 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
         # LLMトークンストリーミング
         elif event_type == "on_chat_model_stream":
             chunk = event.get("data", {}).get("chunk", {})
-            content = getattr(chunk, "content", "")
-            if content and isinstance(content, str):
+            raw_content = getattr(chunk, "content", "")
+            # langchain-google-genai v2+ はリスト形式で返す場合がある
+            if isinstance(raw_content, list):
+                content = "".join(
+                    item.get("text", "") if isinstance(item, dict) else str(item)
+                    for item in raw_content
+                )
+            else:
+                content = raw_content or ""
+            if content:
                 accumulated_answer += content  # トークンを蓄積
                 yield {
                     "type": "token",
