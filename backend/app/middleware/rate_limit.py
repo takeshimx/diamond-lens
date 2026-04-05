@@ -27,7 +27,7 @@ class RateLimitMiddleware:
     """
 
     # レートリミットを適用しないパス
-    EXEMPT_PATHS = {"/", "/health", "/debug/routes", "/docs", "/openapi.json", "/redoc"}
+    EXEMPT_PATHS = {"/", "/health", "/debug/routes", "/docs", "/openapi.json", "/redoc", "/api/v1/live/games/today"}
 
     def __init__(self, app: ASGIApp):
         self.app = app
