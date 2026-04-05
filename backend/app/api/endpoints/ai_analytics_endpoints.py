@@ -491,6 +491,17 @@ async def get_agentic_stats_stream_endpoint(
 
     logger.info(f"🌊 Stream Request: query='{body.query}', session_id={session_id}")
 
+    # LLMログエントリを初期化
+    llm_logger = get_llm_logger()
+    log_entry = LLMLogEntry()
+    log_entry.request_id = get_request_id()
+    log_entry.user_id = getattr(request.state, "user_id", "anonymous")
+    log_entry.session_id = session_id
+    log_entry.user_query = body.query
+    log_entry.endpoint = "/qa/agentic-stats-stream"
+    log_entry.success = True
+    stream_start_time = time.time()
+
     async def event_generator() -> AsyncGenerator[Dict[str, Any], None]:
         """SSEイベントを生成する非同期ジェネレーター"""
         try:
@@ -511,6 +522,10 @@ async def get_agentic_stats_stream_endpoint(
             from backend.app.services.ai_agent_service import run_mlb_agent_stream
 
             async for event in run_mlb_agent_stream(body.query):
+                if event.get("type") == "final_answer":
+                    log_entry.response_answer = event.get("answer", "")
+                    log_entry.response_has_table = event.get("isTable", False)
+                    log_entry.response_has_chart = event.get("isChart", False)
                 yield event
 
             # Session end event
@@ -518,8 +533,16 @@ async def get_agentic_stats_stream_endpoint(
                 "type": "stream_end",
                 "message": "処理が完了しました"
             }
-        
+
+            log_entry.total_latency_ms = (time.time() - stream_start_time) * 1000
+            llm_logger.log(log_entry)
+
         except PromptInjectionError as e:
+            log_entry.success = False
+            log_entry.error_type = "prompt_injection"
+            log_entry.error_message = e.detected_pattern
+            log_entry.total_latency_ms = (time.time() - stream_start_time) * 1000
+            llm_logger.log(log_entry)
             yield {
                 "type": "error",
                 "error_type": "blocked",
@@ -528,6 +551,11 @@ async def get_agentic_stats_stream_endpoint(
             }
         except Exception as e:
             logger.error(f"❌ Stream Error: {str(e)}", exc_info=True)
+            log_entry.success = False
+            log_entry.error_type = "stream_error"
+            log_entry.error_message = str(e)
+            log_entry.total_latency_ms = (time.time() - stream_start_time) * 1000
+            llm_logger.log(log_entry)
             yield {
                 "type": "error",
                 "error_type": "internal_error",

@@ -174,7 +174,7 @@ const LiveScoreboard = () => {
   }, [fetchGames]);
 
   return (
-    <div className="max-w-3xl mx-auto w-full">
+    <div className="w-full">
       {/* ヘッダー */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
@@ -215,9 +215,11 @@ const LiveScoreboard = () => {
           {liveGames.length > 0 ? (
             <div className="flex flex-col gap-4">
               <p className="text-sm text-gray-400">{liveGames.length}試合進行中</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {liveGames.map((game) => (
                 <GameCard key={game.gamePk} game={game} />
               ))}
+              </div>
             </div>
           ) : (
             <div className="bg-gray-800 border border-gray-700 rounded-xl p-8 text-center">
@@ -230,6 +232,7 @@ const LiveScoreboard = () => {
           {finalGames.length > 0 && (
             <div className="flex flex-col gap-2">
               <p className="text-sm text-gray-500 font-medium">本日終了</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {finalGames.map((game) => {
                 const awayWin = game.away_score > game.home_score;
                 const homeWin = game.home_score > game.away_score;
@@ -249,6 +252,7 @@ const LiveScoreboard = () => {
                   </div>
                 );
               })}
+              </div>
             </div>
           )}
         </div>

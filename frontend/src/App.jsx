@@ -1240,6 +1240,8 @@ const MLBChatApp = () => {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
+      const streamRequestId = response.headers.get('X-Request-ID');
+
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -1357,6 +1359,7 @@ const MLBChatApp = () => {
                         content: data.answer || msg.content,
                         isStreaming: false,
                         streamingStatus: undefined,
+                        requestId: streamRequestId,
                         isTable: data.isTable,
                         tableData: data.tableData,
                         columns: data.columns,
@@ -3046,7 +3049,7 @@ const MLBChatApp = () => {
               </div>
             ) : uiMode === 'live' ? (
               /* ===== 試合速報エリア ===== */
-              <div className="px-4 sm:px-6 py-6 sm:py-8 h-full">
+              <div className="px-4 sm:px-6 py-6 sm:py-8 h-full w-full">
                 <LiveScoreboard />
               </div>
             ) : (

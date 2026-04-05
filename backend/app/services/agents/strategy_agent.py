@@ -182,7 +182,9 @@ class StrategyAgent:
 
             return await asyncio.gather(*[run_single(tc) for tc in tool_calls])
 
-        results = asyncio.run(run_all())
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            results = pool.submit(asyncio.run, run_all()).result()
 
         tool_outputs = []
         has_error = False
