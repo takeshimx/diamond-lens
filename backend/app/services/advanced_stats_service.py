@@ -457,11 +457,11 @@ class AdvancedStatsService:
                 team_abbr,
                 diversity_score,
                 effectiveness_score,
-                synthetic_score
+                arsenal_effectiveness_score
             FROM `{ARSENAL_VIEW}`
             WHERE game_year = @season
             {team_filter}
-            ORDER BY synthetic_score DESC
+            ORDER BY arsenal_effectiveness_score DESC
             LIMIT @limit OFFSET @offset
         """
 
@@ -478,11 +478,11 @@ class AdvancedStatsService:
                 player_name,
                 diversity_score,
                 effectiveness_score,
-                synthetic_score
+                arsenal_effectiveness_score
             FROM `{ARSENAL_VIEW}`
             WHERE game_year = @season
             {team_filter}
-            ORDER BY synthetic_score DESC
+            ORDER BY arsenal_effectiveness_score DESC
             LIMIT 100
         """
 
@@ -505,7 +505,7 @@ class AdvancedStatsService:
                     "player_name": row.get("player_name") or "",
                     "diversity_score": float(row["diversity_score"]),
                     "effectiveness_score": float(row["effectiveness_score"]),
-                    "synthetic_score": float(row["synthetic_score"]),
+                    "arsenal_effectiveness_score": float(row["arsenal_effectiveness_score"]),
                 })
             total = len(scatter_all)
 
@@ -520,7 +520,7 @@ class AdvancedStatsService:
                     "team": row.get("team_abbr") or row.get("team_name") or "",
                     "diversity_score": float(row["diversity_score"]),
                     "effectiveness_score": float(row["effectiveness_score"]),
-                    "synthetic_score": float(row["synthetic_score"]),
+                    "arsenal_effectiveness_score": float(row["arsenal_effectiveness_score"]),
                     "pitch_mix": [],  # populated below
                 })
 

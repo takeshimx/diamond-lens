@@ -672,6 +672,62 @@ python scripts/train_stuff_plus.py --season 2025 --min-pitches 100
 | `queries/create_pitcher_metrics_snapshots.sql` | Table DDL for weekly snapshots |
 | `queries/scheduled_pitcher_embedding_weekly.sql` | Weekly BQ Scheduled Query |
 
+### 8g. Advanced Stats Dashboard
+
+| Property | Value |
+|----------|-------|
+| **Score Scale** | OPS+-style: `100 + composite_z × 15` (100 = league avg, ±15 = ±1σ) |
+| **Normalization** | Per-season z-score via `PARTITION BY game_year` on all components |
+| **Re-standardization** | `composite_raw` re-z-scored to guarantee std=1 before final conversion |
+| **Data Source** | BigQuery views over `statcast_master` |
+| **Auth** | Firebase ID Token required (FirebaseAuthMiddleware) |
+
+**Pitching metrics (P-series)**: P1 Pitch Tunnel, P2 Pressure Dominance (SP), P3 Stamina, P4 Two-Strike Finisher, P6 Arsenal Effectiveness, P8 Platoon Neutrality
+
+**Batting metrics (B-series)**: B2 Plate Discipline, B3 Clutch Hitting, B4 Contact Consistency, B5 Swing Efficiency (2024+), B6 Spray Mastery
+
+**Key files**:
+
+| File | Purpose |
+|------|---------|
+| `queries/pitch_tunnel_stats.sql` | P1 — deception_rate z-score |
+| `queries/pitch_pressure_dominance_index_sp.sql` | P2 — high-LI composite, SP filter |
+| `queries/pitch_stamina_score.sql` | P3 — slope regression + TTO delta |
+| `queries/pitch_2strikes_finisher_score.sql` | P4 — whiff + put-away wOBA |
+| `queries/pitch_arsenal_effectiveness_score_v2.sql` | P6 — entropy + effectiveness |
+| `queries/pitch_platoon_neutrality_score.sql` | P8 — L/R wOBA diff |
+| `queries/batter_plate_discipline_score.sql` | B2 — O/Z-swing + decision value |
+| `queries/batter_clutch_hitting_index.sql` | B3 — leverage-split wOBA delta |
+| `queries/batter_contact_consistency_score.sql` | B4 — CV_xwOBA + hard-hit |
+| `queries/batter_swing_efficiency_score.sql` | B5 — bat tracking efficiency |
+| `queries/batter_spray_mastery_score_v2_oppo_weighted.sql` | B6 — spray entropy + oppo xwOBA |
+| `backend/app/services/advanced_stats_service.py` | BQ query execution + response shaping |
+| `frontend/src/components/AdvancedStatsPitching.jsx` | Pitching stats UI |
+| `frontend/src/components/AdvancedStatsBatting.jsx` | Batting stats UI |
+
+---
+
+### 8h. Live Game Updates — 試合速報
+
+| Property | Value |
+|----------|-------|
+| **Data Source** | MLB Stats API (`statsapi.mlb.com`) — no BQ dependency |
+| **Update Model** | Pull-on-demand (client polls; no server-side push) |
+| **Parallelism** | `asyncio.gather` for concurrent multi-game live feed fetching |
+| **Timezone** | UTC → JST conversion via `ZoneInfo("Asia/Tokyo")` |
+| **Auth** | Firebase ID Token required (FirebaseAuthMiddleware) |
+
+**Data returned per live game**: pitcher/batter names, count (B-S-O), score, inning + half, runners on base, full pitch sequence for current at-bat (pitch type, call, speed)
+
+**Key files**:
+
+| File | Purpose |
+|------|---------|
+| `backend/app/services/live_game_service.py` | MLB API integration, response shaping |
+| `backend/app/api/endpoints/live_game_endpoints.py` | FastAPI route definitions |
+
+---
+
 ### 8. Orchestration
 
 | Property | Value |

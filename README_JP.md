@@ -348,6 +348,61 @@ CI/CD ドリフトチェック → アクティブモデルの学習データ vs
 - `mlb_analytics_dash_25.pitcher_metrics_snapshots` — Embedding付き週次投球アーセナルスナップショット
 - BQ Scheduled Query: `pitcher_metrics_weekly_embedding`（毎週月曜 03:00 UTC）
 
+
+### 13. アドバンスドスタッツダッシュボード（フルスタック）
+**ステータス**: ✅ フロントエンドUI付き本番環境対応
+
+Statcastベースのカスタム複合スコアリングシステム。全スコアは**OPS+スタイル（100=リーグ平均、±15=±1σ）**を採用し、`100 + composite_z × 15` で算出。各成分をシーズン別に個別Zスコア化（`PARTITION BY game_year`）した後、重み付き合成→再標準化のステップを経る。
+
+**投手指標（Pシリーズ）**:
+| ID | 名称 | 主要成分 |
+|----|------|---------|
+| P1 | Pitch Tunnel Score | deception_rate — 速球→変化球シーケンスの空振り+見逃し率 |
+| P2 | Pressure Dominance Index | 高LI時 run_exp（50%）+ 低LIとの差分（50%）、先発投手限定 |
+| P3 | Stamina Score | 球速スロープ（40%）+ 回転数スロープ（30%）+ 打順巡目差分（30%）|
+| P4 | Two-Strike Finisher Score | 2ストライク時 whiff_rate（50%）+ 被wOBA品質（50%）|
+| P6 | Arsenal Effectiveness | 球種エントロピー（50%）+ Σ delta_pitcher_run_exp（50%）|
+| P8 | Platoon Neutrality Score | 対左右wOBA差の小ささ（60%）+ 平均wOBA水準（40%）|
+
+**打者指標（Bシリーズ）**:
+| ID | 名称 | 主要成分 |
+|----|------|---------|
+| B2 | Plate Discipline Score | O-Swing%反転（35%）+ Z-Swing%（35%）+ delta_run_exp判断価値（30%）|
+| B3 | Clutch Hitting Index | 高LI時 wOBA − 全体 wOBA の差分、スケール: 100+z×30 |
+| B4 | Contact Consistency Score | neg_CV_xwOBA（35%）+ 平均xwOBA（35%）+ ハードヒット率（20%）+ スウィートスポット率（10%）|
+| B5 | Swing Efficiency Index | launch_speed/(bat_speed×swing_length)（50%）+ スイング長反転（30%）+ ハードヒット率（20%）、2024年以降のみ |
+| B6 | Spray Mastery Score | 打球方向エントロピー（40%）+ 全体xwOBA（35%）+ 逆方向xwOBA（25%）|
+
+**技術**: BigQuery（ビュー + シーズン別Zスコア化）、FastAPI、React、Recharts
+
+---
+
+### 14. 試合速報機能（フルスタック）
+**ステータス**: ✅ フロントエンドUI付き本番環境対応
+
+公式 **MLB Stats API**（`statsapi.mlb.com`）を使ったリアルタイム・当日試合データ。DB依存なし — リクエストごとにライブ取得。
+
+**データ内容**:
+- **進行中試合**: 投手名・打者名・カウント（B-S-O）・スコア・イニング・走者情報・現打席の投球シーケンス（球種・判定・球速）
+- **終了試合**: スコアサマリーと両チームの勝敗記録
+- **ボックススコア**: 投手成績（回・被安打・失点・自責・被本塁打・奪三振・四球・投球数・シーズン防御率）、打者成績（打数・安打・得点・打点・本塁打・盗塁・二塁打・三塁打・四球・三振・シーズン打率/出塁率/長打率/OPS）
+- **スケジュール**: 日付指定での試合一覧（UTC→JST変換付き）
+
+**アーキテクチャ**:
+```
+MLB Stats API (statsapi.mlb.com)
+  ├── schedule エンドポイント    → 試合状態・スコアサマリー・勝敗
+  ├── feed/live エンドポイント   → 投球単位のリアルタイムデータ
+  └── boxscore エンドポイント    → 終了試合のスタッツ
+
+LiveGameService（FastAPI + httpx 非同期）
+  └── asyncio.gather による複数試合の並列取得
+```
+
+**技術**: FastAPI、httpx（非同期HTTP）、React、ZoneInfo（UTC→JST）
+
+---
+
 ### 技術機能
 - **AI搭載処理**: Gemini 2.5 Flashを使用したクエリ解析とレスポンス生成
 - **リアルタイムインターフェース**: ローディング状態とライブ更新付きのインタラクティブ体験

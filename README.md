@@ -354,6 +354,60 @@ CI/CD Drift Check → Compare active model's training data vs latest season
 - `mlb_analytics_dash_25.pitcher_metrics_snapshots` — Weekly pitch arsenal snapshots with embeddings
 - BQ Scheduled Query: `pitcher_metrics_weekly_embedding` (Monday 03:00 UTC)
 
+### 13. Advanced Stats Dashboard (Full Stack)
+**Status**: ✅ Production-ready with frontend UI
+
+Custom Statcast-based composite scoring system for pitchers and batters. All scores use an **OPS+-style scale (100 = league average, ±15 = ±1σ)**, computed as `100 + composite_z × 15` where each component is individually z-scored by season (`PARTITION BY game_year`) then re-standardized after weighted combination.
+
+**Pitching Metrics (P-Series)**:
+| ID | Name | Key Components |
+|----|------|---------------|
+| P1 | Pitch Tunnel Score | deception_rate — FB→offspeed sequence swings+called strikes |
+| P2 | Pressure Dominance Index | high-LI run_exp (50%) + pressure_delta vs low-LI (50%), SP-only |
+| P3 | Stamina Score | speed slope (40%) + spin slope (30%) + TTO delta (30%) |
+| P4 | Two-Strike Finisher Score | whiff_rate (50%) + put-away wOBA quality (50%) |
+| P6 | Arsenal Effectiveness | Shannon entropy of pitch usage (50%) + Σ delta_pitcher_run_exp (50%) |
+| P8 | Platoon Neutrality Score | wOBA diff neutrality (60%) + avg wOBA level (40%) |
+
+**Batting Metrics (B-Series)**:
+| ID | Name | Key Components |
+|----|------|---------------|
+| B2 | Plate Discipline Score | O-Swing% inverted (35%) + Z-Swing% (35%) + delta_run_exp decision value (30%) |
+| B3 | Clutch Hitting Index | wOBA_high_LI − wOBA_overall, scale: 100+z×30 |
+| B4 | Contact Consistency Score | neg_CV_xwOBA (35%) + avg_xwOBA (35%) + hard-hit% (20%) + sweet-spot% (10%) |
+| B5 | Swing Efficiency Index | launch_speed/(bat_speed×swing_length) (50%) + neg swing_length (30%) + hard-hit% (20%), 2024+ only |
+| B6 | Spray Mastery Score | spray entropy (40%) + overall xwOBA (35%) + oppo-field xwOBA (25%) |
+
+**Technologies**: BigQuery (views + PARTITION BY season z-scoring), FastAPI, React, Recharts
+
+---
+
+### 14. Live Game Updates — 試合速報 (Full Stack)
+**Status**: ✅ Production-ready with frontend UI
+
+Real-time and same-day game data powered by the official **MLB Stats API** (`statsapi.mlb.com`). No database dependency — all data is fetched live per request.
+
+**Data Coverage**:
+- **Live games**: Current pitcher/batter, count (B-S-O), score, inning, runners on base, full pitch sequence for the current at-bat (pitch type, call, speed)
+- **Final games**: Score summary with win/loss records for both teams
+- **Boxscore**: Full pitcher line (IP, H, R, ER, HR, K, BB, pitches, strikes + season ERA) and batter line (AB, H, R, RBI, HR, SB, 2B, 3B, BB, K + season AVG/OBP/SLG/OPS)
+- **Schedule**: Game list by date with UTC→JST conversion
+
+**Architecture**:
+```
+MLB Stats API (statsapi.mlb.com)
+  ├── schedule endpoint      → game status, score summary, win/loss record
+  ├── feed/live endpoint     → live pitch-by-pitch data
+  └── boxscore endpoint      → final boxscore stats
+
+LiveGameService (FastAPI + httpx async)
+  └── asyncio.gather for parallel multi-game fetching
+```
+
+**Technologies**: FastAPI, httpx (async HTTP), React, ZoneInfo (UTC→JST)
+
+---
+
 ### Technical Features
 - **AI-Powered Processing**: Uses Gemini 2.5 Flash for query parsing and response generation
 - **Real-time Interface**: Interactive experience with loading states and live updates

@@ -158,7 +158,7 @@ const AdvancedStatsPitching = ({ season, getAuthHeaders, BACKEND_URL }) => {
     if (metricId === 'P6' && arsenalRankings?.rankings) {
       return arsenalRankings.rankings.map((r) => ({
         id: r.pitcher_id, name: r.player_name, team: r.team || '',
-        score: r.synthetic_score,
+        score: r.arsenal_effectiveness_score,
         diversity_score: r.diversity_score, effectiveness_score: r.effectiveness_score,
         pitch_mix: r.pitch_mix || [],
       }));
@@ -284,7 +284,7 @@ const AdvancedStatsPitching = ({ season, getAuthHeaders, BACKEND_URL }) => {
                     <td className="py-2 px-2 text-right text-gray-500 font-mono text-xs">{r.avg_velocity_diff?.toFixed(3)}</td>
                     <td className="py-2 px-2 text-right text-gray-500 font-mono text-xs">{r.avg_plate_diff?.toFixed(3)}</td>
                     <td className={`py-2 px-2 text-right font-bold font-mono ${getTunnelScoreColor(r.score)}`}>
-                      {r.score >= 0 ? '+' : ''}{r.score?.toFixed(2)}
+                      {r.score?.toFixed(0)}
                     </td>
                   </tr>
                 ))}
@@ -410,7 +410,7 @@ const AdvancedStatsPitching = ({ season, getAuthHeaders, BACKEND_URL }) => {
                         <td className="py-2 px-2 text-gray-400">{r.team}</td>
                         <td className="py-2 px-2 text-right text-cyan-400 font-mono">{r.diversity_score?.toFixed(4)}</td>
                         <td className="py-2 px-2 text-right text-amber-400 font-mono">{r.effectiveness_score?.toFixed(4)}</td>
-                        <td className={`py-2 px-2 text-right font-bold ${getScoreColor(r.score * 10)}`}>{r.score?.toFixed(4)}</td>
+                        <td className={`py-2 px-2 text-right font-bold ${getScoreColor(r.score)}`}>{r.score?.toFixed(0)}</td>
                         <td className="py-2 px-2">
                           {mix && mix.length > 0 ? (
                             <div className="relative">
@@ -579,7 +579,7 @@ const AdvancedStatsPitching = ({ season, getAuthHeaders, BACKEND_URL }) => {
                     <td className="py-2 px-2 text-right text-gray-400 font-mono text-xs">{r.run_exp_1st?.toFixed(4)}</td>
                     <td className="py-2 px-2 text-right text-gray-400 font-mono text-xs">{r.run_exp_3rd_plus?.toFixed(4)}</td>
                     <td className="py-2 px-2 text-right text-cyan-400 font-mono">{r.tto_delta?.toFixed(4)}</td>
-                    <td className="py-2 px-2 text-right font-bold font-mono text-emerald-400">{r.score?.toFixed(2)}</td>
+                    <td className="py-2 px-2 text-right font-bold font-mono text-emerald-400">{r.score?.toFixed(0)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -726,7 +726,7 @@ const AdvancedStatsPitching = ({ season, getAuthHeaders, BACKEND_URL }) => {
                     </td>
                     <td className="py-2 px-2 text-right text-cyan-400 font-mono">{r.whiff_rate != null ? `${(r.whiff_rate * 100).toFixed(1)}%` : '—'}</td>
                     <td className="py-2 px-2 text-right text-amber-400 font-mono">{r.put_away_woba?.toFixed(3)}</td>
-                    <td className={`py-2 px-2 text-right font-bold font-mono ${getFinisherColor(r.score)}`}>{r.score?.toFixed(2)}</td>
+                    <td className={`py-2 px-2 text-right font-bold font-mono ${getFinisherColor(r.score)}`}>{r.score?.toFixed(0)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1208,18 +1208,18 @@ const AdvancedStatsPitching = ({ season, getAuthHeaders, BACKEND_URL }) => {
                     <span className="text-gray-500 text-xs">{r.team}</span>
                     {metric.id === 'P1' ? (
                       <span className="text-sm font-bold w-16 text-right text-indigo-400 font-mono">
-                        {r.score >= 0 ? '+' : ''}{r.score?.toFixed(2)}
+                        {r.score?.toFixed(0)}
                       </span>
                     ) : metric.id === 'P2' ? (
                       <span className="text-sm font-bold w-16 text-right text-orange-400 font-mono">
-                        {r.score >= 0 ? '+' : ''}{r.score?.toFixed(3)}
+                        {r.score?.toFixed(0)}
                       </span>
                     ) : metric.id === 'P3' ? (
-                      <span className="text-sm font-bold w-16 text-right text-emerald-400 font-mono">{r.score?.toFixed(2)}</span>
+                      <span className="text-sm font-bold w-16 text-right text-emerald-400 font-mono">{r.score?.toFixed(0)}</span>
                     ) : metric.id === 'P4' ? (
                       <span className="text-sm font-bold w-16 text-right text-cyan-400 font-mono">{r.score?.toFixed(2)}</span>
                     ) : metric.id === 'P6' ? (
-                      <span className="text-sm font-bold w-16 text-right text-amber-400 font-mono">{r.score?.toFixed(3)}</span>
+                      <span className="text-sm font-bold w-16 text-right text-amber-400 font-mono">{r.score?.toFixed(0)}</span>
                     ) : metric.id === 'P8' ? (
                       <span className="text-sm font-bold w-16 text-right text-teal-400 font-mono">{r.score != null ? Math.round(r.score) : '—'}</span>
                     ) : (
