@@ -50,14 +50,131 @@ class LiveGameService:
                 if state == "Live":
                     live_pks.append(game["gamePk"])
                 elif state == "Final":
+                    away_rec = away.get("leagueRecord", {})
+                    home_rec = home.get("leagueRecord", {})
                     final_games.append({
                         "gamePk": game["gamePk"],
                         "away_team": away.get("team", {}).get("name", ""),
                         "home_team": home.get("team", {}).get("name", ""),
                         "away_score": away.get("score", 0),
                         "home_score": home.get("score", 0),
+                        "away_wins": away_rec.get("wins"),
+                        "away_losses": away_rec.get("losses"),
+                        "home_wins": home_rec.get("wins"),
+                        "home_losses": home_rec.get("losses"),
                     })
         return live_pks, final_games
+
+    async def get_scheduled_games(self, date: str) -> list:
+        """指定日の予定試合一覧（開始時刻JST付き）を返す"""
+        url = f"{MLB_BASE}/api/v1/schedule"
+        params = {"sportId": 1, "date": date}
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+
+        jst = ZoneInfo("Asia/Tokyo")
+        games = []
+        for date_obj in data.get("dates", []):
+            for game in date_obj.get("games", []):
+                away = game.get("teams", {}).get("away", {})
+                home = game.get("teams", {}).get("home", {})
+                game_date_str = game.get("gameDate", "")
+                # UTC → JST変換
+                try:
+                    from datetime import timezone
+                    utc_dt = datetime.fromisoformat(game_date_str.replace("Z", "+00:00"))
+                    jst_dt = utc_dt.astimezone(jst)
+                    start_time = jst_dt.strftime("%H:%M")
+                except Exception:
+                    start_time = "--:--"
+
+                away_rec = away.get("leagueRecord", {})
+                home_rec = home.get("leagueRecord", {})
+                games.append({
+                    "gamePk": game["gamePk"],
+                    "away_team": away.get("team", {}).get("name", ""),
+                    "home_team": home.get("team", {}).get("name", ""),
+                    "away_wins": away_rec.get("wins"),
+                    "away_losses": away_rec.get("losses"),
+                    "home_wins": home_rec.get("wins"),
+                    "home_losses": home_rec.get("losses"),
+                    "start_time_jst": start_time,
+                    "status": game.get("status", {}).get("abstractGameState", ""),
+                })
+        return games
+
+    async def get_boxscore(self, game_pk: int) -> Dict:
+        """終了試合のボックススコア（投手・野手スタッツ）を返す"""
+        url = f"{MLB_BASE}/api/v1/game/{game_pk}/boxscore"
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+
+        teams = data.get("teams", {})
+        result = {}
+        for side in ("away", "home"):
+            team_data = teams.get(side, {})
+            team_name = team_data.get("team", {}).get("name", "")
+            players = team_data.get("players", {})
+            pitchers_ids = team_data.get("pitchers", [])
+            batters_ids = team_data.get("batters", [])
+
+            def get_player(pid):
+                return players.get(f"ID{pid}", {})
+
+            pitchers = []
+            for pid in pitchers_ids:
+                p = get_player(pid)
+                stats = p.get("stats", {}).get("pitching", {})
+                season = p.get("seasonStats", {}).get("pitching", {})
+                pitchers.append({
+                    "name": p.get("person", {}).get("fullName", ""),
+                    "jersey": p.get("jerseyNumber", ""),
+                    "note": p.get("gameStatus", {}).get("note", ""),
+                    "era": season.get("era", "-"),
+                    "ip": stats.get("inningsPitched", "-"),
+                    "h": stats.get("hits", 0),
+                    "r": stats.get("runs", 0),
+                    "er": stats.get("earnedRuns", 0),
+                    "hr": stats.get("homeRuns", 0),
+                    "k": stats.get("strikeOuts", 0),
+                    "bb": stats.get("baseOnBalls", 0),
+                    "pitches": stats.get("numberOfPitches", 0),
+                    "strikes": stats.get("strikes", 0),
+                })
+
+            batters = []
+            for pid in batters_ids:
+                p = get_player(pid)
+                stats = p.get("stats", {}).get("batting", {})
+                season = p.get("seasonStats", {}).get("batting", {})
+                pos = p.get("position", {}).get("abbreviation", "")
+                batters.append({
+                    "name": p.get("person", {}).get("fullName", ""),
+                    "jersey": p.get("jerseyNumber", ""),
+                    "position": pos,
+                    "avg": season.get("avg", "-"),
+                    "obp": season.get("obp", "-"),
+                    "slg": season.get("slg", "-"),
+                    "ops": season.get("ops", "-"),
+                    "ab": stats.get("atBats", 0),
+                    "h": stats.get("hits", 0),
+                    "r": stats.get("runs", 0),
+                    "rbi": stats.get("rbi", 0),
+                    "hr": stats.get("homeRuns", 0),
+                    "sb": stats.get("stolenBases", 0),
+                    "doubles": stats.get("doubles", 0),
+                    "triples": stats.get("triples", 0),
+                    "bb": stats.get("baseOnBalls", 0),
+                    "k": stats.get("strikeOuts", 0),
+                })
+
+            result[side] = {"team": team_name, "pitchers": pitchers, "batters": batters}
+
+        return result
 
     async def _fetch_game_state(self, game_pk: int) -> Optional[Dict]:
         """単一試合のライブフィードから現在状態を整形して返す"""

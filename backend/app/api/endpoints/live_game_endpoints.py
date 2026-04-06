@@ -9,6 +9,24 @@ router = APIRouter(tags=["Live Games"])
 service = LiveGameService()
 
 
+@router.get("/live/games/schedule")
+async def get_scheduled_games(date: str):
+    """指定日（YYYY-MM-DD）の試合予定一覧を返す"""
+    try:
+        return await service.get_scheduled_games(date)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/live/games/{game_pk}/boxscore")
+async def get_game_boxscore(game_pk: int):
+    """終了試合のボックススコア（投手・野手スタッツ）を返す"""
+    try:
+        return await service.get_boxscore(game_pk)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/live/games/today")
 async def get_today_live_games():
     """

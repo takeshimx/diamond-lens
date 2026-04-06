@@ -526,6 +526,7 @@ async def get_agentic_stats_stream_endpoint(
                     log_entry.response_answer = event.get("answer", "")
                     log_entry.response_has_table = event.get("isTable", False)
                     log_entry.response_has_chart = event.get("isChart", False)
+                    log_entry.llm_latency_ms = event.get("llm_latency_ms")
                 yield event
 
             # Session end event

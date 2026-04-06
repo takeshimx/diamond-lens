@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Radio, RefreshCw } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Radio, RefreshCw, X } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 
 const POLL_INTERVAL_MS = 60000;
@@ -24,14 +24,182 @@ const BaseDiamond = ({ runners }) => {
 
   return (
     <div className="relative w-12 h-12 flex-shrink-0">
-      {/* 2塁（上） */}
       <div className={`absolute w-4 h-4 rotate-45 top-0 left-1/2 -translate-x-1/2 ${runners.second ? occupied : empty}`} />
-      {/* 3塁（左） */}
       <div className={`absolute w-4 h-4 rotate-45 top-1/2 left-0 -translate-y-1/2 ${runners.third ? occupied : empty}`} />
-      {/* 1塁（右） */}
       <div className={`absolute w-4 h-4 rotate-45 top-1/2 right-0 -translate-y-1/2 ${runners.first ? occupied : empty}`} />
-      {/* ホーム（下） */}
       <div className={`absolute w-4 h-4 rotate-45 bottom-0 left-1/2 -translate-x-1/2 bg-gray-600`} />
+    </div>
+  );
+};
+
+// ボックススコア モーダル
+const BoxscoreModal = ({ game, onClose, getIdToken }) => {
+  const [boxscore, setBoxscore] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('away');
+  const getIdTokenRef = useRef(getIdToken);
+
+  useEffect(() => {
+    const fetch_ = async () => {
+      try {
+        const idToken = await getIdTokenRef.current();
+        const headers = {
+          'Accept': 'application/json',
+          ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {}),
+        };
+        const res = await fetch(`${BACKEND_URL}/api/v1/live/games/${game.gamePk}/boxscore`, { headers });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        setBoxscore(data);
+        setActiveTab('away');
+      } catch (e) {
+        setBoxscore(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetch_();
+  }, [game.gamePk]);
+
+  const awayWin = game.away_score > game.home_score;
+  const homeWin = game.home_score > game.away_score;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70" onClick={onClose}>
+      <div
+        className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* ヘッダー */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700 flex-shrink-0">
+          <div className="flex items-center gap-3 text-white font-bold text-base">
+            <span className={awayWin ? 'text-white' : 'text-gray-500'}>{game.away_team}</span>
+            <span className={`text-xl ${awayWin ? 'text-yellow-400' : 'text-gray-500'}`}>{game.away_score}</span>
+            <span className="text-gray-600 text-sm font-normal">-</span>
+            <span className={`text-xl ${homeWin ? 'text-yellow-400' : 'text-gray-500'}`}>{game.home_score}</span>
+            <span className={homeWin ? 'text-white' : 'text-gray-500'}>{game.home_team}</span>
+            <span className="text-xs text-gray-500 font-normal ml-1">Final</span>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-16 text-gray-400">
+            <RefreshCw className="w-5 h-5 animate-spin mr-2" />
+            <span>取得中...</span>
+          </div>
+        ) : !boxscore ? (
+          <div className="p-8 text-center text-gray-500">データを取得できませんでした</div>
+        ) : (
+          <>
+            {/* チームタブ */}
+            <div className="flex border-b border-gray-700 flex-shrink-0">
+              {['away', 'home'].map(side => (
+                <button
+                  key={side}
+                  onClick={() => setActiveTab(side)}
+                  className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
+                    activeTab === side
+                      ? 'text-white border-b-2 border-blue-500'
+                      : 'text-gray-500 hover:text-gray-300'
+                  }`}
+                >
+                  {boxscore[side]?.team}
+                </button>
+              ))}
+            </div>
+
+            {/* コンテンツ */}
+            <div className="overflow-y-auto flex-1 px-4 py-3">
+              {/* 投手 */}
+              <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-2">Pitchers</p>
+              <div className="overflow-x-auto mb-5">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-gray-500 border-b border-gray-700">
+                      <th className="text-left py-1.5 pr-3 font-medium min-w-[120px]">PITCHER</th>
+                      <th className="text-right py-1.5 px-2 font-medium">ERA</th>
+                      <th className="text-right py-1.5 px-2 font-medium">IP</th>
+                      <th className="text-right py-1.5 px-2 font-medium">H</th>
+                      <th className="text-right py-1.5 px-2 font-medium">R</th>
+                      <th className="text-right py-1.5 px-2 font-medium">ER</th>
+                      <th className="text-right py-1.5 px-2 font-medium">HR</th>
+                      <th className="text-right py-1.5 px-2 font-medium">K</th>
+                      <th className="text-right py-1.5 px-2 font-medium">BB</th>
+                      <th className="text-right py-1.5 px-2 font-medium">PT</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {boxscore[activeTab]?.pitchers.map((p, i) => (
+                      <tr key={i} className="border-b border-gray-800 text-gray-300">
+                        <td className="py-2 pr-3">
+                          <div className="font-medium text-white">{p.name}</div>
+                          {p.note && <div className="text-gray-500 text-xs">{p.note}</div>}
+                        </td>
+                        <td className="text-right px-2">{p.era}</td>
+                        <td className="text-right px-2">{p.ip}</td>
+                        <td className="text-right px-2">{p.h}</td>
+                        <td className="text-right px-2">{p.r}</td>
+                        <td className="text-right px-2">{p.er}</td>
+                        <td className="text-right px-2">{p.hr}</td>
+                        <td className="text-right px-2">{p.k}</td>
+                        <td className="text-right px-2">{p.bb}</td>
+                        <td className="text-right px-2">{p.pitches}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* 野手 */}
+              <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-2">Batters</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-gray-500 border-b border-gray-700">
+                      <th className="text-left py-1.5 pr-3 font-medium min-w-[120px]">BATTER</th>
+                      <th className="text-right py-1.5 px-2 font-medium">AVG</th>
+                      <th className="text-right py-1.5 px-2 font-medium">AB</th>
+                      <th className="text-right py-1.5 px-2 font-medium">H</th>
+                      <th className="text-right py-1.5 px-2 font-medium">R</th>
+                      <th className="text-right py-1.5 px-2 font-medium">RBI</th>
+                      <th className="text-right py-1.5 px-2 font-medium">HR</th>
+                      <th className="text-right py-1.5 px-2 font-medium">BB</th>
+                      <th className="text-right py-1.5 px-2 font-medium">K</th>
+                      <th className="text-right py-1.5 px-2 font-medium">OBP</th>
+                      <th className="text-right py-1.5 px-2 font-medium">SLG</th>
+                      <th className="text-right py-1.5 px-2 font-medium">OPS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {boxscore[activeTab]?.batters.map((b, i) => (
+                      <tr key={i} className="border-b border-gray-800 text-gray-300">
+                        <td className="py-2 pr-3">
+                          <div className="font-medium text-white">{b.name}</div>
+                          <div className="text-gray-500">{b.position}</div>
+                        </td>
+                        <td className="text-right px-2">{b.avg}</td>
+                        <td className="text-right px-2">{b.ab}</td>
+                        <td className="text-right px-2">{b.h}</td>
+                        <td className="text-right px-2">{b.r}</td>
+                        <td className="text-right px-2">{b.rbi}</td>
+                        <td className="text-right px-2">{b.hr}</td>
+                        <td className="text-right px-2">{b.bb}</td>
+                        <td className="text-right px-2">{b.k}</td>
+                        <td className="text-right px-2">{b.obp}</td>
+                        <td className="text-right px-2">{b.slg}</td>
+                        <td className="text-right px-2">{b.ops}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 };
@@ -42,7 +210,6 @@ const GameCard = ({ game }) => {
 
   return (
     <div className="bg-gray-800 border border-gray-700 rounded-xl p-5 flex flex-col gap-3">
-      {/* スコアヘッダー */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3 text-lg font-bold text-white">
           <span>{game.away_team}</span>
@@ -56,7 +223,6 @@ const GameCard = ({ game }) => {
         </span>
       </div>
 
-      {/* 投手・打者 + 走者ダイヤモンド */}
       <div className="flex items-center gap-3">
         <div className="grid grid-cols-2 gap-2 text-sm flex-1">
           <div className="bg-gray-700/50 rounded-lg px-3 py-2">
@@ -68,7 +234,6 @@ const GameCard = ({ game }) => {
             <span className="text-white font-medium">{game.batter}</span>
           </div>
         </div>
-        {/* 走者ダイヤモンド */}
         <div className="flex flex-col items-center gap-1">
           <BaseDiamond runners={game.runners || {}} />
           {hasRunners && (
@@ -77,7 +242,6 @@ const GameCard = ({ game }) => {
         </div>
       </div>
 
-      {/* カウント + 直近球種・球速 */}
       <div className="flex items-center gap-2 text-sm flex-wrap">
         <span className="bg-gray-700 rounded px-2 py-1 font-mono text-gray-300">
           {game.balls}-{game.strikes}  {game.outs}アウト
@@ -100,7 +264,6 @@ const GameCard = ({ game }) => {
         )}
       </div>
 
-      {/* 走者名の詳細（走者がいる場合のみ） */}
       {hasRunners && (
         <div className="flex gap-3 text-xs text-gray-400">
           {game.runners.third && <span>3塁: <span className="text-white">{game.runners.third}</span></span>}
@@ -109,7 +272,6 @@ const GameCard = ({ game }) => {
         </div>
       )}
 
-      {/* 投球シーケンス（新しい順） */}
       {game.pitch_sequence?.length > 0 && (
         <div className="bg-gray-900/50 rounded-lg px-3 py-2 flex flex-col gap-1">
           <span className="text-xs text-gray-500 mb-1">投球シーケンス</span>
@@ -117,11 +279,7 @@ const GameCard = ({ game }) => {
             const call = p.pitch_call ?? '';
             const isStrike = /strike/i.test(call);
             const isBall = /^ball$/i.test(call);
-            const callColor = isStrike
-              ? 'text-red-400'
-              : isBall
-              ? 'text-green-400'
-              : 'text-gray-400';
+            const callColor = isStrike ? 'text-red-400' : isBall ? 'text-green-400' : 'text-gray-400';
             return (
               <div key={p.num} className="flex items-center gap-2 text-xs font-mono">
                 <span className="text-gray-600 w-4 text-right">{p.num}:</span>
@@ -138,17 +296,36 @@ const GameCard = ({ game }) => {
   );
 };
 
+// JST の日付情報を返すユーティリティ
+const getJstDateInfo = (offsetDays = 0) => {
+  const now = new Date();
+  const jst = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Tokyo' }));
+  jst.setDate(jst.getDate() + offsetDays);
+  const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const label = `${jst.getMonth() + 1}/${jst.getDate()} (${weekdays[jst.getDay()]})`;
+  const dateStr = `${jst.getFullYear()}-${String(jst.getMonth() + 1).padStart(2, '0')}-${String(jst.getDate()).padStart(2, '0')}`;
+  return { label, dateStr };
+};
+
 const LiveScoreboard = () => {
   const { getIdToken } = useAuth();
+  const getIdTokenRef = useRef(getIdToken);
+  const [activeTab, setActiveTab] = useState('today');
   const [liveGames, setLiveGames] = useState([]);
   const [finalGames, setFinalGames] = useState([]);
+  const [scheduledGames, setScheduledGames] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [selectedGame, setSelectedGame] = useState(null);
+
+  const todayInfo = getJstDateInfo(0);
+  const tomorrowInfo = getJstDateInfo(1);
 
   const fetchGames = useCallback(async () => {
     try {
-      const idToken = await getIdToken();
+      const idToken = await getIdTokenRef.current();
       const headers = {
         'Accept': 'application/json',
         ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {}),
@@ -165,7 +342,26 @@ const LiveScoreboard = () => {
     } finally {
       setLoading(false);
     }
-  }, [getIdToken]);
+  }, []);
+
+  const fetchSchedule = useCallback(async () => {
+    setScheduleLoading(true);
+    try {
+      const idToken = await getIdTokenRef.current();
+      const headers = {
+        'Accept': 'application/json',
+        ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {}),
+      };
+      const res = await fetch(`${BACKEND_URL}/api/v1/live/games/schedule?date=${tomorrowInfo.dateStr}`, { headers });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setScheduledGames(data ?? []);
+    } catch (e) {
+      setScheduledGames([]);
+    } finally {
+      setScheduleLoading(false);
+    }
+  }, [tomorrowInfo.dateStr]);
 
   useEffect(() => {
     fetchGames();
@@ -173,10 +369,22 @@ const LiveScoreboard = () => {
     return () => clearInterval(timer);
   }, [fetchGames]);
 
+  useEffect(() => {
+    if (activeTab === 'tomorrow') fetchSchedule();
+  }, [activeTab, fetchSchedule]);
+
   return (
     <div className="w-full">
+      {selectedGame && (
+        <BoxscoreModal
+          game={selectedGame}
+          onClose={() => setSelectedGame(null)}
+          getIdToken={getIdToken}
+        />
+      )}
+
       {/* ヘッダー */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Radio className="w-5 h-5 text-green-400 animate-pulse" />
           <h2 className="text-xl font-bold text-white">試合速報</h2>
@@ -191,71 +399,136 @@ const LiveScoreboard = () => {
         </button>
       </div>
 
-      {/* 最終更新時刻 */}
-      {lastUpdated && (
+      {/* 日付タブ */}
+      <div className="flex gap-1 mb-4 bg-gray-800 rounded-lg p-1 w-fit">
+        <button
+          onClick={() => setActiveTab('today')}
+          className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+            activeTab === 'today' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          {todayInfo.label}
+        </button>
+        <button
+          onClick={() => setActiveTab('tomorrow')}
+          className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+            activeTab === 'tomorrow' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          {tomorrowInfo.label}
+        </button>
+      </div>
+
+      {lastUpdated && activeTab === 'today' && (
         <p className="text-xs text-gray-500 mb-4">
           最終更新: {lastUpdated.toLocaleTimeString('ja-JP')}
         </p>
       )}
 
-      {/* コンテンツ */}
-      {loading ? (
-        <div className="flex items-center justify-center py-20 text-gray-400">
-          <RefreshCw className="w-5 h-5 animate-spin mr-2" />
-          <span>取得中...</span>
-        </div>
-      ) : error ? (
-        <div className="bg-red-900/30 border border-red-700 rounded-xl p-6 text-center">
-          <p className="text-red-400 font-medium">データ取得エラー</p>
-          <p className="text-red-500 text-sm mt-1">{error}</p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-6">
-          {/* 進行中試合 */}
-          {liveGames.length > 0 ? (
-            <div className="flex flex-col gap-4">
-              <p className="text-sm text-gray-400">{liveGames.length}試合進行中</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {liveGames.map((game) => (
-                <GameCard key={game.gamePk} game={game} />
-              ))}
+      {/* 今日タブ */}
+      {activeTab === 'today' && (
+        loading ? (
+          <div className="flex items-center justify-center py-20 text-gray-400">
+            <RefreshCw className="w-5 h-5 animate-spin mr-2" />
+            <span>取得中...</span>
+          </div>
+        ) : error ? (
+          <div className="bg-red-900/30 border border-red-700 rounded-xl p-6 text-center">
+            <p className="text-red-400 font-medium">データ取得エラー</p>
+            <p className="text-red-500 text-sm mt-1">{error}</p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-6">
+            {liveGames.length > 0 ? (
+              <div className="flex flex-col gap-4">
+                <p className="text-sm text-gray-400">{liveGames.length}試合進行中</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {liveGames.map((game) => (
+                    <GameCard key={game.gamePk} game={game} />
+                  ))}
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="bg-gray-800 border border-gray-700 rounded-xl p-8 text-center">
-              <Radio className="w-8 h-8 text-gray-600 mx-auto mb-2" />
-              <p className="text-gray-400">現在進行中の試合はありません</p>
-            </div>
-          )}
+            ) : (
+              <div className="bg-gray-800 border border-gray-700 rounded-xl p-8 text-center">
+                <Radio className="w-8 h-8 text-gray-600 mx-auto mb-2" />
+                <p className="text-gray-400">現在進行中の試合はありません</p>
+              </div>
+            )}
 
-          {/* 本日終了試合 */}
-          {finalGames.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <p className="text-sm text-gray-500 font-medium">本日終了</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {finalGames.map((game) => {
-                const awayWin = game.away_score > game.home_score;
-                const homeWin = game.home_score > game.away_score;
-                return (
-                  <div
-                    key={game.gamePk}
-                    className="bg-gray-800/60 border border-gray-700/60 rounded-lg px-4 py-3 flex items-center justify-between"
-                  >
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className={awayWin ? 'text-white font-semibold' : 'text-gray-500'}>{game.away_team}</span>
-                      <span className={`font-bold text-base ${awayWin ? 'text-yellow-400' : 'text-gray-500'}`}>{game.away_score}</span>
-                      <span className="text-gray-600 mx-1">-</span>
-                      <span className={`font-bold text-base ${homeWin ? 'text-yellow-400' : 'text-gray-500'}`}>{game.home_score}</span>
-                      <span className={homeWin ? 'text-white font-semibold' : 'text-gray-500'}>{game.home_team}</span>
-                    </div>
-                    <span className="text-xs text-gray-600">Final</span>
-                  </div>
-                );
-              })}
+            {finalGames.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <p className="text-sm text-gray-500 font-medium">本日終了</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {finalGames.map((game) => {
+                    const awayWin = game.away_score > game.home_score;
+                    const homeWin = game.home_score > game.away_score;
+                    return (
+                      <button
+                        key={game.gamePk}
+                        onClick={() => setSelectedGame(game)}
+                        className="bg-gray-800/60 border border-gray-700/60 rounded-lg px-4 py-3 flex items-center justify-between hover:bg-gray-700/60 hover:border-gray-600 transition-colors text-left w-full"
+                      >
+                        <div className="flex items-center gap-2 text-sm">
+                          <div className="flex flex-col">
+                            <span className={awayWin ? 'text-white font-semibold' : 'text-gray-500'}>{game.away_team}</span>
+                            {game.away_wins != null && <span className="text-xs text-gray-500">{game.away_wins}-{game.away_losses}</span>}
+                          </div>
+                          <span className={`font-bold text-base ${awayWin ? 'text-yellow-400' : 'text-gray-500'}`}>{game.away_score}</span>
+                          <span className="text-gray-600 mx-1">-</span>
+                          <span className={`font-bold text-base ${homeWin ? 'text-yellow-400' : 'text-gray-500'}`}>{game.home_score}</span>
+                          <div className="flex flex-col">
+                            <span className={homeWin ? 'text-white font-semibold' : 'text-gray-500'}>{game.home_team}</span>
+                            {game.home_wins != null && <span className="text-xs text-gray-500">{game.home_wins}-{game.home_losses}</span>}
+                          </div>
+                        </div>
+                        <span className="text-xs text-gray-600">Final →</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
+            )}
+          </div>
+        )
+      )}
+
+      {/* 翌日タブ */}
+      {activeTab === 'tomorrow' && (
+        scheduleLoading ? (
+          <div className="flex items-center justify-center py-20 text-gray-400">
+            <RefreshCw className="w-5 h-5 animate-spin mr-2" />
+            <span>取得中...</span>
+          </div>
+        ) : scheduledGames.length === 0 ? (
+          <div className="bg-gray-800 border border-gray-700 rounded-xl p-8 text-center">
+            <p className="text-gray-400">試合予定はありません</p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <p className="text-sm text-gray-500 font-medium">{scheduledGames.length}試合予定（日本時間）</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {scheduledGames.map((game) => (
+                <div
+                  key={game.gamePk}
+                  className="bg-gray-800/60 border border-gray-700/60 rounded-lg px-4 py-3 flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-2 text-sm">
+                    <div className="flex flex-col">
+                      <span className="text-white">{game.away_team}</span>
+                      {game.away_wins != null && <span className="text-xs text-gray-500">{game.away_wins}-{game.away_losses}</span>}
+                    </div>
+                    <span className="text-gray-500 mx-1">@</span>
+                    <div className="flex flex-col">
+                      <span className="text-white">{game.home_team}</span>
+                      {game.home_wins != null && <span className="text-xs text-gray-500">{game.home_wins}-{game.home_losses}</span>}
+                    </div>
+                  </div>
+                  <span className="text-sm text-blue-400 font-mono">{game.start_time_jst} JST</span>
+                </div>
+              ))}
             </div>
-          )}
-        </div>
+          </div>
+        )
       )}
     </div>
   );

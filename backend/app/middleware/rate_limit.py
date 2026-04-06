@@ -142,7 +142,9 @@ class RateLimitMiddleware:
         return self.window_seconds - (int(time.time()) % self.window_seconds)
 
     def _log_violation(self, path: str, error_type: str, scope: Scope) -> None:
-        """レートリミット違反を llm_interaction_logs に記録"""
+        """レートリミット違反を llm_interaction_logs に記録（LLM関連エンドポイントのみ）"""
+        if not path.startswith("/qa/"):
+            return
         try:
             state = scope.get("state", {})
             log_entry = LLMLogEntry()

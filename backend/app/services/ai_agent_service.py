@@ -867,6 +867,8 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
     # astream_events は async なので、ループで await する
     current_node = ""
     accumulated_answer = ""  # トークンを蓄積するための変数
+    llm_start_time = None
+    accumulated_llm_ms = 0.0  # LLM推論時間の累計（ミリ秒）
 
     # エージェントタイプに応じて適切なアプリを取得
     if hasattr(agent, 'app'):
@@ -984,6 +986,16 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
                 "step_type": "tool_result"
             }
         
+        # LLM呼び出し開始（レイテンシ計測）
+        elif event_type == "on_chat_model_start":
+            llm_start_time = time.time()
+
+        # LLM呼び出し終了（レイテンシ計測）
+        elif event_type == "on_chat_model_end":
+            if llm_start_time is not None:
+                accumulated_llm_ms += (time.time() - llm_start_time) * 1000
+                llm_start_time = None
+
         # LLMトークンストリーミング
         elif event_type == "on_chat_model_stream":
             chunk = event.get("data", {}).get("chunk", {})
@@ -1038,6 +1050,7 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
             "matchupData": None,
             "isStrategyReport": agent_type == "strategy",
             "strategyData": None,
+            "llm_latency_ms": accumulated_llm_ms,
         }
     else:
         # 蓄積された答えがない場合は agent.run() を実行
@@ -1058,6 +1071,7 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
             "matchupData": final_result.get("matchupData"),
             "isStrategyReport": final_result.get("isStrategyReport", False),
             "strategyData": final_result.get("strategyData", None),
+            "llm_latency_ms": accumulated_llm_ms,
         }
 
     stream_logger.info(f"✅ Stream execution completed", agent_type=agent_type)
