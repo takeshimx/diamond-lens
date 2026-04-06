@@ -20,9 +20,11 @@ FINISHER_VIEW = settings.get_table_full_name("view_pitch_2strikes_finisher_score
 STAMINA_VIEW  = settings.get_table_full_name("view_pitch_stamina_score")
 ARSENAL_VIEW  = settings.get_table_full_name("view_pitch_arsenal_effectiveness")
 PRESSURE_VIEW          = settings.get_table_full_name("view_pitch_pressure_dominance_sp")
+PLATOON_VIEW           = settings.get_table_full_name("view_pitch_platoon_neutrality")
 PLATE_DISCIPLINE_VIEW      = settings.get_table_full_name("view_batter_plate_discipline_score")
 CLUTCH_HITTING_VIEW        = settings.get_table_full_name("view_batter_clutch_hitting")
 CONTACT_CONSISTENCY_VIEW   = settings.get_table_full_name("view_batter_contact_consistency")
+SPRAY_MASTERY_VIEW         = settings.get_table_full_name("view_batter_spray_mastery_score")
 
 
 class AdvancedStatsService:
@@ -895,6 +897,224 @@ class AdvancedStatsService:
 
         except Exception as e:
             logger.error(f"Failed to get contact consistency rankings: {e}")
+            raise
+
+    # ----------------------------------------------------------
+    # B6: Spray Mastery Score
+    # ----------------------------------------------------------
+    async def get_spray_mastery_rankings(
+        self,
+        season: int = 2025,
+        limit: int = 40,
+        offset: int = 0,
+    ) -> Dict:
+        """
+        B6 Spray Mastery Score ランキング
+
+        BQ View `view_batter_spray_mastery_score` を参照。
+        エントロピー(40%) + 全体xwOBA(35%) + オポ方向xwOBA(25%) の合成Zスコア。
+        スケール: 100 + Z×15（OPS+/wRC+ スタイル、100=リーグ平均）
+        """
+        query = f"""
+            SELECT
+                batter,
+                player_name,
+                team,
+                stand,
+                total_bb,
+                pull_pct,
+                center_pct,
+                oppo_pct,
+                spray_entropy,
+                avg_xwoba,
+                pull_xwoba,
+                center_xwoba,
+                oppo_xwoba,
+                oppo_exit_velo,
+                spray_mastery_score
+            FROM `{SPRAY_MASTERY_VIEW}`
+            WHERE game_year = @season
+            ORDER BY spray_mastery_score DESC
+            LIMIT @limit OFFSET @offset
+        """
+
+        scatter_query = f"""
+            SELECT
+                player_name,
+                spray_entropy,
+                avg_xwoba,
+                oppo_pct,
+                spray_mastery_score
+            FROM `{SPRAY_MASTERY_VIEW}`
+            WHERE game_year = @season
+            ORDER BY spray_mastery_score DESC
+            LIMIT 300
+        """
+
+        params = [
+            ("season", "INT64", season),
+            ("limit",  "INT64", limit),
+            ("offset", "INT64", offset),
+        ]
+        scatter_params = [("season", "INT64", season)]
+
+        try:
+            scatter_config = self._make_job_config(scatter_params)
+            job_config = self._make_job_config(params)
+            scatter_df, df = await asyncio.gather(
+                asyncio.to_thread(lambda: self.client.query(scatter_query, job_config=scatter_config).to_dataframe()),
+                asyncio.to_thread(lambda: self.client.query(query, job_config=job_config).to_dataframe()),
+            )
+            scatter_all = [
+                {
+                    "player_name":        row.get("player_name") or "",
+                    "spray_entropy":      float(row["spray_entropy"]),
+                    "avg_xwoba":          float(row["avg_xwoba"]),
+                    "oppo_pct":           float(row["oppo_pct"]),
+                    "spray_mastery_score": float(row["spray_mastery_score"]),
+                }
+                for _, row in scatter_df.iterrows()
+            ]
+            total = len(scatter_all)
+
+            rankings = [
+                {
+                    "batter_id":          int(row["batter"]),
+                    "player_name":        row.get("player_name") or "",
+                    "team":               row.get("team") or "",
+                    "stand":              row.get("stand") or "",
+                    "total_bb":           int(row["total_bb"]),
+                    "pull_pct":           float(row["pull_pct"]),
+                    "center_pct":         float(row["center_pct"]),
+                    "oppo_pct":           float(row["oppo_pct"]),
+                    "spray_entropy":      float(row["spray_entropy"]),
+                    "avg_xwoba":          float(row["avg_xwoba"]),
+                    "pull_xwoba":         float(row["pull_xwoba"]) if row["pull_xwoba"] is not None else None,
+                    "center_xwoba":       float(row["center_xwoba"]) if row["center_xwoba"] is not None else None,
+                    "oppo_xwoba":         float(row["oppo_xwoba"]) if row["oppo_xwoba"] is not None else None,
+                    "oppo_exit_velo":     float(row["oppo_exit_velo"]) if row["oppo_exit_velo"] is not None else None,
+                    "spray_mastery_score": float(row["spray_mastery_score"]),
+                }
+                for _, row in df.iterrows()
+            ]
+
+            return {
+                "rankings":    rankings,
+                "scatter_all": scatter_all,
+                "total":       total,
+                "metric":      "B6_spray_mastery",
+                "season":      season,
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get spray mastery rankings: {e}")
+            raise
+
+    # ----------------------------------------------------------
+    # P8: Platoon Neutrality Score
+    # ----------------------------------------------------------
+    async def get_platoon_neutrality_rankings(
+        self,
+        season: int = 2025,
+        limit: int = 40,
+        offset: int = 0,
+    ) -> Dict:
+        """
+        P8 Platoon Neutrality Score ランキング
+
+        BQ View `view_pitch_platoon_neutrality` を参照。
+        均等性 (60%) + パフォーマンス水準 (40%) の合成 z-score。
+        スケール: 100 + Z×15（OPS+/wRC+ スタイル、100=リーグ平均）
+        """
+        query = f"""
+            SELECT
+                pitcher,
+                player_name,
+                team_abbr,
+                p_throws,
+                total_pitches,
+                pitches_vs_l,
+                pitches_vs_r,
+                woba_vs_l,
+                woba_vs_r,
+                woba_diff_abs,
+                delta_run_vs_l,
+                delta_run_vs_r,
+                platoon_neutrality_score
+            FROM `{PLATOON_VIEW}`
+            WHERE game_year = @season
+            ORDER BY platoon_neutrality_score DESC
+            LIMIT @limit OFFSET @offset
+        """
+
+        scatter_query = f"""
+            SELECT
+                player_name,
+                woba_vs_l,
+                woba_vs_r,
+                woba_diff_abs,
+                platoon_neutrality_score
+            FROM `{PLATOON_VIEW}`
+            WHERE game_year = @season
+            ORDER BY platoon_neutrality_score DESC
+            LIMIT 200
+        """
+
+        params = [
+            ("season", "INT64", season),
+            ("limit", "INT64", limit),
+            ("offset", "INT64", offset),
+        ]
+        scatter_params = [("season", "INT64", season)]
+
+        try:
+            scatter_config = self._make_job_config(scatter_params)
+            job_config = self._make_job_config(params)
+            scatter_df, df = await asyncio.gather(
+                asyncio.to_thread(lambda: self.client.query(scatter_query, job_config=scatter_config).to_dataframe()),
+                asyncio.to_thread(lambda: self.client.query(query, job_config=job_config).to_dataframe()),
+            )
+            scatter_all = [
+                {
+                    "player_name": row.get("player_name") or "",
+                    "woba_vs_l": float(row["woba_vs_l"]),
+                    "woba_vs_r": float(row["woba_vs_r"]),
+                    "woba_diff_abs": float(row["woba_diff_abs"]),
+                    "platoon_neutrality_score": float(row["platoon_neutrality_score"]),
+                }
+                for _, row in scatter_df.iterrows()
+            ]
+            total = len(scatter_all)
+
+            rankings = [
+                {
+                    "pitcher_id": int(row["pitcher"]),
+                    "player_name": row.get("player_name") or "",
+                    "team": row.get("team_abbr") or "",
+                    "p_throws": row.get("p_throws") or "",
+                    "total_pitches": int(row["total_pitches"]),
+                    "pitches_vs_l": int(row["pitches_vs_l"]),
+                    "pitches_vs_r": int(row["pitches_vs_r"]),
+                    "woba_vs_l": float(row["woba_vs_l"]),
+                    "woba_vs_r": float(row["woba_vs_r"]),
+                    "woba_diff_abs": float(row["woba_diff_abs"]),
+                    "delta_run_vs_l": float(row["delta_run_vs_l"]),
+                    "delta_run_vs_r": float(row["delta_run_vs_r"]),
+                    "platoon_neutrality_score": float(row["platoon_neutrality_score"]),
+                }
+                for _, row in df.iterrows()
+            ]
+
+            return {
+                "rankings": rankings,
+                "scatter_all": scatter_all,
+                "total": total,
+                "metric": "P8_platoon_neutrality",
+                "season": season,
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get platoon neutrality rankings: {e}")
             raise
 
     # ----------------------------------------------------------

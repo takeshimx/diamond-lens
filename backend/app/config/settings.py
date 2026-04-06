@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     # Global: 全リクエスト共通
     rate_limit_global_per_minute: int = 100
     # Per-Session: session_id ごと
-    rate_limit_session_per_minute: int = 20
+    rate_limit_session_per_minute: int = 200
     # Per-Endpoint: 高コストエンドポイント
     rate_limit_player_stats_per_minute: int = 10
     rate_limit_agent_chat_per_minute: int = 5

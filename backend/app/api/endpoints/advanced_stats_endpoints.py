@@ -162,6 +162,57 @@ async def get_arsenal_pitch_mix(
 
 
 # ==============================================================
+# P8: Platoon Neutrality Score
+# ==============================================================
+@router.get("/advanced-stats/pitching/platoon-neutrality/rankings")
+async def get_platoon_neutrality_rankings(
+    season: int = Query(2025, ge=2020, le=2027),
+    limit: int = Query(40, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """
+    P8 Platoon Neutrality Score ランキング
+
+    対左打者・対右打者の wOBA 差を均等性スコアに変換し、z-score でランキング化。
+    - woba_diff_abs: |wOBA vs L − wOBA vs R|（小さいほど均等）
+    - platoon_neutrality_score: 偏差値スタイル（50 ± 10）
+    """
+    try:
+        return await service.get_platoon_neutrality_rankings(
+            season=season,
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================
+# B6: Spray Mastery Score
+# ==============================================================
+@router.get("/advanced-stats/batting/spray-mastery/rankings")
+async def get_spray_mastery_rankings(
+    season: int = Query(2025, ge=2020, le=2027),
+    limit: int = Query(40, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """
+    B6 Spray Mastery Score ランキング
+
+    エントロピー(40%) + 全体xwOBA(35%) + オポ方向xwOBA(25%) の合成Zスコア。
+    スケール: 100 + Z×15（OPS+/wRC+ スタイル、100=リーグ平均）
+    """
+    try:
+        return await service.get_spray_mastery_rankings(
+            season=season,
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================
 # B2: Plate Discipline Score
 # ==============================================================
 @router.get("/advanced-stats/batting/plate-discipline/rankings")

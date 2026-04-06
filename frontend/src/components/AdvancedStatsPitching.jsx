@@ -22,6 +22,7 @@ const AdvancedStatsPitching = ({ season, getAuthHeaders, BACKEND_URL }) => {
   const [finisherRankings, setFinisherRankings]           = useState(null);
   const [staminaRankings, setStaminaRankings]             = useState(null);
   const [pressureRankings, setPressureRankings]           = useState(null);
+  const [platoonRankings, setPlatoonRankings]             = useState(null);
 
   const dummyRankingsData = useMemo(
     () => generateDummyRankings(PITCHING_METRICS, DUMMY_PITCHERS),
@@ -91,12 +92,25 @@ const AdvancedStatsPitching = ({ season, getAuthHeaders, BACKEND_URL }) => {
     finally { setIsLoading(false); }
   };
 
+  const fetchPlatoonRankings = async () => {
+    setIsLoading(true); setError(null);
+    try {
+      const params = new URLSearchParams({ season, limit: 40, offset: 0 });
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${BACKEND_URL}/api/v1/advanced-stats/pitching/platoon-neutrality/rankings?${params}`, { headers });
+      if (!res.ok) throw new Error(`API error: ${res.status}`);
+      setPlatoonRankings(await res.json());
+    } catch (e) { console.error('Platoon neutrality fetch failed:', e); setError(e.message); }
+    finally { setIsLoading(false); }
+  };
+
   useEffect(() => {
     fetchPressureRankings();
     fetchPitchTunnelRankings();
     fetchStaminaRankings();
     fetchFinisherRankings();
     fetchArsenalRankings();
+    fetchPlatoonRankings();
   }, [season]);
 
   // ----------------------------------------------------------
@@ -147,6 +161,18 @@ const AdvancedStatsPitching = ({ season, getAuthHeaders, BACKEND_URL }) => {
         score: r.synthetic_score,
         diversity_score: r.diversity_score, effectiveness_score: r.effectiveness_score,
         pitch_mix: r.pitch_mix || [],
+      }));
+    }
+    if (metricId === 'P8' && platoonRankings?.rankings) {
+      return platoonRankings.rankings.map((r) => ({
+        id: r.pitcher_id, name: r.player_name, team: r.team || '',
+        p_throws: r.p_throws || '',
+        score: r.platoon_neutrality_score,
+        total_pitches: r.total_pitches,
+        pitches_vs_l: r.pitches_vs_l, pitches_vs_r: r.pitches_vs_r,
+        woba_vs_l: r.woba_vs_l, woba_vs_r: r.woba_vs_r,
+        woba_diff_abs: r.woba_diff_abs,
+        delta_run_vs_l: r.delta_run_vs_l, delta_run_vs_r: r.delta_run_vs_r,
       }));
     }
     return dummyRankingsData[metricId] || [];
@@ -762,6 +788,166 @@ const AdvancedStatsPitching = ({ season, getAuthHeaders, BACKEND_URL }) => {
   };
 
   // ============================================================
+  // P8 Platoon Neutrality Score — Metric Detail
+  // ============================================================
+  const PlatoonNeutralityDetailView = () => {
+    const rawData    = getRankingsForMetric('P8');
+    const metric     = PITCHING_METRICS.find((m) => m.id === 'P8');
+    const scatterData = platoonRankings?.scatter_all || [];
+    const topN = new Set(rawData.slice(0, 5).map((r) => r.name));
+
+    const [sortKey, setSortKey] = React.useState('score');
+    const [sortDir, setSortDir] = React.useState('desc');
+
+    const handleSort = (key) => {
+      if (sortKey === key) setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+      else { setSortKey(key); setSortDir('desc'); }
+    };
+    // woba_diff_abs は小さいほど良いので昇順反転
+    const invertKeys = new Set(['woba_diff_abs']);
+    const data = [...rawData].sort((a, b) => {
+      const av = a[sortKey] ?? 0; const bv = b[sortKey] ?? 0;
+      const inv = invertKeys.has(sortKey);
+      return (sortDir === 'desc') !== inv ? bv - av : av - bv;
+    });
+    const SortIcon = ({ col }) => {
+      if (sortKey !== col) return <span className="text-gray-600 ml-0.5">⇅</span>;
+      return <span className="text-teal-400 ml-0.5">{sortDir === 'desc' ? '↓' : '↑'}</span>;
+    };
+    const SortTh = ({ col, label, right = true }) => (
+      <th onClick={() => handleSort(col)}
+        className={`${right ? 'text-right' : 'text-left'} text-gray-400 py-2 px-2 cursor-pointer hover:text-white select-none transition-colors`}>
+        {label}<SortIcon col={col} />
+      </th>
+    );
+    const getPlatoonScoreColor = (score) => {
+      if (score >= 130) return 'text-green-400';
+      if (score >= 115) return 'text-emerald-400';
+      if (score >= 85)  return 'text-yellow-400';
+      return 'text-orange-400';
+    };
+
+    return (
+      <div className="space-y-4">
+        <button onClick={() => setExpandedMetric(null)}
+          className="flex items-center gap-1 text-gray-400 hover:text-white text-sm transition-colors">
+          <ChevronLeft className="w-4 h-4" /> Back to Overview
+        </button>
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-bold text-white">{metric.id}. {metric.name} ({metric.nameJp})</h3>
+            <p className="text-sm text-gray-400 mt-0.5">
+              対左右 wOBA 差の絶対値を均等性スコアに変換し、偏差値スタイル（50 ± 10）でランキング化
+            </p>
+          </div>
+          <button onClick={fetchPlatoonRankings}
+            className="flex items-center gap-1.5 text-gray-400 hover:text-white text-xs transition-colors">
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+          <div className="xl:col-span-2 bg-gray-800/50 border border-gray-700 rounded-xl p-4 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-700">
+                  <th className="text-left text-gray-400 py-2 px-2 w-8">#</th>
+                  <SortTh col="name"          label="Pitcher"     right={false} />
+                  <th className="text-left text-gray-400 py-2 px-2">Team</th>
+                  <th className="text-left text-gray-400 py-2 px-2">Hand</th>
+                  <SortTh col="total_pitches" label="Pitches" />
+                  <SortTh col="pitches_vs_l"  label="vs L" />
+                  <SortTh col="pitches_vs_r"  label="vs R" />
+                  <SortTh col="woba_vs_l"     label="wOBA L" />
+                  <SortTh col="woba_vs_r"     label="wOBA R" />
+                  <SortTh col="woba_diff_abs" label="Diff↓" />
+                  <SortTh col="score"         label="Score" />
+                </tr>
+              </thead>
+              <tbody>
+                {data.map((r, i) => (
+                  <tr key={i} className="border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors">
+                    <td className="py-2 px-2 text-gray-500 font-medium">{i + 1}</td>
+                    <td className="py-2 px-2 text-white font-medium">{r.name}</td>
+                    <td className="py-2 px-2 text-gray-400 text-xs">{r.team}</td>
+                    <td className="py-2 px-2 text-xs">
+                      <span className={`px-1.5 py-0.5 rounded font-mono font-bold ${r.p_throws === 'L' ? 'bg-blue-500/20 text-blue-300' : 'bg-red-500/20 text-red-300'}`}>
+                        {r.p_throws ? `${r.p_throws}HP` : '—'}
+                      </span>
+                    </td>
+                    <td className="py-2 px-2 text-right text-gray-400 font-mono">{r.total_pitches?.toLocaleString()}</td>
+                    <td className="py-2 px-2 text-right text-blue-300 font-mono text-xs">{r.pitches_vs_l?.toLocaleString()}</td>
+                    <td className="py-2 px-2 text-right text-red-300 font-mono text-xs">{r.pitches_vs_r?.toLocaleString()}</td>
+                    <td className="py-2 px-2 text-right text-blue-400 font-mono">{r.woba_vs_l?.toFixed(3)}</td>
+                    <td className="py-2 px-2 text-right text-red-400 font-mono">{r.woba_vs_r?.toFixed(3)}</td>
+                    <td className={`py-2 px-2 text-right font-mono text-xs ${r.woba_diff_abs <= 0.02 ? 'text-green-400' : r.woba_diff_abs <= 0.05 ? 'text-yellow-400' : 'text-red-400'}`}>
+                      {r.woba_diff_abs?.toFixed(3)}
+                    </td>
+                    <td className={`py-2 px-2 text-right font-bold font-mono ${getPlatoonScoreColor(r.score)}`}>
+                      {r.score != null ? Math.round(r.score) : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="space-y-4">
+            <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-1">
+                <h4 className="text-sm font-medium text-gray-300">wOBA vs L vs wOBA vs R</h4>
+                <span className="text-[10px] text-gray-500">{scatterData.length} pitchers</span>
+              </div>
+              <p className="text-[10px] text-gray-500 mb-2">
+                対角線に近い = 左右均等 → 理想は <span className="text-teal-400">左下の対角線上</span>（両側を低wOBAで抑制）
+              </p>
+              <ResponsiveContainer width="100%" height={280}>
+                <ScatterChart margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                  <XAxis type="number" dataKey="woba_vs_l" name="wOBA vs L"
+                    stroke="#9ca3af" tick={{ fontSize: 10 }}
+                    label={{ value: 'wOBA vs LHB (lower = better)', position: 'insideBottom', offset: -12, fill: '#6b7280', fontSize: 10 }} />
+                  <YAxis type="number" dataKey="woba_vs_r" name="wOBA vs R"
+                    stroke="#9ca3af" tick={{ fontSize: 10 }}
+                    label={{ value: 'wOBA vs RHB (lower = better)', angle: -90, position: 'insideLeft', fill: '#6b7280', fontSize: 10 }} />
+                  <Tooltip content={<ChartTooltip />} cursor={{ strokeDasharray: '3 3' }} />
+                  <Scatter data={scatterData}>
+                    {scatterData.map((entry, i) => (
+                      <Cell key={i}
+                        fill={topN.has(entry.player_name) ? '#f59e0b' : '#14b8a6'}
+                        fillOpacity={topN.has(entry.player_name) ? 0.9 : 0.5}
+                        r={topN.has(entry.player_name) ? 5 : 3} />
+                    ))}
+                  </Scatter>
+                </ScatterChart>
+              </ResponsiveContainer>
+              <div className="flex items-center gap-3 mt-1.5">
+                <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-full bg-amber-500" /><span className="text-gray-500 text-[10px]">Top 5</span></div>
+                <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-full bg-teal-500 opacity-50" /><span className="text-gray-500 text-[10px]">Others</span></div>
+              </div>
+            </div>
+            <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+              <h4 className="text-sm font-medium text-gray-300 mb-2">Calculation Details</h4>
+              <ul className="text-xs text-gray-400 space-y-1">
+                <li>算出ロジック（OPS+スタイル、100=リーグ平均）</li>
+                <li className="ml-3">• 均等性 Z (60%): wOBA Diff の小ささを z-score 化</li>
+                <li className="ml-3">• パフォーマンス Z (40%): 対左右平均 wOBA の低さを z-score 化</li>
+                <li className="ml-3">• composite_raw = neutrality_z × 0.6 + performance_z × 0.4</li>
+                <li className="ml-3">• composite_raw を再 z-score 化 → 100 + Z × 15</li>
+                <li className="mt-2">スケール</li>
+                <li className="ml-3 font-mono text-gray-500">• ±1σ = 85〜115 / ±2σ = 70〜130</li>
+                <li className="mt-2">入力カラム</li>
+                <li className="ml-3 font-mono text-gray-500">stand, woba_value, delta_pitcher_run_exp</li>
+                <li className="mt-2">フィルタ: 対左・対右それぞれ 100 球以上</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ============================================================
   // P2 Pressure Dominance — Metric Detail
   // ============================================================
   const PressureDominanceDetailView = () => {
@@ -918,6 +1104,7 @@ const AdvancedStatsPitching = ({ season, getAuthHeaders, BACKEND_URL }) => {
   if (expandedMetric === 'P3') return <StaminaDetailView />;
   if (expandedMetric === 'P4') return <FinisherDetailView />;
   if (expandedMetric === 'P6') return <ArsenalDetailView />;
+  if (expandedMetric === 'P8') return <PlatoonNeutralityDetailView />;
 
   // Generic expanded view (dummy metrics)
   if (expandedMetric) {
@@ -993,7 +1180,8 @@ const AdvancedStatsPitching = ({ season, getAuthHeaders, BACKEND_URL }) => {
                       || (metric.id === 'P2' && !!pressureRankings)
                       || (metric.id === 'P3' && !!staminaRankings)
                       || (metric.id === 'P4' && !!finisherRankings)
-                      || (metric.id === 'P6' && !!arsenalRankings);
+                      || (metric.id === 'P6' && !!arsenalRankings)
+                      || (metric.id === 'P8' && !!platoonRankings);
           return (
             <div key={metric.id} className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
               <div className="flex items-center justify-between mb-3">
@@ -1032,6 +1220,8 @@ const AdvancedStatsPitching = ({ season, getAuthHeaders, BACKEND_URL }) => {
                       <span className="text-sm font-bold w-16 text-right text-cyan-400 font-mono">{r.score?.toFixed(2)}</span>
                     ) : metric.id === 'P6' ? (
                       <span className="text-sm font-bold w-16 text-right text-amber-400 font-mono">{r.score?.toFixed(3)}</span>
+                    ) : metric.id === 'P8' ? (
+                      <span className="text-sm font-bold w-16 text-right text-teal-400 font-mono">{r.score != null ? Math.round(r.score) : '—'}</span>
                     ) : (
                       <>
                         <span className={`text-sm font-bold w-12 text-right ${getScoreColor(r.score)}`}>{r.score}</span>

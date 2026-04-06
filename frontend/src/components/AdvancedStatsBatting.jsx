@@ -20,6 +20,7 @@ const AdvancedStatsBatting = ({ season, getAuthHeaders, BACKEND_URL }) => {
   const [plateDisciplineRankings, setPlateDisciplineRankings]   = useState(null); // B2
   const [clutchRankings, setClutchRankings]                     = useState(null); // B3
   const [contactConsistencyRankings, setContactConsistencyRankings] = useState(null); // B4
+  const [sprayMasteryRankings, setSprayMasteryRankings]         = useState(null); // B6
 
   const dummyRankingsData = useMemo(
     () => generateDummyRankings(BATTING_METRICS, DUMMY_BATTERS),
@@ -87,10 +88,23 @@ const AdvancedStatsBatting = ({ season, getAuthHeaders, BACKEND_URL }) => {
     }
   };
 
+  const fetchSprayMasteryRankings = async () => {
+    setIsLoading(true); setError(null);
+    try {
+      const params = new URLSearchParams({ season, limit: 40, offset: 0 });
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${BACKEND_URL}/api/v1/advanced-stats/batting/spray-mastery/rankings?${params}`, { headers });
+      if (!res.ok) throw new Error(`API error: ${res.status}`);
+      setSprayMasteryRankings(await res.json());
+    } catch (e) { console.error('Spray mastery rankings fetch failed:', e); setError(e.message); }
+    finally { setIsLoading(false); }
+  };
+
   useEffect(() => {
     fetchPlateDisciplineRankings();
     fetchClutchRankings();
     fetchContactConsistencyRankings();
+    fetchSprayMasteryRankings();
   }, [season]);
 
   // ----------------------------------------------------------
@@ -138,6 +152,19 @@ const AdvancedStatsBatting = ({ season, getAuthHeaders, BACKEND_URL }) => {
         avg_decision_value: r.avg_decision_value,
       }));
     }
+    if (metricId === 'B6' && sprayMasteryRankings?.rankings) {
+      return sprayMasteryRankings.rankings.map((r) => ({
+        id: r.batter_id, name: r.player_name, team: r.team || '',
+        stand: r.stand || '',
+        score: r.spray_mastery_score,
+        total_bb: r.total_bb,
+        pull_pct: r.pull_pct, center_pct: r.center_pct, oppo_pct: r.oppo_pct,
+        spray_entropy: r.spray_entropy,
+        avg_xwoba: r.avg_xwoba,
+        pull_xwoba: r.pull_xwoba, center_xwoba: r.center_xwoba, oppo_xwoba: r.oppo_xwoba,
+        oppo_exit_velo: r.oppo_exit_velo,
+      }));
+    }
     return dummyRankingsData[metricId] || [];
   };
 
@@ -155,6 +182,163 @@ const AdvancedStatsBatting = ({ season, getAuthHeaders, BACKEND_URL }) => {
             {p.name}: {typeof p.value === 'number' ? p.value.toFixed(4) : p.value}
           </p>
         ))}
+      </div>
+    );
+  };
+
+  // ============================================================
+  // B6 Spray Mastery — Metric Detail
+  // ============================================================
+  const SprayMasteryDetailView = () => {
+    const rawData    = getRankingsForMetric('B6');
+    const metric     = BATTING_METRICS.find((m) => m.id === 'B6');
+    const scatterData = sprayMasteryRankings?.scatter_all || [];
+    const topN = new Set(rawData.slice(0, 5).map((r) => r.name));
+
+    const [sortKey, setSortKey] = React.useState('score');
+    const [sortDir, setSortDir] = React.useState('desc');
+    const handleSort = (key) => {
+      if (sortKey === key) setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+      else { setSortKey(key); setSortDir('desc'); }
+    };
+    const data = [...rawData].sort((a, b) => {
+      const av = a[sortKey] ?? 0; const bv = b[sortKey] ?? 0;
+      return sortDir === 'desc' ? bv - av : av - bv;
+    });
+    const SortIcon = ({ col }) => {
+      if (sortKey !== col) return <span className="text-gray-600 ml-0.5">⇅</span>;
+      return <span className="text-lime-400 ml-0.5">{sortDir === 'desc' ? '↓' : '↑'}</span>;
+    };
+    const SortTh = ({ col, label, right = true }) => (
+      <th onClick={() => handleSort(col)}
+        className={`${right ? 'text-right' : 'text-left'} text-gray-400 py-2 px-2 cursor-pointer hover:text-white select-none transition-colors`}>
+        {label}<SortIcon col={col} />
+      </th>
+    );
+    const getSprayScoreColor = (score) => {
+      if (score >= 115) return 'text-green-400';
+      if (score >= 107) return 'text-emerald-400';
+      if (score >= 100) return 'text-lime-400';
+      return 'text-orange-400';
+    };
+
+    return (
+      <div className="space-y-4">
+        <button onClick={() => setExpandedMetric(null)}
+          className="flex items-center gap-1 text-gray-400 hover:text-white text-sm transition-colors">
+          <ChevronLeft className="w-4 h-4" /> Back to Overview
+        </button>
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-bold text-white">{metric.id}. {metric.name} ({metric.nameJp})</h3>
+            <p className="text-sm text-gray-400 mt-0.5">
+              打球方向エントロピー(40%) × 全体 xwOBA(35%) × オポジット xwOBA(25%) の合成Zスコア
+            </p>
+            <span className="inline-flex items-center mt-1.5 px-2 py-0.5 bg-lime-500/10 border border-lime-500/20 text-lime-400 text-[11px] rounded">
+              100 = リーグ平均（OPS+ スタイル）
+            </span>
+          </div>
+          <button onClick={fetchSprayMasteryRankings}
+            className="flex items-center gap-1.5 text-gray-400 hover:text-white text-xs transition-colors">
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+          <div className="xl:col-span-2 bg-gray-800/50 border border-gray-700 rounded-xl p-4 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-700">
+                  <th className="text-left text-gray-400 py-2 px-2 w-8">#</th>
+                  <SortTh col="name"          label="Batter"    right={false} />
+                  <th className="text-left text-gray-400 py-2 px-2">Team</th>
+                  <th className="text-left text-gray-400 py-2 px-2">B</th>
+                  <SortTh col="total_bb"      label="BB" />
+                  <SortTh col="pull_pct"      label="Pull%" />
+                  <SortTh col="center_pct"    label="Cent%" />
+                  <SortTh col="oppo_pct"      label="Oppo%" />
+                  <SortTh col="spray_entropy" label="H(entropy)" />
+                  <SortTh col="avg_xwoba"     label="xwOBA" />
+                  <SortTh col="oppo_xwoba"    label="Oppo xwOBA" />
+                  <SortTh col="score"         label="Score" />
+                </tr>
+              </thead>
+              <tbody>
+                {data.map((r, i) => (
+                  <tr key={i} className="border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors">
+                    <td className="py-2 px-2 text-gray-500 font-medium">{i + 1}</td>
+                    <td className="py-2 px-2 text-white font-medium">{r.name}</td>
+                    <td className="py-2 px-2 text-gray-400 text-xs">{r.team}</td>
+                    <td className="py-2 px-2 text-xs">
+                      <span className={`px-1 py-0.5 rounded font-mono font-bold text-[10px] ${r.stand === 'L' ? 'bg-blue-500/20 text-blue-300' : 'bg-red-500/20 text-red-300'}`}>
+                        {r.stand || '—'}
+                      </span>
+                    </td>
+                    <td className="py-2 px-2 text-right text-gray-400 font-mono">{r.total_bb}</td>
+                    <td className="py-2 px-2 text-right text-red-300 font-mono text-xs">{r.pull_pct?.toFixed(1)}%</td>
+                    <td className="py-2 px-2 text-right text-gray-400 font-mono text-xs">{r.center_pct?.toFixed(1)}%</td>
+                    <td className="py-2 px-2 text-right text-lime-300 font-mono text-xs">{r.oppo_pct?.toFixed(1)}%</td>
+                    <td className="py-2 px-2 text-right text-cyan-400 font-mono text-xs">{r.spray_entropy?.toFixed(3)}</td>
+                    <td className="py-2 px-2 text-right text-amber-400 font-mono">{r.avg_xwoba?.toFixed(3)}</td>
+                    <td className="py-2 px-2 text-right text-lime-400 font-mono">{r.oppo_xwoba?.toFixed(3) ?? '—'}</td>
+                    <td className={`py-2 px-2 text-right font-bold font-mono ${getSprayScoreColor(r.score)}`}>
+                      {Math.round(r.score)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="space-y-4">
+            <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-1">
+                <h4 className="text-sm font-medium text-gray-300">Entropy vs xwOBA</h4>
+                <span className="text-[10px] text-gray-500">{scatterData.length} batters</span>
+              </div>
+              <p className="text-[10px] text-gray-500 mb-2">
+                理想は <span className="text-lime-400">右上</span>（エントロピー高い ＋ xwOBA 高い）
+              </p>
+              <ResponsiveContainer width="100%" height={280}>
+                <ScatterChart margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                  <XAxis type="number" dataKey="spray_entropy" name="Entropy"
+                    stroke="#9ca3af" tick={{ fontSize: 10 }}
+                    label={{ value: 'Spray Entropy (higher = more balanced)', position: 'insideBottom', offset: -12, fill: '#6b7280', fontSize: 10 }} />
+                  <YAxis type="number" dataKey="avg_xwoba" name="avg xwOBA"
+                    stroke="#9ca3af" tick={{ fontSize: 10 }}
+                    label={{ value: 'avg xwOBA', angle: -90, position: 'insideLeft', fill: '#6b7280', fontSize: 10 }} />
+                  <Tooltip content={<ChartTooltip />} cursor={{ strokeDasharray: '3 3' }} />
+                  <Scatter data={scatterData}>
+                    {scatterData.map((entry, i) => (
+                      <Cell key={i}
+                        fill={topN.has(entry.player_name) ? '#f59e0b' : '#84cc16'}
+                        fillOpacity={topN.has(entry.player_name) ? 0.9 : 0.45}
+                        r={topN.has(entry.player_name) ? 5 : 3} />
+                    ))}
+                  </Scatter>
+                </ScatterChart>
+              </ResponsiveContainer>
+              <div className="flex items-center gap-3 mt-1.5">
+                <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-full bg-amber-500" /><span className="text-gray-500 text-[10px]">Top 5</span></div>
+                <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-full bg-lime-500 opacity-50" /><span className="text-gray-500 text-[10px]">Others</span></div>
+              </div>
+            </div>
+            <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+              <h4 className="text-sm font-medium text-gray-300 mb-2">Calculation Details</h4>
+              <ul className="text-xs text-gray-400 space-y-1">
+                <li>打球方向分類（hc_x 基準）</li>
+                <li className="ml-3 font-mono text-gray-500">• RHB: Pull &lt;100 / Center 100〜155 / Oppo &gt;155</li>
+                <li className="ml-3 font-mono text-gray-500">• LHB: Oppo &lt;100 / Center 100〜155 / Pull &gt;155</li>
+                <li className="mt-2">算出ロジック</li>
+                <li className="ml-3">• H = -Σ p(i) × ln(p(i))（最大 ln(3) ≈ 1.099）</li>
+                <li className="ml-3">• entropy_z × 0.40 + avg_xwoba_z × 0.35</li>
+                <li className="ml-3">• + oppo_xwoba_z × 0.25 → 再Zスコア化 → 100 + Z × 15</li>
+                <li className="mt-2">フィルタ: 打球数 ≥ 80</li>
+              </ul>
+            </div>
+          </div>
+        </div>
       </div>
     );
   };
@@ -653,6 +837,7 @@ const AdvancedStatsBatting = ({ season, getAuthHeaders, BACKEND_URL }) => {
   if (expandedMetric === 'B2') return <PlateDisciplineDetailView />;
   if (expandedMetric === 'B3') return <ClutchDetailView />;
   if (expandedMetric === 'B4') return <ContactConsistencyDetailView />;
+  if (expandedMetric === 'B6') return <SprayMasteryDetailView />;
 
   // Generic expanded view (dummy metrics)
   if (expandedMetric) {
@@ -726,7 +911,8 @@ const AdvancedStatsBatting = ({ season, getAuthHeaders, BACKEND_URL }) => {
           const data   = getRankingsForMetric(metric.id).slice(0, 5);
           const isLive = (metric.id === 'B2' && !!plateDisciplineRankings)
                        || (metric.id === 'B3' && !!clutchRankings)
-                       || (metric.id === 'B4' && !!contactConsistencyRankings);
+                       || (metric.id === 'B4' && !!contactConsistencyRankings)
+                       || (metric.id === 'B6' && !!sprayMasteryRankings);
           return (
             <div key={metric.id} className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
               <div className="flex items-center justify-between mb-3">
@@ -761,6 +947,10 @@ const AdvancedStatsBatting = ({ season, getAuthHeaders, BACKEND_URL }) => {
                       </span>
                     ) : metric.id === 'B4' ? (
                       <span className="text-sm font-bold w-16 text-right text-indigo-400 font-mono">
+                        {Math.round(r.score)}
+                      </span>
+                    ) : metric.id === 'B6' ? (
+                      <span className="text-sm font-bold w-16 text-right text-lime-400 font-mono">
                         {Math.round(r.score)}
                       </span>
                     ) : (

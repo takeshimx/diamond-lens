@@ -7,7 +7,7 @@ export const PITCHING_METRICS = [
   { id: 'P3', name: 'Stamina Score',        nameJp: 'スタミナスコア',        question: '最もスタミナのある投手は？',           apiReady: true  },
   { id: 'P4', name: 'Two-Strike Finisher',  nameJp: '2ストライク仕留め力',   question: '最も追い込んでから仕留める投手は？',   apiReady: true  },
   { id: 'P6', name: 'Arsenal Effectiveness',nameJp: '球種構成効果',          question: '最も多彩で効果的な球種構成は？',       apiReady: true  },
-  { id: 'P7', name: 'First-Pitch Strike',   nameJp: '初球ストライク支配力',  question: '初球の支配力が最も高い投手は？',       apiReady: false },
+  { id: 'P8', name: 'Platoon Neutrality',   nameJp: '対左右均等性スコア',    question: '左右両打者に最も均等に対応できる投手は？', apiReady: true  },
 ];
 
 export const BATTING_METRICS = [
@@ -16,7 +16,7 @@ export const BATTING_METRICS = [
   { id: 'B3', name: 'Clutch Hitting',       nameJp: 'クラッチ打撃',          question: '最もチャンスに強い打者は？',           apiReady: true  },
   { id: 'B4', name: 'Contact Consistency',  nameJp: 'コンタクト一貫性',      question: '最もコンタクトの質が安定している打者は？', apiReady: true  },
   { id: 'B5', name: 'Adjustment Ability',   nameJp: '対応力',                question: '同一投手への対応力が最も高い打者は？', apiReady: false },
-  { id: 'B6', name: 'Spray Mastery',        nameJp: '打球方向マスタリー',    question: '最も広角に打ち分けられる打者は？',     apiReady: false },
+  { id: 'B6', name: 'Spray Mastery',        nameJp: '打球方向マスタリー',    question: '最も広角に打ち分けられる打者は？',     apiReady: true  },
   { id: 'B7', name: 'Power Under Pressure', nameJp: 'プレッシャー下パワー',  question: 'チャンスで最も長打力を発揮する打者は？', apiReady: false },
 ];
 
