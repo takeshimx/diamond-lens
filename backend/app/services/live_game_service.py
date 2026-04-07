@@ -20,7 +20,7 @@ class LiveGameService:
         - final: 終了試合のスコアサマリー
         """
         today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
-        live_pks, final_games = await self._get_schedule(today)
+        live_pks, final_games, preview_games = await self._get_schedule(today)
 
         if live_pks:
             tasks = [self._fetch_game_state(pk) for pk in live_pks]
@@ -29,10 +29,10 @@ class LiveGameService:
         else:
             live_games = []
 
-        return {"live": live_games, "final": final_games}
+        return {"live": live_games, "final": final_games, "preview": preview_games}
 
-    async def _get_schedule(self, date: str) -> Tuple[List[int], List[Dict]]:
-        """指定日のスケジュールから Live の gamePk リストと Final のサマリーを返す"""
+    async def _get_schedule(self, date: str) -> Tuple[List[int], List[Dict], List[Dict]]:
+        """指定日のスケジュールから Live の gamePk リスト、Final、Preview のサマリーを返す"""
         url = f"{MLB_BASE}/api/v1/schedule"
         params = {"sportId": 1, "date": date, "hydrate": "linescore"}
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -40,8 +40,10 @@ class LiveGameService:
             resp.raise_for_status()
             data = resp.json()
 
+        jst = ZoneInfo("Asia/Tokyo")
         live_pks = []
         final_games = []
+        preview_games = []
         for date_obj in data.get("dates", []):
             for game in date_obj.get("games", []):
                 state = game.get("status", {}).get("abstractGameState", "")
@@ -49,6 +51,27 @@ class LiveGameService:
                 home = game.get("teams", {}).get("home", {})
                 if state == "Live":
                     live_pks.append(game["gamePk"])
+                elif state == "Preview":
+                    away_rec = away.get("leagueRecord", {})
+                    home_rec = home.get("leagueRecord", {})
+                    game_date_str = game.get("gameDate", "")
+                    try:
+                        from datetime import timezone as tz
+                        utc_dt = datetime.fromisoformat(game_date_str.replace("Z", "+00:00"))
+                        jst_dt = utc_dt.astimezone(jst)
+                        start_time = jst_dt.strftime("%H:%M")
+                    except Exception:
+                        start_time = "--:--"
+                    preview_games.append({
+                        "gamePk": game["gamePk"],
+                        "away_team": away.get("team", {}).get("name", ""),
+                        "home_team": home.get("team", {}).get("name", ""),
+                        "away_wins": away_rec.get("wins"),
+                        "away_losses": away_rec.get("losses"),
+                        "home_wins": home_rec.get("wins"),
+                        "home_losses": home_rec.get("losses"),
+                        "start_time_jst": start_time,
+                    })
                 elif state == "Final":
                     away_rec = away.get("leagueRecord", {})
                     home_rec = home.get("leagueRecord", {})
@@ -56,6 +79,8 @@ class LiveGameService:
                         "gamePk": game["gamePk"],
                         "away_team": away.get("team", {}).get("name", ""),
                         "home_team": home.get("team", {}).get("name", ""),
+                        "away_team_id": away.get("team", {}).get("id"),
+                        "home_team_id": home.get("team", {}).get("id"),
                         "away_score": away.get("score", 0),
                         "home_score": home.get("score", 0),
                         "away_wins": away_rec.get("wins"),
@@ -63,7 +88,7 @@ class LiveGameService:
                         "home_wins": home_rec.get("wins"),
                         "home_losses": home_rec.get("losses"),
                     })
-        return live_pks, final_games
+        return live_pks, final_games, preview_games
 
     async def get_scheduled_games(self, date: str) -> list:
         """指定日の予定試合一覧（開始時刻JST付き）を返す"""
@@ -96,6 +121,8 @@ class LiveGameService:
                     "gamePk": game["gamePk"],
                     "away_team": away.get("team", {}).get("name", ""),
                     "home_team": home.get("team", {}).get("name", ""),
+                    "away_team_id": away.get("team", {}).get("id"),
+                    "home_team_id": home.get("team", {}).get("id"),
                     "away_wins": away_rec.get("wins"),
                     "away_losses": away_rec.get("losses"),
                     "home_wins": home_rec.get("wins"),
@@ -201,8 +228,43 @@ class LiveGameService:
         # 現在のプレイ（投手・打者）
         current_play = live_data.get("plays", {}).get("currentPlay", {})
         matchup = current_play.get("matchup", {})
-        pitcher_name = matchup.get("pitcher", {}).get("fullName", "N/A")
-        batter_name = matchup.get("batter", {}).get("fullName", "N/A")
+        pitcher_info = matchup.get("pitcher", {})
+        pitcher_name = pitcher_info.get("fullName", "N/A")
+        pitcher_id = pitcher_info.get("id")
+        batter_info = matchup.get("batter", {})
+        batter_name = batter_info.get("fullName", "N/A")
+        batter_id = batter_info.get("id")
+        # boxscoreのplayersを取得（投手・打者共通で使う）
+        bs_teams = live_data.get("boxscore", {}).get("teams", {})
+        defense_side = "home" if inning_half == "Top" else "away"
+        offense_side = "away" if inning_half == "Top" else "home"
+
+        # 現在の投手のゲームスタッツ
+        pitcher_stats = {}
+        if pitcher_id:
+            bs_players = bs_teams.get(defense_side, {}).get("players", {})
+            ps = bs_players.get(f"ID{pitcher_id}", {}).get("stats", {}).get("pitching", {})
+            pitcher_stats = {
+                "pitches": ps.get("numberOfPitches", 0),
+                "ip": ps.get("inningsPitched", "0.0"),
+                "k": ps.get("strikeOuts", 0),
+                "er": ps.get("earnedRuns", 0),
+            }
+
+        # 現在の打者のゲームスタッツ
+        batter_stats = {}
+        if batter_id:
+            bs_players = bs_teams.get(offense_side, {}).get("players", {})
+            bs = bs_players.get(f"ID{batter_id}", {}).get("stats", {}).get("batting", {})
+            batter_stats = {
+                "ab": bs.get("atBats", 0),
+                "h": bs.get("hits", 0),
+                "rbi": bs.get("rbi", 0),
+                "hr": bs.get("homeRuns", 0),
+                "sb": bs.get("stolenBases", 0),
+                "k": bs.get("strikeOuts", 0),
+                "bb": bs.get("baseOnBalls", 0),
+            }
         # 現在の投球結果テキスト
         play_result = current_play.get("result", {})
         last_event = play_result.get("event", "")
@@ -232,6 +294,26 @@ class LiveGameService:
             })
             pitch_num += 1
         last_pitch = pitch_sequence[-1] if pitch_sequence else {}
+        # この試合のHR情報（打者名 + シーズン本数）
+        hr_list = []
+        boxscore_teams = live_data.get("boxscore", {}).get("teams", {})
+        all_players = {}
+        for side in ("home", "away"):
+            for pid, pdata in boxscore_teams.get(side, {}).get("players", {}).items():
+                all_players[pid] = pdata
+        for play in live_data.get("plays", {}).get("allPlays", []):
+            if play.get("result", {}).get("event", "") == "Home Run":
+                batter = play.get("matchup", {}).get("batter", {})
+                batter_id = batter.get("id")
+                batter_full = batter.get("fullName", "")
+                season_hr = None
+                if batter_id:
+                    pdata = all_players.get(f"ID{batter_id}", {})
+                    season_hr = pdata.get("seasonStats", {}).get("batting", {}).get("homeRuns")
+                hr_list.append({
+                    "name": batter_full,
+                    "season_hr": season_hr,
+                })
         return {
             "gamePk": game_pk,
             "home_team": home_team,
@@ -244,11 +326,14 @@ class LiveGameService:
             "balls": balls,
             "strikes": strikes,
             "pitcher": pitcher_name,
+            "pitcher_stats": pitcher_stats,
             "batter": batter_name,
+            "batter_stats": batter_stats,
             "last_event": last_event,
             "last_description": last_description,
             "runners": runners,
             "last_pitch": last_pitch,
             "pitch_sequence": pitch_sequence,
+            "hr_list": hr_list,
             "abstract_game_state": "Live",
         }

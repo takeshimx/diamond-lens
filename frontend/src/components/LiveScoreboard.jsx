@@ -228,24 +228,35 @@ const GameCard = ({ game }) => {
           <div className="bg-gray-700/50 rounded-lg px-3 py-2">
             <span className="text-gray-400 text-xs block mb-0.5">投手</span>
             <span className="text-white font-medium">{game.pitcher}</span>
+            {game.pitcher_stats?.pitches > 0 && (
+              <span className="text-gray-400 text-xs block mt-0.5 font-mono">
+                {game.pitcher_stats.pitches}P | {game.pitcher_stats.ip}IP {game.pitcher_stats.k}K {game.pitcher_stats.er}ER
+              </span>
+            )}
           </div>
           <div className="bg-gray-700/50 rounded-lg px-3 py-2">
             <span className="text-gray-400 text-xs block mb-0.5">打者</span>
             <span className="text-white font-medium">{game.batter}</span>
+            {game.batter_stats && (
+              <span className="text-gray-400 text-xs block mt-0.5 font-mono">
+                {game.batter_stats.h}-{game.batter_stats.ab}
+                {game.batter_stats.rbi > 0 && ` | ${game.batter_stats.rbi}RBI`}
+                {game.batter_stats.hr > 0 && ` ${game.batter_stats.hr}HR`}
+                {game.batter_stats.sb > 0 && ` ${game.batter_stats.sb}SB`}
+                {game.batter_stats.bb > 0 && ` ${game.batter_stats.bb}BB`}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex flex-col items-center gap-1">
           <BaseDiamond runners={game.runners || {}} />
-          {hasRunners && (
-            <span className="text-xs text-yellow-400">走者あり</span>
-          )}
+          <span className="text-xs font-mono text-gray-300 whitespace-nowrap">
+            {game.balls}-{game.strikes}, {game.outs} Out{game.outs !== 1 ? 's' : ''}
+          </span>
         </div>
       </div>
 
       <div className="flex items-center gap-2 text-sm flex-wrap">
-        <span className="bg-gray-700 rounded px-2 py-1 font-mono text-gray-300">
-          {game.balls}-{game.strikes}  {game.outs}アウト
-        </span>
         {game.last_pitch?.pitch_type && (
           <span className="bg-blue-900/50 border border-blue-700/50 text-blue-300 rounded px-2 py-1 font-medium">
             {game.last_pitch.pitch_type}
@@ -272,14 +283,26 @@ const GameCard = ({ game }) => {
         </div>
       )}
 
+      {game.hr_list?.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-gray-500">HR:</span>
+          {game.hr_list.map((hr, i) => (
+            <span key={i} className="text-xs text-yellow-400 font-medium">
+              {hr.name}{hr.season_hr != null ? ` (${hr.season_hr})` : ''}
+            </span>
+          ))}
+        </div>
+      )}
+
       {game.pitch_sequence?.length > 0 && (
         <div className="bg-gray-900/50 rounded-lg px-3 py-2 flex flex-col gap-1">
           <span className="text-xs text-gray-500 mb-1">投球シーケンス</span>
           {[...game.pitch_sequence].reverse().map((p) => {
             const call = p.pitch_call ?? '';
-            const isStrike = /strike/i.test(call);
-            const isBall = /^ball$/i.test(call);
-            const callColor = isStrike ? 'text-red-400' : isBall ? 'text-green-400' : 'text-gray-400';
+            const isStrike = /strike|foul/i.test(call);
+            const isBall = /ball/i.test(call);
+            const isInPlay = /^in play/i.test(call);
+            const callColor = isStrike ? 'text-red-400' : isBall ? 'text-blue-400' : isInPlay ? 'text-green-400' : 'text-gray-400';
             return (
               <div key={p.num} className="flex items-center gap-2 text-xs font-mono">
                 <span className="text-gray-600 w-4 text-right">{p.num}:</span>
@@ -313,6 +336,7 @@ const LiveScoreboard = () => {
   const [activeTab, setActiveTab] = useState('today');
   const [liveGames, setLiveGames] = useState([]);
   const [finalGames, setFinalGames] = useState([]);
+  const [previewGames, setPreviewGames] = useState([]);
   const [scheduledGames, setScheduledGames] = useState([]);
   const [loading, setLoading] = useState(true);
   const [scheduleLoading, setScheduleLoading] = useState(false);
@@ -335,6 +359,7 @@ const LiveScoreboard = () => {
       const data = await res.json();
       setLiveGames(data.live ?? []);
       setFinalGames(data.final ?? []);
+      setPreviewGames(data.preview ?? []);
       setLastUpdated(new Date());
       setError(null);
     } catch (e) {
@@ -452,6 +477,33 @@ const LiveScoreboard = () => {
               <div className="bg-gray-800 border border-gray-700 rounded-xl p-8 text-center">
                 <Radio className="w-8 h-8 text-gray-600 mx-auto mb-2" />
                 <p className="text-gray-400">現在進行中の試合はありません</p>
+              </div>
+            )}
+
+            {previewGames.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <p className="text-sm text-gray-500 font-medium">本日予定</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {previewGames.map((game) => (
+                    <div
+                      key={game.gamePk}
+                      className="bg-gray-800/40 border border-gray-700/40 rounded-lg px-4 py-3 flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-2 text-sm">
+                        <div className="flex flex-col">
+                          <span className="text-gray-300">{game.away_team}</span>
+                          {game.away_wins != null && <span className="text-xs text-gray-500">{game.away_wins}-{game.away_losses}</span>}
+                        </div>
+                        <span className="text-gray-600 mx-1">@</span>
+                        <div className="flex flex-col">
+                          <span className="text-gray-300">{game.home_team}</span>
+                          {game.home_wins != null && <span className="text-xs text-gray-500">{game.home_wins}-{game.home_losses}</span>}
+                        </div>
+                      </div>
+                      <span className="text-sm text-blue-400 font-mono">{game.start_time_jst} JST</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
