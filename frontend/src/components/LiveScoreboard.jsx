@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Radio, RefreshCw, X } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 
-const POLL_INTERVAL_MS = 60000;
+const POLL_INTERVAL_MS = 40000;
 
 const getBackendUrl = () => {
   if (window.location.hostname.includes('run.app')) {
@@ -100,11 +100,10 @@ const BoxscoreModal = ({ game, onClose, getIdToken }) => {
                 <button
                   key={side}
                   onClick={() => setActiveTab(side)}
-                  className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
-                    activeTab === side
+                  className={`flex-1 py-2.5 text-sm font-medium transition-colors ${activeTab === side
                       ? 'text-white border-b-2 border-blue-500'
                       : 'text-gray-500 hover:text-gray-300'
-                  }`}
+                    }`}
                 >
                   {boxscore[side]?.team}
                 </button>
@@ -338,14 +337,16 @@ const LiveScoreboard = () => {
   const [finalGames, setFinalGames] = useState([]);
   const [previewGames, setPreviewGames] = useState([]);
   const [scheduledGames, setScheduledGames] = useState([]);
+  const [highlights, setHighlights] = useState([]);
   const [loading, setLoading] = useState(true);
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [selectedGame, setSelectedGame] = useState(null);
 
+  const yesterdayInfo = getJstDateInfo(-1);
   const todayInfo = getJstDateInfo(0);
-  const tomorrowInfo = getJstDateInfo(1);
+  const futureDays = [1, 2, 3, 4, 5].map(i => getJstDateInfo(i));
 
   const fetchGames = useCallback(async () => {
     try {
@@ -369,15 +370,32 @@ const LiveScoreboard = () => {
     }
   }, []);
 
-  const fetchSchedule = useCallback(async () => {
-    setScheduleLoading(true);
+  const fetchHighlights = useCallback(async (dateStr) => {
     try {
       const idToken = await getIdTokenRef.current();
       const headers = {
         'Accept': 'application/json',
         ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {}),
       };
-      const res = await fetch(`${BACKEND_URL}/api/v1/live/games/schedule?date=${tomorrowInfo.dateStr}`, { headers });
+      const res = await fetch(`${BACKEND_URL}/api/v1/live/games/highlights?date=${dateStr}`, { headers });
+      if (!res.ok) return;
+      const data = await res.json();
+      setHighlights(data ?? []);
+    } catch {
+      setHighlights([]);
+    }
+  }, []);
+
+  const fetchSchedule = useCallback(async (dateStr) => {
+    setScheduleLoading(true);
+    setScheduledGames([]);
+    try {
+      const idToken = await getIdTokenRef.current();
+      const headers = {
+        'Accept': 'application/json',
+        ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {}),
+      };
+      const res = await fetch(`${BACKEND_URL}/api/v1/live/games/schedule?date=${dateStr}`, { headers });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setScheduledGames(data ?? []);
@@ -386,7 +404,7 @@ const LiveScoreboard = () => {
     } finally {
       setScheduleLoading(false);
     }
-  }, [tomorrowInfo.dateStr]);
+  }, []);
 
   useEffect(() => {
     fetchGames();
@@ -395,8 +413,17 @@ const LiveScoreboard = () => {
   }, [fetchGames]);
 
   useEffect(() => {
-    if (activeTab === 'tomorrow') fetchSchedule();
-  }, [activeTab, fetchSchedule]);
+    if (activeTab !== 'today') {
+      fetchSchedule(activeTab);
+    }
+    // 今日・前日タブのみハイライト取得（未来日は対象外）
+    const dateStr = activeTab === 'today' ? todayInfo.dateStr : activeTab;
+    if (dateStr <= todayInfo.dateStr) {
+      fetchHighlights(dateStr);
+    } else {
+      setHighlights([]);
+    }
+  }, [activeTab, fetchSchedule, fetchHighlights, todayInfo.dateStr]);
 
   return (
     <div className="w-full">
@@ -425,29 +452,52 @@ const LiveScoreboard = () => {
       </div>
 
       {/* 日付タブ */}
-      <div className="flex gap-1 mb-4 bg-gray-800 rounded-lg p-1 w-fit">
+      <div className="flex gap-1 mb-4 bg-gray-800 rounded-lg p-1 overflow-x-auto w-full">
+        <button
+          onClick={() => setActiveTab(yesterdayInfo.dateStr)}
+          className={`px-4 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0 ${activeTab === yesterdayInfo.dateStr ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
+            }`}
+        >
+          {yesterdayInfo.label}
+        </button>
         <button
           onClick={() => setActiveTab('today')}
-          className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-            activeTab === 'today' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
-          }`}
+          className={`px-4 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0 ${activeTab === 'today' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
+            }`}
         >
           {todayInfo.label}
         </button>
-        <button
-          onClick={() => setActiveTab('tomorrow')}
-          className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-            activeTab === 'tomorrow' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          {tomorrowInfo.label}
-        </button>
+        {futureDays.map(day => (
+          <button
+            key={day.dateStr}
+            onClick={() => setActiveTab(day.dateStr)}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0 ${activeTab === day.dateStr ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
+              }`}
+          >
+            {day.label}
+          </button>
+        ))}
       </div>
 
       {lastUpdated && activeTab === 'today' && (
         <p className="text-xs text-gray-500 mb-4">
           最終更新: {lastUpdated.toLocaleTimeString('ja-JP')}
         </p>
+      )}
+
+      {/* ハイライト */}
+      {highlights.length > 0 && (
+        <div className="bg-gray-800/60 border border-yellow-700/40 rounded-xl px-5 py-4 mb-4">
+          <p className="text-xs text-yellow-500/80 font-semibold uppercase tracking-wider mb-2">Highlights</p>
+          <ul className="flex flex-col gap-1.5">
+            {highlights.map((h, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm text-gray-200">
+                <span className="text-yellow-400 mt-0.5 flex-shrink-0">●</span>
+                <span>{h.text}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {/* 今日タブ */}
@@ -544,8 +594,8 @@ const LiveScoreboard = () => {
         )
       )}
 
-      {/* 翌日タブ */}
-      {activeTab === 'tomorrow' && (
+      {/* 前日・翌日以降タブ */}
+      {activeTab !== 'today' && (
         scheduleLoading ? (
           <div className="flex items-center justify-center py-20 text-gray-400">
             <RefreshCw className="w-5 h-5 animate-spin mr-2" />
@@ -553,31 +603,58 @@ const LiveScoreboard = () => {
           </div>
         ) : scheduledGames.length === 0 ? (
           <div className="bg-gray-800 border border-gray-700 rounded-xl p-8 text-center">
-            <p className="text-gray-400">試合予定はありません</p>
+            <p className="text-gray-400">試合情報はありません</p>
           </div>
         ) : (
           <div className="flex flex-col gap-2">
-            <p className="text-sm text-gray-500 font-medium">{scheduledGames.length}試合予定（日本時間）</p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {scheduledGames.map((game) => (
-                <div
-                  key={game.gamePk}
-                  className="bg-gray-800/60 border border-gray-700/60 rounded-lg px-4 py-3 flex items-center justify-between"
-                >
-                  <div className="flex items-center gap-2 text-sm">
-                    <div className="flex flex-col">
-                      <span className="text-white">{game.away_team}</span>
-                      {game.away_wins != null && <span className="text-xs text-gray-500">{game.away_wins}-{game.away_losses}</span>}
+              {scheduledGames.map((game) => {
+                if (game.status === 'Final') {
+                  const awayWin = game.away_score > game.home_score;
+                  const homeWin = game.home_score > game.away_score;
+                  return (
+                    <button
+                      key={game.gamePk}
+                      onClick={() => setSelectedGame(game)}
+                      className="bg-gray-800/60 border border-gray-700/60 rounded-lg px-4 py-3 flex items-center justify-between hover:bg-gray-700/60 hover:border-gray-600 transition-colors text-left w-full"
+                    >
+                      <div className="flex items-center gap-2 text-sm">
+                        <div className="flex flex-col">
+                          <span className={awayWin ? 'text-white font-semibold' : 'text-gray-500'}>{game.away_team}</span>
+                          {game.away_wins != null && <span className="text-xs text-gray-500">{game.away_wins}-{game.away_losses}</span>}
+                        </div>
+                        <span className={`font-bold text-base ${awayWin ? 'text-yellow-400' : 'text-gray-500'}`}>{game.away_score}</span>
+                        <span className="text-gray-600 mx-1">-</span>
+                        <span className={`font-bold text-base ${homeWin ? 'text-yellow-400' : 'text-gray-500'}`}>{game.home_score}</span>
+                        <div className="flex flex-col">
+                          <span className={homeWin ? 'text-white font-semibold' : 'text-gray-500'}>{game.home_team}</span>
+                          {game.home_wins != null && <span className="text-xs text-gray-500">{game.home_wins}-{game.home_losses}</span>}
+                        </div>
+                      </div>
+                      <span className="text-xs text-gray-600">Final →</span>
+                    </button>
+                  );
+                }
+                return (
+                  <div
+                    key={game.gamePk}
+                    className="bg-gray-800/40 border border-gray-700/40 rounded-lg px-4 py-3 flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-2 text-sm">
+                      <div className="flex flex-col">
+                        <span className="text-gray-300">{game.away_team}</span>
+                        {game.away_wins != null && <span className="text-xs text-gray-500">{game.away_wins}-{game.away_losses}</span>}
+                      </div>
+                      <span className="text-gray-600 mx-1">@</span>
+                      <div className="flex flex-col">
+                        <span className="text-gray-300">{game.home_team}</span>
+                        {game.home_wins != null && <span className="text-xs text-gray-500">{game.home_wins}-{game.home_losses}</span>}
+                      </div>
                     </div>
-                    <span className="text-gray-500 mx-1">@</span>
-                    <div className="flex flex-col">
-                      <span className="text-white">{game.home_team}</span>
-                      {game.home_wins != null && <span className="text-xs text-gray-500">{game.home_wins}-{game.home_losses}</span>}
-                    </div>
+                    <span className="text-sm text-blue-400 font-mono">{game.start_time_jst} JST</span>
                   </div>
-                  <span className="text-sm text-blue-400 font-mono">{game.start_time_jst} JST</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )

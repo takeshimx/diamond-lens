@@ -19,8 +19,10 @@ class LiveGameService:
         - live: 進行中試合の詳細（投手・打者・カウント・走者・投球シーケンス）
         - final: 終了試合のスコアサマリー
         """
-        today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
-        live_pks, final_games, preview_games = await self._get_schedule(today)
+        from datetime import timedelta
+        # JST基準: JST日付 - 1日 = MLBのET日付（全試合がJST翌朝に開始するため）
+        mlb_date = (datetime.now(ZoneInfo("Asia/Tokyo")) - timedelta(days=1)).strftime("%Y-%m-%d")
+        live_pks, final_games, preview_games = await self._get_schedule(mlb_date)
 
         if live_pks:
             tasks = [self._fetch_game_state(pk) for pk in live_pks]
@@ -91,9 +93,12 @@ class LiveGameService:
         return live_pks, final_games, preview_games
 
     async def get_scheduled_games(self, date: str) -> list:
-        """指定日の予定試合一覧（開始時刻JST付き）を返す"""
+        """指定日（JST）の予定試合一覧（開始時刻JST付き）を返す"""
+        from datetime import timedelta
+        # date はフロントエンドからのJST日付。MLBのET日付に変換するため -1日
+        mlb_date = (datetime.fromisoformat(date) - timedelta(days=1)).strftime("%Y-%m-%d")
         url = f"{MLB_BASE}/api/v1/schedule"
-        params = {"sportId": 1, "date": date}
+        params = {"sportId": 1, "date": mlb_date}
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(url, params=params)
             resp.raise_for_status()
@@ -123,6 +128,8 @@ class LiveGameService:
                     "home_team": home.get("team", {}).get("name", ""),
                     "away_team_id": away.get("team", {}).get("id"),
                     "home_team_id": home.get("team", {}).get("id"),
+                    "away_score": away.get("score", 0),
+                    "home_score": home.get("score", 0),
                     "away_wins": away_rec.get("wins"),
                     "away_losses": away_rec.get("losses"),
                     "home_wins": home_rec.get("wins"),
@@ -131,6 +138,90 @@ class LiveGameService:
                     "status": game.get("status", {}).get("abstractGameState", ""),
                 })
         return games
+
+    async def get_daily_highlights(self, date: str) -> List[Dict]:
+        """指定日（JST）の全試合からハイライトを抽出して返す"""
+        from datetime import timedelta
+        mlb_date = (datetime.fromisoformat(date) - timedelta(days=1)).strftime("%Y-%m-%d")
+
+        url = f"{MLB_BASE}/api/v1/schedule"
+        params = {"sportId": 1, "date": mlb_date}
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+
+        final_pks = []
+        for date_obj in data.get("dates", []):
+            for game in date_obj.get("games", []):
+                state = game.get("status", {}).get("abstractGameState", "")
+                if state == "Final":
+                    final_pks.append(game["gamePk"])
+
+        if not final_pks:
+            return []
+
+        tasks = [self._fetch_boxscore_highlights(pk) for pk in final_pks]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        highlights = []
+        for r in results:
+            if not isinstance(r, Exception) and r:
+                highlights.extend(r)
+
+        highlights.sort(key=lambda h: h["priority"], reverse=True)
+        return [{"text": h["text"]} for h in highlights]
+
+    async def _fetch_boxscore_highlights(self, game_pk: int) -> List[Dict]:
+        """単一試合のboxscoreからハイライト条件に合う記録を抽出する"""
+        url = f"{MLB_BASE}/api/v1/game/{game_pk}/boxscore"
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+
+        highlights = []
+        teams = data.get("teams", {})
+
+        for side in ("away", "home"):
+            team_data = teams.get(side, {})
+            abbr = team_data.get("team", {}).get("abbreviation", "")
+            players = team_data.get("players", {})
+
+            # 打者ルール
+            for pid in team_data.get("batters", []):
+                p = players.get(f"ID{pid}", {})
+                stats = p.get("stats", {}).get("batting", {})
+                name = p.get("person", {}).get("fullName", "")
+                hr = stats.get("homeRuns", 0)
+                rbi = stats.get("rbi", 0)
+                if hr >= 3:
+                    highlights.append({"text": f"{hr} HR game — {name} ({abbr})", "priority": 100})
+                elif rbi >= 4:
+                    highlights.append({"text": f"{rbi} RBI — {name} ({abbr})", "priority": 80})
+
+            # 投手ルール
+            for pid in team_data.get("pitchers", []):
+                p = players.get(f"ID{pid}", {})
+                stats = p.get("stats", {}).get("pitching", {})
+                name = p.get("person", {}).get("fullName", "")
+                ip_str = stats.get("inningsPitched", "0.0")
+                k = stats.get("strikeOuts", 0)
+                er = stats.get("earnedRuns", 0)
+                try:
+                    ip = float(ip_str)
+                except (ValueError, TypeError):
+                    ip = 0.0
+
+                if ip >= 9.0:
+                    label = f"Complete Game Shutout — {name} ({abbr})" if er == 0 else f"Complete Game — {name} ({abbr})"
+                    highlights.append({"text": label, "priority": 95 if er == 0 else 90})
+                elif ip >= 7.0 and er == 0:
+                    highlights.append({"text": f"Shutout ({ip_str} IP) — {name} ({abbr})", "priority": 85})
+                if k >= 10:
+                    highlights.append({"text": f"{k} K — {name} ({abbr})", "priority": 75})
+
+        return highlights
 
     async def get_boxscore(self, game_pk: int) -> Dict:
         """終了試合のボックススコア（投手・野手スタッツ）を返す"""
