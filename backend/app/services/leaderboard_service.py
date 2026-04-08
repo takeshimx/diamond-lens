@@ -125,7 +125,8 @@ def get_batting_leaderboard(season: int, league: str, min_pa: int, metric_order:
         
         results: List[PlayerBattingSeasonStats] = [] # PlayerBattingSeasonStatsのリストとして初期化
         for _, row in df.iterrows():
-            results.append(PlayerBattingSeasonStats(**row.to_dict()))
+            row_dict = {k: (None if (isinstance(v, float) and v != v) else v) for k, v in row.to_dict().items()}
+            results.append(PlayerBattingSeasonStats(**row_dict))
         return results
 
     except GoogleCloudError as e:

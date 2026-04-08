@@ -36,6 +36,19 @@ async def get_game_boxscore(game_pk: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/live/standings")
+async def get_standings(season: int = None):
+    """
+    MLB順位表を返す（AL/NL 各ディビジョン別）
+
+    - season: シーズン年（省略時は今年）
+    """
+    try:
+        return await service.get_standings(season)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/live/games/today")
 async def get_today_live_games():
     """

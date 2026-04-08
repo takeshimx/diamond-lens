@@ -428,3 +428,61 @@ class LiveGameService:
             "hr_list": hr_list,
             "abstract_game_state": "Live",
         }
+
+    async def get_standings(self, season: Optional[int] = None) -> Dict:
+        """MLB順位表を返す（AL/NL 各ディビジョン別）"""
+        from datetime import date as date_cls
+        if season is None:
+            season = date_cls.today().year
+        url = f"{MLB_BASE}/api/v1/standings"
+        params = {
+            "leagueId": "103,104",
+            "season": season,
+            "standingsTypes": "regularSeason",
+            "hydrate": "team,league,division,record(splits=[H,A,lastTen])",
+        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+
+        standings = []
+        for record in data.get("records", []):
+            division_name = record.get("division", {}).get("name", "")
+            league_id = record.get("league", {}).get("id")
+            league_name = record.get("league", {}).get("name", "")
+            teams = []
+            for tr in record.get("teamRecords", []):
+                splits = {s.get("type", ""): s for s in tr.get("records", {}).get("splitRecords", [])}
+                home = splits.get("home", {})
+                away = splits.get("away", {})
+                last_ten = splits.get("lastTen", {})
+                teams.append({
+                    "team_name": tr.get("team", {}).get("name", ""),
+                    "team_abbrev": tr.get("team", {}).get("abbreviation", ""),
+                    "team_id": tr.get("team", {}).get("id"),
+                    "wins": tr.get("wins", 0),
+                    "losses": tr.get("losses", 0),
+                    "win_pct": tr.get("winningPercentage", ".000"),
+                    "games_back": tr.get("divisionGamesBack", "-"),
+                    "league_games_back": tr.get("leagueGamesBack", "-"),
+                    "home_wins": home.get("wins", 0),
+                    "home_losses": home.get("losses", 0),
+                    "away_wins": away.get("wins", 0),
+                    "away_losses": away.get("losses", 0),
+                    "last_ten_wins": last_ten.get("wins", 0),
+                    "last_ten_losses": last_ten.get("losses", 0),
+                    "streak": tr.get("streak", {}).get("streakCode", "-"),
+                    "division_rank": tr.get("divisionRank", "-"),
+                    "league_rank": tr.get("leagueRank", "-"),
+                    "wildcard_rank": tr.get("wildCardRank", "-"),
+                    "elimination_number": tr.get("eliminationNumber", "-"),
+                    "magic_number": tr.get("magicNumber", "-"),
+                })
+            standings.append({
+                "division_name": division_name,
+                "league_id": league_id,
+                "league_name": league_name,
+                "teams": teams,
+            })
+        return {"standings": standings, "season": season}

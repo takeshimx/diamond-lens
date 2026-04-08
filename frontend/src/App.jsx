@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import AgentReasoningTracker from './components/AgentReasoningTracker.jsx';
-import { Send, TrendingUp, User, Bot, Activity, MessageCircle, Zap, Settings, Users, AlertTriangle, Brain, Target, Trash2, LogOut, ThumbsUp, ThumbsDown, BarChart3, Radio, Menu } from 'lucide-react';
+import { Send, TrendingUp, User, Bot, Activity, MessageCircle, Zap, Settings, Users, AlertTriangle, Brain, Target, Trash2, LogOut, ThumbsUp, ThumbsDown, BarChart3, Radio, Menu, Trophy, Medal } from 'lucide-react';
 import SimpleChatChart from './components/ChatChart.jsx';
 import QuickQuestions from './components/QuickQuestions.jsx';
 import CustomQueryBuilder from './components/CustomQueryBuilder.jsx';
@@ -11,6 +11,8 @@ import PitcherWhiffPredictor from './components/PitcherWhiffPredictor.jsx';
 import StuffPlus from './components/StuffPlus.jsx';
 import AdvancedStats from './components/AdvancedStats.jsx';
 import LiveScoreboard from './components/LiveScoreboard.jsx';
+import Standings from './components/Standings.jsx';
+import Leaderboard from './components/Leaderboard.jsx';
 import VoiceInput from './components/VoiceInput.jsx';
 import MatchupAnalysisCard from './components/MatchupAnalysisCard.jsx';
 import StrategyReportCard from './components/StrategyReportCard.jsx';
@@ -2700,7 +2702,9 @@ const MLBChatApp = () => {
                 { mode: 'segmentation', icon: Users, label: '選手分類' },
                 { mode: 'stuff-plus', icon: Target, label: '球質評価' },
                 { mode: 'advanced-stats', icon: BarChart3, label: 'Advanced Stats' },
+                { mode: 'leaderboard', icon: Trophy, label: 'リーダーボード' },
                 { mode: 'live', icon: Radio, label: '試合速報' },
+                { mode: 'standings', icon: Medal, label: '順位表' },
               ].map(({ mode, icon: Icon, label }) => (
                 <button
                   key={mode}
@@ -2748,7 +2752,9 @@ const MLBChatApp = () => {
                   {uiMode === 'segmentation' && 'K-meansクラスタリングで選手タイプを分析'}
                   {uiMode === 'stuff-plus' && '球質（Stuff+）評価'}
                   {uiMode === 'advanced-stats' && 'Advanced Stats Rankings'}
+                  {uiMode === 'leaderboard' && '打者・投手のシーズンリーダーボード'}
                   {uiMode === 'live' && '進行中の試合をリアルタイム表示'}
+                  {uiMode === 'standings' && 'MLB順位表（AL/NL ディビジョン別）'}
                 </p>
               </div>
               {uiMode === 'chat' && sessionId && (
@@ -3047,10 +3053,20 @@ const MLBChatApp = () => {
               <div className="px-4 sm:px-6 py-6 sm:py-8 h-full">
                 <PitcherWhiffPredictor />
               </div>
+            ) : uiMode === 'leaderboard' ? (
+              /* ===== リーダーボードエリア ===== */
+              <div className="px-4 sm:px-6 py-6 sm:py-8 h-full">
+                <Leaderboard />
+              </div>
             ) : uiMode === 'live' ? (
               /* ===== 試合速報エリア ===== */
               <div className="px-4 sm:px-6 py-6 sm:py-8 h-full w-full">
                 <LiveScoreboard />
+              </div>
+            ) : uiMode === 'standings' ? (
+              /* ===== 順位表エリア ===== */
+              <div className="px-4 sm:px-6 py-6 sm:py-8 h-full w-full">
+                <Standings />
               </div>
             ) : (
               /* ===== カスタムクエリビルダーエリア ===== */
