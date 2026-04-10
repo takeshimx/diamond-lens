@@ -33,6 +33,11 @@ class LiveGameService:
 
         return {"live": live_games, "final": final_games, "preview": preview_games}
 
+    async def get_final_games_by_date(self, date: str) -> List[Dict]:
+        """指定日（YYYY-MM-DD）の終了試合一覧を返す"""
+        _, final_games, _ = await self._get_schedule(date)
+        return final_games
+
     async def _get_schedule(self, date: str) -> Tuple[List[int], List[Dict], List[Dict]]:
         """指定日のスケジュールから Live の gamePk リスト、Final、Preview のサマリーを返す"""
         url = f"{MLB_BASE}/api/v1/schedule"

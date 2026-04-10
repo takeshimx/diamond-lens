@@ -11,6 +11,8 @@ LAD試合終了サマリー自動生成・Discord投稿サービス
 
 import json
 import httpx
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from google.cloud import storage
 from langchain_google_genai import ChatGoogleGenerativeAI
 
@@ -49,10 +51,14 @@ class GameSummaryService:
 
     # ===== LAD 試合検出 =====
 
-    async def _find_lad_final_games(self) -> list:
-        data = await self.live_service.get_today_live_games()
+    async def _find_lad_final_games(self, date: str = None) -> list:
+        if date:
+            all_games = await self.live_service.get_final_games_by_date(date)
+        else:
+            data = await self.live_service.get_today_live_games()
+            all_games = data.get("final", [])
         return [
-            g for g in data.get("final", [])
+            g for g in all_games
             if LAD_TEAM_NAME in g.get("home_team", "")
             or LAD_TEAM_NAME in g.get("away_team", "")
         ]
@@ -84,9 +90,8 @@ class GameSummaryService:
 
         result = "勝利 🎉" if lad_score > opp_score else "敗北 😢"
 
-        prompt = f"""以下のLADの試合結果を、3行以内の日本語サマリーにしてください。
-絵文字を適切に使い、SNS投稿のような簡潔でテンションのあるトーンで書いてください。
-最後に次の試合への一言コメントを添えてください。
+        prompt = f"""以下のLADの試合結果を、スポーツニュース風の簡潔な日本語サマリー（3行以内）にしてください。
+過剰な絵文字・応援コメント・次戦への一言は不要です。事実を淡々と伝えてください。
 
 【結果】LAD {result} {lad_score} - {opp_score} vs {opp_team}
 【LAD先発】{lad_sp.get('name','N/A')} {lad_sp.get('ip','?')}IP {lad_sp.get('k',0)}K {lad_sp.get('er',0)}ER
@@ -109,13 +114,16 @@ class GameSummaryService:
         opp_team  = game["away_team"]  if lad_side == "home" else game["home_team"]
         won = lad_score > opp_score
 
+        jst_now = datetime.now(ZoneInfo("Asia/Tokyo"))
+        jst_str = jst_now.strftime("%Y/%m/%d %H:%M JST")
+
         payload = {
             "username": "Diamond Lens ⚾",
             "embeds": [{
                 "title": f"{'✅' if won else '❌'} LAD {lad_score} - {opp_score} {opp_team} | 試合終了",
                 "description": summary,
                 "color": 0x005A9C,  # Dodger Blue
-                "footer": {"text": "Diamond Lens | Powered by Gemini"},
+                "footer": {"text": f"Diamond Lens | Powered by Gemini | {jst_str}"},
             }],
         }
 
@@ -125,9 +133,9 @@ class GameSummaryService:
 
     # ===== メイン実行 =====
 
-    async def run(self) -> dict:
+    async def run(self, date: str = None) -> dict:
         """LAD終了試合を検知し、未投稿のものだけサマリーをDiscordへ投稿"""
-        lad_games = await self._find_lad_final_games()
+        lad_games = await self._find_lad_final_games(date)
 
         if not lad_games:
             return {"processed": 0, "results": [], "message": "No LAD final games today"}
