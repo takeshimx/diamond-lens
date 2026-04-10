@@ -1,12 +1,15 @@
 """
 MLB リアルタイム試合速報 エンドポイント
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
+from typing import List
 
 from backend.app.services.live_game_service import LiveGameService
+from backend.app.services.live_fatigue_service import LiveFatigueService
 
 router = APIRouter(tags=["Live Games"])
 service = LiveGameService()
+fatigue_service = LiveFatigueService()
 
 
 @router.get("/live/games/highlights")
@@ -45,6 +48,18 @@ async def get_standings(season: int = None):
     """
     try:
         return await service.get_standings(season)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/live/fatigue/baselines")
+async def get_pitcher_baselines(
+    pitchers: List[str] = Query(..., description="投手名リスト（MLB API形式: 'Gerrit Cole'）"),
+    season: int = 2025,
+):
+    """複数投手のシーズン平均球速ベースライン（イニング1）を一括取得"""
+    try:
+        return fatigue_service.get_pitcher_baselines(pitchers, season)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -22,8 +22,9 @@ class PitcherFatigueService:
         query = f"""
         WITH pitcher_games AS (
             SELECT DISTINCT game_pk, pitcher_id
-            FROM `{settings.get_table_full_name('view_pitching_counts_by_inning_2025')}`
+            FROM `{settings.get_table_full_name('view_pitch_counts_by_inning')}`
             WHERE pitcher_name = '{pitcher_name}'
+              AND game_year = {season}
         )
         SELECT
             counts.pitcher_name,
@@ -37,11 +38,11 @@ class PitcherFatigueService:
             quality.avg_spin_rate as fastball_spin,
             AVG(perf.ops_against) as ops_against,
             AVG(perf.batting_average_against) as batting_average_against
-        FROM `{settings.get_table_full_name('view_pitching_counts_by_inning_2025')}` as counts
+        FROM `{settings.get_table_full_name('view_pitch_counts_by_inning')}` as counts
         INNER JOIN pitcher_games pg
             ON counts.game_pk = pg.game_pk
             AND counts.pitcher_id = pg.pitcher_id
-        LEFT JOIN `{settings.get_table_full_name('view_pitch_type_quality_by_inning_2025')}` as quality
+        LEFT JOIN `{settings.get_table_full_name('view_pitch_type_quality_by_inning')}` as quality
             ON counts.pitcher_id = quality.pitcher_id
             AND counts.game_pk = quality.game_pk
             AND counts.inning = quality.inning
@@ -51,6 +52,7 @@ class PitcherFatigueService:
             AND counts.inning = perf.inning
             AND perf.game_year = {season}
         WHERE counts.pitcher_name = '{pitcher_name}'
+          AND counts.game_year = {season}
           AND quality.avg_release_speed IS NOT NULL
         GROUP BY counts.pitcher_name, counts.pitcher_id, counts.game_pk, counts.inning,
                  counts.total_pitches, counts.strike_rate, counts.ball_rate,
@@ -156,8 +158,8 @@ class PitcherFatigueService:
             counts.strike_rate,
             quality.avg_release_speed as fastball_speed,
             perf.ops_against
-        FROM `{settings.get_table_full_name('view_pitching_counts_by_inning_2025')}` as counts
-        LEFT JOIN `{settings.get_table_full_name('view_pitch_type_quality_by_inning_2025')}` as quality
+        FROM `{settings.get_table_full_name('view_pitch_counts_by_inning')}` as counts
+        LEFT JOIN `{settings.get_table_full_name('view_pitch_type_quality_by_inning')}` as quality
             ON counts.pitcher_id = quality.pitcher_id
             AND counts.game_pk = quality.game_pk
             AND counts.inning = quality.inning
@@ -166,7 +168,8 @@ class PitcherFatigueService:
             ON counts.pitcher_id = perf.pitcher_id
             AND counts.inning = perf.inning
             AND perf.game_year = {season}
-        WHERE quality.avg_release_speed IS NOT NULL
+        WHERE counts.game_year = {season}
+          AND quality.avg_release_speed IS NOT NULL
         """
         
         try:

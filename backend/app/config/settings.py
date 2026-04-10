@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     # API Keys
     # ============================================================
     gemini_api_key: Optional[str] = Field(default=None, validation_alias='GEMINI_API_KEY_V2')
+    discord_webhook_url_lad: Optional[str] = Field(default=None, validation_alias='DISCORD_WEBHOOK_URL_LAD')
 
     # ============================================================
     # Redis設定（会話履歴管理用）

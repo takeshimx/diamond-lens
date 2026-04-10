@@ -21,11 +21,13 @@ PUBLIC_PATHS = {
     "/redoc",
     "/api/v1/test",  # テスト用エンドポイント
     "/api/v1/test-post",  # テスト用POSTエンドポイント
+    "/api/v1/internal/summary/trigger",  # TODO: テスト後にINTERNAL_PATHSへ戻す
 }
 
 # Cloud Workflows など内部サービスから呼ばれるパス（OIDC トークンで検証）
 INTERNAL_PATHS = {
     "/api/v1/model-registry/retrain",
+    "/api/v1/internal/summary/trigger",
 }
 
 

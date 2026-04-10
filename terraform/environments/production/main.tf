@@ -85,6 +85,10 @@ module "backend_cloud_run" {
       secret_name = "GEMINI_API_KEY_V2"
       version     = "latest"
     }
+    DISCORD_WEBHOOK_URL_LAD = {
+      secret_name = "DISCORD_WEBHOOK_URL_LAD"
+      version     = "latest"
+    }
   }
 
   allow_unauthenticated = true
@@ -111,6 +115,97 @@ module "frontend_cloud_run" {
   }
 
   allow_unauthenticated = true
+}
+
+# ============================================================
+# Secret Manager: Discord Webhook URL (LAD サマリー投稿用)
+# 値は手動で登録: gcloud secrets versions add DISCORD_WEBHOOK_URL_LAD --data-file=-
+# ============================================================
+resource "google_secret_manager_secret" "discord_webhook_lad" {
+  project   = var.project_id
+  secret_id = "DISCORD_WEBHOOK_URL_LAD"
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
+  }
+
+  labels = {
+    managed_by = "terraform"
+  }
+}
+
+# ============================================================
+# Cloud Scheduler: LAD 試合終了サマリー自動投稿
+# Scheduler 専用サービスアカウント
+# ============================================================
+resource "google_service_account" "lad_summary_scheduler_sa" {
+  project      = var.project_id
+  account_id   = "lad-summary-scheduler"
+  display_name = "LAD Game Summary Cloud Scheduler SA"
+}
+
+resource "google_cloud_run_v2_service_iam_member" "lad_scheduler_invoker" {
+  project  = var.project_id
+  location = var.region
+  name     = "mlb-diamond-lens-api"
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.lad_summary_scheduler_sa.email}"
+}
+
+# Day game 終了後トリガー (JST 9:00 = UTC 00:00)
+resource "google_cloud_scheduler_job" "lad_summary_day_game" {
+  project   = var.project_id
+  region    = var.region
+  name      = "lad-summary-day-game"
+  schedule  = "0 0 * * *"
+  time_zone = "UTC"
+
+  http_target {
+    http_method = "POST"
+    uri         = "${module.backend_cloud_run.service_url}/api/v1/internal/summary/trigger"
+
+    oidc_token {
+      service_account_email = google_service_account.lad_summary_scheduler_sa.email
+      audience              = module.backend_cloud_run.service_url
+    }
+  }
+
+  retry_config {
+    retry_count          = 1
+    min_backoff_duration = "5s"
+  }
+
+  depends_on = [google_cloud_run_v2_service_iam_member.lad_scheduler_invoker]
+}
+
+# Night game 終了後トリガー (JST 15:00 = UTC 06:00)
+resource "google_cloud_scheduler_job" "lad_summary_night_game" {
+  project   = var.project_id
+  region    = var.region
+  name      = "lad-summary-night-game"
+  schedule  = "30 5 * * *"
+  time_zone = "UTC"
+
+  http_target {
+    http_method = "POST"
+    uri         = "${module.backend_cloud_run.service_url}/api/v1/internal/summary/trigger"
+
+    oidc_token {
+      service_account_email = google_service_account.lad_summary_scheduler_sa.email
+      audience              = module.backend_cloud_run.service_url
+    }
+  }
+
+  retry_config {
+    retry_count          = 1
+    min_backoff_duration = "5s"
+  }
+
+  depends_on = [google_cloud_run_v2_service_iam_member.lad_scheduler_invoker]
 }
 
 # Monitoring & Alerting

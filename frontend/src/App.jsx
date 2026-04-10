@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import AgentReasoningTracker from './components/AgentReasoningTracker.jsx';
-import { Send, TrendingUp, User, Bot, Activity, MessageCircle, Zap, Settings, Users, AlertTriangle, Brain, Target, Trash2, LogOut, ThumbsUp, ThumbsDown, BarChart3, Radio, Menu, Trophy, Medal } from 'lucide-react';
+import { Send, TrendingUp, User, Bot, Activity, MessageCircle, Zap, Settings, Users, AlertTriangle, Brain, Target, Trash2, LogOut, ThumbsUp, ThumbsDown, BarChart3, Radio, Menu, Trophy, Medal, LayoutDashboard } from 'lucide-react';
 import SimpleChatChart from './components/ChatChart.jsx';
 import QuickQuestions from './components/QuickQuestions.jsx';
 import CustomQueryBuilder from './components/CustomQueryBuilder.jsx';
@@ -11,6 +11,7 @@ import PitcherWhiffPredictor from './components/PitcherWhiffPredictor.jsx';
 import StuffPlus from './components/StuffPlus.jsx';
 import AdvancedStats from './components/AdvancedStats.jsx';
 import LiveScoreboard from './components/LiveScoreboard.jsx';
+import LiveMonitorBoard from './components/LiveMonitorBoard.jsx';
 import Standings from './components/Standings.jsx';
 import Leaderboard from './components/Leaderboard.jsx';
 import VoiceInput from './components/VoiceInput.jsx';
@@ -2704,6 +2705,7 @@ const MLBChatApp = () => {
                 { mode: 'advanced-stats', icon: BarChart3, label: 'Advanced Stats' },
                 { mode: 'leaderboard', icon: Trophy, label: 'リーダーボード' },
                 { mode: 'live', icon: Radio, label: '試合速報' },
+                { mode: 'monitor', icon: LayoutDashboard, label: 'モニターボード' },
                 { mode: 'standings', icon: Medal, label: '順位表' },
               ].map(({ mode, icon: Icon, label }) => (
                 <button
@@ -2754,6 +2756,7 @@ const MLBChatApp = () => {
                   {uiMode === 'advanced-stats' && 'Advanced Stats Rankings'}
                   {uiMode === 'leaderboard' && '打者・投手のシーズンリーダーボード'}
                   {uiMode === 'live' && '進行中の試合をリアルタイム表示'}
+                  {uiMode === 'monitor' && '全試合をグリッドで一覧監視・異常検知'}
                   {uiMode === 'standings' && 'MLB順位表（AL/NL ディビジョン別）'}
                 </p>
               </div>
@@ -3062,6 +3065,11 @@ const MLBChatApp = () => {
               /* ===== 試合速報エリア ===== */
               <div className="px-4 sm:px-6 py-6 sm:py-8 h-full w-full">
                 <LiveScoreboard />
+              </div>
+            ) : uiMode === 'monitor' ? (
+              /* ===== モニターボードエリア ===== */
+              <div className="px-4 sm:px-6 py-6 sm:py-8 h-full w-full">
+                <LiveMonitorBoard />
               </div>
             ) : uiMode === 'standings' ? (
               /* ===== 順位表エリア ===== */

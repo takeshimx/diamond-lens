@@ -385,6 +385,29 @@ class LiveGameService:
             })
             pitch_num += 1
         last_pitch = pitch_sequence[-1] if pitch_sequence else {}
+        # 現投手の今試合の全投球ログ（球種・速度・スピンレート・イニング）
+        pitcher_pitch_log = []
+        if pitcher_id:
+            for play in live_data.get("plays", {}).get("allPlays", []):
+                if play.get("matchup", {}).get("pitcher", {}).get("id") != pitcher_id:
+                    continue
+                play_inning = play.get("about", {}).get("inning", 0)
+                for event in play.get("playEvents", []):
+                    if not event.get("isPitch", False):
+                        continue
+                    pd_ = event.get("pitchData", {})
+                    det = event.get("details", {})
+                    speed = pd_.get("startSpeed")
+                    spin  = pd_.get("breaks", {}).get("spinRate")
+                    ptype = det.get("type", {}).get("description")
+                    if speed and ptype:
+                        pitcher_pitch_log.append({
+                            "inning":     play_inning,
+                            "pitch_type": ptype,
+                            "speed":      round(speed, 1),
+                            "spin_rate":  round(spin) if spin else None,
+                        })
+
         # この試合のHR情報（打者名 + シーズン本数）
         hr_list = []
         boxscore_teams = live_data.get("boxscore", {}).get("teams", {})
@@ -425,6 +448,7 @@ class LiveGameService:
             "runners": runners,
             "last_pitch": last_pitch,
             "pitch_sequence": pitch_sequence,
+            "pitcher_pitch_log": pitcher_pitch_log,
             "hr_list": hr_list,
             "abstract_game_state": "Live",
         }
