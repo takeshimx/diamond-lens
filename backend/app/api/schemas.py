@@ -595,3 +595,137 @@ class QnARequest(BaseModel):
     query: str
     season: Optional[int] = None
     session_id: Optional[str] = None  # 会話履歴用のセッションID
+
+
+# ============================================================
+# Player Profile Page モデル
+# ============================================================
+
+class PlayerBio(BaseModel):
+    full_name: Optional[str] = None
+    primary_position: Optional[str] = None
+    bat_side: Optional[str] = None
+    pitch_hand: Optional[str] = None
+    birth_date: Optional[str] = None
+    current_age: Optional[int] = None
+    height: Optional[str] = None
+    weight: Optional[int] = None
+    mlb_debut_date: Optional[str] = None
+    team_name: Optional[str] = None
+    team_abbreviation: Optional[str] = None
+    league: Optional[str] = None
+    division: Optional[str] = None
+
+
+class PlayerBattingKPI(BaseModel):
+    season: Optional[int] = None
+    team: Optional[str] = None
+    g: Optional[int] = None
+    pa: Optional[int] = None
+    hr: Optional[int] = None
+    rbi: Optional[int] = None
+    sb: Optional[int] = None
+    bb: Optional[int] = None
+    so: Optional[int] = None
+    avg: Optional[float] = None
+    obp: Optional[float] = None
+    slg: Optional[float] = None
+    ops: Optional[float] = None
+    woba: Optional[float] = None
+    war: Optional[float] = None
+    wrcplus: Optional[int] = None
+    hardhitpct: Optional[float] = None
+    barrelpct: Optional[float] = None
+    swstrpct: Optional[float] = None
+    # MLB rank fields
+    avg_rank: Optional[int] = None
+    obp_rank: Optional[int] = None
+    slg_rank: Optional[int] = None
+    ops_rank: Optional[int] = None
+    hr_rank: Optional[int] = None
+    rbi_rank: Optional[int] = None
+    sb_rank: Optional[int] = None
+    bb_rank: Optional[int] = None
+    so_rank: Optional[int] = None
+    woba_rank: Optional[int] = None
+    wrcplus_rank: Optional[int] = None
+    war_rank: Optional[int] = None
+    hardhitpct_rank: Optional[int] = None
+    barrelpct_rank: Optional[int] = None
+    swstrpct_rank: Optional[int] = None
+
+
+class PlayerPitchingKPI(BaseModel):
+    season: Optional[int] = None
+    team: Optional[str] = None
+    g: Optional[int] = None
+    gs: Optional[int] = None
+    w: Optional[int] = None
+    l: Optional[int] = None
+    sv: Optional[int] = None
+    ip: Optional[float] = None
+    era: Optional[float] = None
+    whip: Optional[float] = None
+    so: Optional[int] = None
+    bb: Optional[int] = None
+    fip: Optional[float] = None
+    war: Optional[float] = None
+    k_9: Optional[float] = None
+    bb_9: Optional[float] = None
+    hardhitpct: Optional[float] = None
+    barrelpct: Optional[float] = None
+    swstrpct: Optional[float] = None
+    # MLB rank fields
+    era_rank: Optional[int] = None
+    whip_rank: Optional[int] = None
+    fip_rank: Optional[int] = None
+    k_9_rank: Optional[int] = None
+    bb_9_rank: Optional[int] = None
+    war_rank: Optional[int] = None
+    so_rank: Optional[int] = None
+    hardhitpct_rank: Optional[int] = None
+    barrelpct_rank: Optional[int] = None
+    swstrpct_rank: Optional[int] = None
+
+
+class PlayerMonthlyRow(BaseModel):
+    game_month: Optional[int] = None
+    home_runs: Optional[int] = None
+    on_base_percentage: Optional[float] = None
+    slugging_percentage: Optional[float] = None
+    on_base_plus_slugging: Optional[float] = None
+
+
+class PlayerRISPSeasonRow(BaseModel):
+    season: Optional[int] = None
+    singles: Optional[int] = None
+    doubles: Optional[int] = None
+    triples: Optional[int] = None
+    home_runs: Optional[int] = None
+    hits: Optional[int] = None
+    at_bats: Optional[int] = None
+    batting_average: Optional[float] = None
+    slugging_percentage: Optional[float] = None
+
+
+class PlayerRISPMonthlyRow(BaseModel):
+    month: Optional[int] = None
+    singles: Optional[int] = None
+    doubles: Optional[int] = None
+    triples: Optional[int] = None
+    home_runs: Optional[int] = None
+    hits: Optional[int] = None
+    at_bats: Optional[int] = None
+    batting_average: Optional[float] = None
+    slugging_percentage: Optional[float] = None
+
+
+class PlayerProfileResponse(BaseModel):
+    idfg: Optional[int] = None
+    mlbid: Optional[int] = None
+    bio: Optional[PlayerBio] = None
+    batting_kpi: Optional[PlayerBattingKPI] = None
+    pitching_kpi: Optional[PlayerPitchingKPI] = None
+    monthly_offensive_stats: Optional[List["PlayerMonthlyRow"]] = None
+    risp_stats: Optional[List["PlayerRISPSeasonRow"]] = None
+    risp_monthly_stats: Optional[List["PlayerRISPMonthlyRow"]] = None

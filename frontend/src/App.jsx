@@ -14,6 +14,7 @@ import LiveScoreboard from './components/LiveScoreboard.jsx';
 import LiveMonitorBoard from './components/LiveMonitorBoard.jsx';
 import Standings from './components/Standings.jsx';
 import Leaderboard from './components/Leaderboard.jsx';
+import PlayerProfile from './components/PlayerProfile.jsx';
 import VoiceInput from './components/VoiceInput.jsx';
 import MatchupAnalysisCard from './components/MatchupAnalysisCard.jsx';
 import StrategyReportCard from './components/StrategyReportCard.jsx';
@@ -157,22 +158,21 @@ const MLBChatApp = () => {
   };
 
   // Function to search players
-  const searchPlayers = async (searchTerm) => {
-    console.log('🚀 選手検索API呼び出し開始:', searchTerm);
-
+  const searchPlayers = async (searchTerm, signal) => {
     const baseURL = getBackendURL();
     const endpoint = `${baseURL}/api/v1/players/search?q=${encodeURIComponent(searchTerm)}`;
 
     try {
       const headers = await getAuthHeaders();
-      const response = await fetch(endpoint, { headers });
+      const response = await fetch(endpoint, { headers, signal });
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const data = await response.json();
       return data.results || [];
     } catch (error) {
-      console.error('🚀 選手検索API呼び出しエラー:', error);
+      if (error.name === 'AbortError') return [];
+      console.error('選手検索API呼び出しエラー:', error);
       return [];
     }
   };
@@ -2707,6 +2707,7 @@ const MLBChatApp = () => {
                 { mode: 'live', icon: Radio, label: '試合速報' },
                 { mode: 'monitor', icon: LayoutDashboard, label: 'モニターボード' },
                 { mode: 'standings', icon: Medal, label: '順位表' },
+                { mode: 'player-profile', icon: User, label: '選手プロフィール' },
               ].map(({ mode, icon: Icon, label }) => (
                 <button
                   key={mode}
@@ -2758,6 +2759,7 @@ const MLBChatApp = () => {
                   {uiMode === 'live' && '進行中の試合をリアルタイム表示'}
                   {uiMode === 'monitor' && '全試合をグリッドで一覧監視・異常検知'}
                   {uiMode === 'standings' && 'MLB順位表（AL/NL ディビジョン別）'}
+                  {uiMode === 'player-profile' && '選手名を検索してプロフィール・KPIを確認'}
                 </p>
               </div>
               {uiMode === 'chat' && sessionId && (
@@ -3075,6 +3077,15 @@ const MLBChatApp = () => {
               /* ===== 順位表エリア ===== */
               <div className="px-4 sm:px-6 py-6 sm:py-8 h-full w-full">
                 <Standings />
+              </div>
+            ) : uiMode === 'player-profile' ? (
+              /* ===== 選手プロフィールエリア ===== */
+              <div className="px-4 sm:px-6 py-6 sm:py-8 h-full w-full">
+                <PlayerProfile
+                  onSearchPlayers={searchPlayers}
+                  getAuthHeaders={getAuthHeaders}
+                  getBackendURL={getBackendURL}
+                />
               </div>
             ) : (
               /* ===== カスタムクエリビルダーエリア ===== */

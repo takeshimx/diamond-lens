@@ -1,12 +1,13 @@
-from fastapi import APIRouter, HTTPException, Path, Query
-from typing import Optional, List, Any, Dict
+from fastapi import APIRouter, HTTPException, Query
+from typing import Optional
 import logging
 
 # サービス層とスキーマをインポート
 from backend.app.services.player_service import get_players_by_name
+from backend.app.services.player_profile_service import get_player_profile
 from backend.app.api.schemas import (
-    PlayerSearchResults, 
-    PlayerDetailsResponse
+    PlayerSearchResults,
+    PlayerProfileResponse,
 )
 
 # ロガーの設定
@@ -44,6 +45,26 @@ async def search_players_endpoint(
     # PlayerSearchResultsモデルのインスタンスを構築して返す
     # search_results_listは既にPlayerSearchItemのリストなので、そのままresultsに渡す
     return PlayerSearchResults(query=q, results=search_results_list)
+
+
+@router.get(
+    "/players/{idfg}/profile",
+    response_model=PlayerProfileResponse,
+    summary="選手プロフィール取得",
+    description="FanGraphs ID (idfg) から選手のBio情報とKPIを取得します。season を指定しない場合は最新シーズンを返します。",
+    tags=["players"]
+)
+async def get_player_profile_endpoint(
+    idfg: int,
+    season: Optional[int] = Query(None, description="取得するシーズン (例: 2024)。省略時は最新シーズン。"),
+):
+    """
+    指定された idfg の選手プロフィール（Bio + 打者/投手KPI + 月別成績）を返します。
+    """
+    profile = get_player_profile(idfg, season=season)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"Player with idfg={idfg} not found.")
+    return profile
 
 
 # # Router for Shohei Ohtani's two-way player stats

@@ -150,34 +150,62 @@ class LiveGameService:
         mlb_date = (datetime.fromisoformat(date) - timedelta(days=1)).strftime("%Y-%m-%d")
 
         url = f"{MLB_BASE}/api/v1/schedule"
-        params = {"sportId": 1, "date": mlb_date}
+        params = {"sportId": 1, "date": mlb_date, "hydrate": "linescore"}
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(url, params=params)
             resp.raise_for_status()
             data = resp.json()
 
         final_pks = []
+        walkoff_pks = set()
         for date_obj in data.get("dates", []):
             for game in date_obj.get("games", []):
                 state = game.get("status", {}).get("abstractGameState", "")
-                if state == "Final":
-                    final_pks.append(game["gamePk"])
+                if state != "Final":
+                    continue
+                pk = game["gamePk"]
+                final_pks.append(pk)
+                # Walk-off検出: ホーム勝利 かつ 最終イニングにホームが得点
+                ls = game.get("linescore", {})
+                ls_teams = ls.get("teams", {})
+                home_r = ls_teams.get("home", {}).get("runs", 0)
+                away_r = ls_teams.get("away", {}).get("runs", 0)
+                innings = ls.get("innings", [])
+                if home_r > away_r and innings:
+                    last = innings[-1]
+                    if last.get("home", {}).get("runs", 0) > 0:
+                        walkoff_pks.add(pk)
 
         if not final_pks:
             return []
 
-        tasks = [self._fetch_boxscore_highlights(pk) for pk in final_pks]
+        tasks = [self._fetch_boxscore_highlights(pk, pk in walkoff_pks) for pk in final_pks]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        highlights = []
+        raw = []
         for r in results:
             if not isinstance(r, Exception) and r:
-                highlights.extend(r)
+                raw.extend(r)
+
+        # RBI を count 毎にグループ化
+        rbi_groups: dict = {}
+        non_rbi = []
+        for h in raw:
+            if h.get("type") == "rbi":
+                key = h["count"]
+                rbi_groups.setdefault(key, []).append(h)
+            else:
+                non_rbi.append(h)
+
+        highlights = list(non_rbi)
+        for count, items in rbi_groups.items():
+            players = ", ".join(f"{i['name']} ({i['team']})" for i in items)
+            highlights.append({"text": f"{count} RBI — {players}", "priority": 80})
 
         highlights.sort(key=lambda h: h["priority"], reverse=True)
         return [{"text": h["text"]} for h in highlights]
 
-    async def _fetch_boxscore_highlights(self, game_pk: int) -> List[Dict]:
+    async def _fetch_boxscore_highlights(self, game_pk: int, is_walkoff: bool = False) -> List[Dict]:
         """単一試合のboxscoreからハイライト条件に合う記録を抽出する"""
         url = f"{MLB_BASE}/api/v1/game/{game_pk}/boxscore"
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -203,7 +231,7 @@ class LiveGameService:
                 if hr >= 3:
                     highlights.append({"text": f"{hr} HR game — {name} ({abbr})", "priority": 100})
                 elif rbi >= 4:
-                    highlights.append({"text": f"{rbi} RBI — {name} ({abbr})", "priority": 80})
+                    highlights.append({"type": "rbi", "count": rbi, "name": name, "team": abbr, "priority": 80})
 
             # 投手ルール
             for pid in team_data.get("pitchers", []):
@@ -225,6 +253,24 @@ class LiveGameService:
                     highlights.append({"text": f"Shutout ({ip_str} IP) — {name} ({abbr})", "priority": 85})
                 if k >= 10:
                     highlights.append({"text": f"{k} K — {name} ({abbr})", "priority": 75})
+
+        # Walk-off: 対象試合のみplay-by-play取得（1日0〜2試合程度）
+        if is_walkoff:
+            home_abbr = teams.get("home", {}).get("team", {}).get("abbreviation", "")
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    pbp_resp = await client.get(f"{MLB_BASE}/api/v1/game/{game_pk}/playByPlay")
+                    pbp_resp.raise_for_status()
+                    all_plays = pbp_resp.json().get("allPlays", [])
+                for play in reversed(all_plays):
+                    if play.get("about", {}).get("isScoringPlay", False):
+                        batter = play.get("matchup", {}).get("batter", {}).get("fullName", "")
+                        event = play.get("result", {}).get("event", "")
+                        label = f"{batter} — {event}" if batter else event
+                        highlights.append({"text": f"Walk-off — {label} ({home_abbr})", "priority": 98})
+                        break
+            except Exception:
+                highlights.append({"text": f"Walk-off Win ({home_abbr})", "priority": 98})
 
         return highlights
 

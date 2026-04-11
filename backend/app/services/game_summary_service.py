@@ -102,9 +102,55 @@ class GameSummaryService:
         response = self.llm.invoke(prompt)
         return response.content
 
+    # ===== 日本人選手スタッツ抽出 =====
+
+    def _extract_japanese_players(self, boxscore: dict, lad_side: str) -> list:
+        """Ohtani・Yamamoto のスタッツをDiscord embed fields として返す"""
+        fields = []
+        opp_side = "away" if lad_side == "home" else "home"
+
+        # Shohei Ohtani 打撃成績（LAD側打者リスト）
+        lad_batters = boxscore.get(lad_side, {}).get("batters", [])
+        ohtani = next((b for b in lad_batters if "Ohtani" in b.get("name", "")), None)
+        if ohtani:
+            ab = ohtani.get("ab", 0)
+            h  = ohtani.get("h", 0)
+            hr = ohtani.get("hr", 0)
+            rbi = ohtani.get("rbi", 0)
+            bb  = ohtani.get("bb", 0)
+            k   = ohtani.get("k", 0)
+            parts = [f"{h}-{ab}"]
+            if hr: parts.append(f"{hr}HR")
+            if rbi: parts.append(f"{rbi}RBI")
+            if bb: parts.append(f"{bb}BB")
+            if k: parts.append(f"{k}K")
+            fields.append({"name": "🇯🇵 大谷翔平 (打)", "value": " ".join(parts), "inline": True})
+
+        # Ohtani 投球成績（先発なら LAD側、リリーフ含め両側チェック）
+        for side in (lad_side, opp_side):
+            pitchers = boxscore.get(side, {}).get("pitchers", [])
+            ohtani_p = next((p for p in pitchers if "Ohtani" in p.get("name", "")), None)
+            if ohtani_p and ohtani_p.get("ip", "0.0") not in ("0.0", "-", ""):
+                p = ohtani_p
+                line = f"{p.get('ip','?')}IP {p.get('k',0)}K {p.get('er',0)}ER {p.get('bb',0)}BB {p.get('pitches',0)}P"
+                fields.append({"name": "🇯🇵 大谷翔平 (投)", "value": line, "inline": True})
+                break
+
+        # Yoshinobu Yamamoto 投球成績
+        for side in (lad_side, opp_side):
+            pitchers = boxscore.get(side, {}).get("pitchers", [])
+            yamamoto = next((p for p in pitchers if "Yamamoto" in p.get("name", "")), None)
+            if yamamoto and yamamoto.get("ip", "0.0") not in ("0.0", "-", ""):
+                p = yamamoto
+                line = f"{p.get('ip','?')}IP {p.get('k',0)}K {p.get('er',0)}ER {p.get('bb',0)}BB {p.get('pitches',0)}P"
+                fields.append({"name": "🇯🇵 山本由伸 (投)", "value": line, "inline": True})
+                break
+
+        return fields
+
     # ===== Discord 投稿 =====
 
-    async def _post_to_discord(self, summary: str, game: dict):
+    async def _post_to_discord(self, summary: str, game: dict, boxscore: dict = None):
         if not settings.discord_webhook_url_lad:
             return
 
@@ -117,12 +163,15 @@ class GameSummaryService:
         jst_now = datetime.now(ZoneInfo("Asia/Tokyo"))
         jst_str = jst_now.strftime("%Y/%m/%d %H:%M JST")
 
+        fields = self._extract_japanese_players(boxscore, lad_side) if boxscore else []
+
         payload = {
             "username": "Diamond Lens ⚾",
             "embeds": [{
                 "title": f"{'✅' if won else '❌'} LAD {lad_score} - {opp_score} {opp_team} | 試合終了",
                 "description": summary,
                 "color": 0x005A9C,  # Dodger Blue
+                "fields": fields,
                 "footer": {"text": f"Diamond Lens | Powered by Gemini | {jst_str}"},
             }],
         }
@@ -151,7 +200,7 @@ class GameSummaryService:
             try:
                 boxscore = await self.live_service.get_boxscore(game_pk)
                 summary  = await self._generate_summary(game, boxscore)
-                await self._post_to_discord(summary, game)
+                await self._post_to_discord(summary, game, boxscore)
                 self._mark_posted(game_pk, summary)
                 results.append({"game_pk": game_pk, "status": "posted", "summary": summary})
             except Exception as e:

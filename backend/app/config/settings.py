@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     bigquery_batter_performance_flags_15days_table_id: str = "view_tbl_batter_rolling_vs_season_stats_15_days"
     bigquery_stuff_plus_rankings_table_id: str = "stuff_plus_rankings"
     bigquery_statcast_master_table_id: str = "statcast_master"
+    bigquery_dim_players_master_table_id: str = "dim_players_master"
+    bigquery_pitching_stats_master_table_id: str = "fact_pitching_stats_master"
 
     # ============================================================
     # API Keys
@@ -213,4 +215,6 @@ BATTER_PERFORMANCE_FLAGS_7DAYS_TABLE_ID = _settings.bigquery_batter_performance_
 BATTER_PERFORMANCE_FLAGS_15DAYS_TABLE_ID = _settings.bigquery_batter_performance_flags_15days_table_id
 SERVICE_ACCOUNT_KEY_PATH = _settings.google_application_credentials
 GEMINI_API_KEY = _settings.gemini_api_key
+DIM_PLAYERS_MASTER_TABLE_ID = _settings.bigquery_dim_players_master_table_id
+PITCHING_STATS_MASTER_TABLE_ID = _settings.bigquery_pitching_stats_master_table_id
     
