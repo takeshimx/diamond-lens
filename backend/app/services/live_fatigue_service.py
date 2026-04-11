@@ -1,3 +1,4 @@
+from datetime import datetime
 from google.cloud import bigquery
 from backend.app.config.settings import get_settings
 
@@ -17,7 +18,9 @@ class LiveFatigueService:
     def __init__(self):
         self.client = bigquery.Client()
 
-    def get_pitcher_baselines(self, pitcher_names: list[str], season: int = 2025) -> dict:
+    def get_pitcher_baselines(self, pitcher_names: list[str], season: int = None) -> dict:
+        if season is None:
+            season = datetime.now().year
         """
         投手リストのシーズン平均球速・スピンレートを球種毎に一括取得。
 

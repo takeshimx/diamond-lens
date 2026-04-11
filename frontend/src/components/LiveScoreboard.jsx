@@ -282,13 +282,22 @@ const GameCard = ({ game }) => {
         </div>
       )}
 
-      {game.hr_list?.length > 0 && (
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-gray-500">HR:</span>
-          {game.hr_list.map((hr, i) => (
-            <span key={i} className="text-xs text-yellow-400 font-medium">
-              {hr.name}{hr.season_hr != null ? ` (${hr.season_hr})` : ''}
-            </span>
+      {game.scoring_plays?.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-gray-500">Runs</span>
+          {game.scoring_plays.map((sp, i) => (
+            <div key={i} className="flex items-center gap-2 text-xs">
+              <span className="text-yellow-400 font-bold w-12 shrink-0">
+                {sp.runs > 0 ? `+${sp.runs}` : '—'}
+              </span>
+              <span className="text-white font-medium">{sp.batter}</span>
+              <span className="text-gray-400">
+                {sp.event}{sp.season_hr != null ? ` (${sp.season_hr})` : ''}
+              </span>
+              <span className="text-gray-500">
+                {sp.half === 'top' ? '表' : '裏'}{sp.inning}回
+              </span>
+            </div>
           ))}
         </div>
       )}

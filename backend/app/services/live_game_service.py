@@ -413,26 +413,35 @@ class LiveGameService:
                             "spin_rate":  round(spin) if spin else None,
                         })
 
-        # この試合のHR情報（打者名 + シーズン本数）
-        hr_list = []
+        # この試合の得点シーン（isScoringPlay == True の打席）
+        scoring_plays = []
         boxscore_teams = live_data.get("boxscore", {}).get("teams", {})
         all_players = {}
         for side in ("home", "away"):
             for pid, pdata in boxscore_teams.get(side, {}).get("players", {}).items():
                 all_players[pid] = pdata
         for play in live_data.get("plays", {}).get("allPlays", []):
-            if play.get("result", {}).get("event", "") == "Home Run":
-                batter = play.get("matchup", {}).get("batter", {})
-                batter_id = batter.get("id")
-                batter_full = batter.get("fullName", "")
-                season_hr = None
-                if batter_id:
-                    pdata = all_players.get(f"ID{batter_id}", {})
-                    season_hr = pdata.get("seasonStats", {}).get("batting", {}).get("homeRuns")
-                hr_list.append({
-                    "name": batter_full,
-                    "season_hr": season_hr,
-                })
+            if not play.get("about", {}).get("isScoringPlay", False):
+                continue
+            result = play.get("result", {})
+            batter = play.get("matchup", {}).get("batter", {})
+            batter_id = batter.get("id")
+            inning_num = play.get("about", {}).get("inning", 0)
+            half = play.get("about", {}).get("halfInning", "")
+            rbi = result.get("rbi", 0)
+            event = result.get("event", "")
+            season_hr = None
+            if event == "Home Run" and batter_id:
+                pdata = all_players.get(f"ID{batter_id}", {})
+                season_hr = pdata.get("seasonStats", {}).get("batting", {}).get("homeRuns")
+            scoring_plays.append({
+                "batter": batter.get("fullName", ""),
+                "event": event,
+                "runs": rbi,
+                "inning": inning_num,
+                "half": half,
+                "season_hr": season_hr,
+            })
         return {
             "gamePk": game_pk,
             "home_team": home_team,
@@ -454,7 +463,7 @@ class LiveGameService:
             "last_pitch": last_pitch,
             "pitch_sequence": pitch_sequence,
             "pitcher_pitch_log": pitcher_pitch_log,
-            "hr_list": hr_list,
+            "scoring_plays": scoring_plays,
             "abstract_game_state": "Live",
         }
 

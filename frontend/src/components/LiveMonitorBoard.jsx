@@ -87,35 +87,53 @@ const computeFatigueAlert = (game, pitcherBaselines) => {
   const lastInningPitches = log.filter(p => p.inning === completedInning);
   if (lastInningPitches.length < 3) return null; // サンプル少なすぎは無視
 
-  // 球種毎に平均速度を集計
+  // 球種毎に平均速度・スピンレートを集計
   const byType = {};
   lastInningPitches.forEach(p => {
-    if (!byType[p.pitch_type]) byType[p.pitch_type] = [];
-    if (p.speed) byType[p.pitch_type].push(p.speed);
+    if (!byType[p.pitch_type]) byType[p.pitch_type] = { speeds: [], spins: [] };
+    if (p.speed) byType[p.pitch_type].speeds.push(p.speed);
+    if (p.spin_rate) byType[p.pitch_type].spins.push(p.spin_rate);
   });
 
-  let maxDrop = 0;
+  let maxScore = 0;
   let worstType = null;
+  let worstSpeedDrop = 0;
+  let worstSpinDrop = 0;
 
-  Object.entries(byType).forEach(([type, speeds]) => {
-    if (speeds.length === 0) return;
+  Object.entries(byType).forEach(([type, { speeds, spins }]) => {
     const baseline = pitcherBaselines[type];
-    if (!baseline?.speed) return;
-    const avgSpeed = speeds.reduce((a, b) => a + b, 0) / speeds.length;
-    const drop = baseline.speed - avgSpeed;
-    if (drop > maxDrop) { maxDrop = drop; worstType = type; }
+    if (!baseline) return;
+    const speedDrop = speeds.length > 0 && baseline.speed
+      ? baseline.speed - speeds.reduce((a, b) => a + b, 0) / speeds.length
+      : 0;
+    const spinDrop = spins.length > 0 && baseline.spin
+      ? baseline.spin - spins.reduce((a, b) => a + b, 0) / spins.length
+      : 0;
+    // speedとspinの複合スコア（speed 1mph ≈ spin 50rpm で正規化）
+    const score = speedDrop + spinDrop / 50;
+    if (score > maxScore) {
+      maxScore = score;
+      worstType = type;
+      worstSpeedDrop = speedDrop;
+      worstSpinDrop = spinDrop;
+    }
   });
 
-  if (!worstType) return null;
+  if (!worstType || maxScore <= 0) return null;
+
   const shortType = worstType.replace('4-Seam Fastball', 'FF').replace('Fastball', 'FF')
     .replace('Slider', 'SL').replace('Curveball', 'CU').replace('Changeup', 'CH')
-    .replace('Sinker', 'SI').replace('Cutter', 'FC').split(' ')[0];
+    .replace('Sinker', 'SI').replace('Cutter', 'FC').replace('Sweeper', 'SW').split(' ')[0];
 
-  if (maxDrop >= 2.5) {
-    return { key: 'fatigue', type: 'warning', icon: Zap, label: `疲労 ${shortType} -${maxDrop.toFixed(1)}` };
+  const speedStr = worstSpeedDrop > 0.1 ? `spd-${worstSpeedDrop.toFixed(1)}` : null;
+  const spinStr = worstSpinDrop > 10 ? `spin-${Math.round(worstSpinDrop)}` : null;
+  const detail = [speedStr, spinStr].filter(Boolean).join(' ');
+
+  if (maxScore >= 2.5) {
+    return { key: 'fatigue', type: 'warning', icon: Zap, label: `疲労 ${shortType} ${detail}` };
   }
-  if (maxDrop >= 1.5) {
-    return { key: 'fatigue', type: 'caution', icon: Zap, label: `要注意 ${shortType} -${maxDrop.toFixed(1)}` };
+  if (maxScore >= 1.5) {
+    return { key: 'fatigue', type: 'caution', icon: Zap, label: `要注意 ${shortType} ${detail}` };
   }
   return null;
 };
@@ -378,7 +396,7 @@ const LiveMonitorBoard = () => {
 
     const params = new URLSearchParams();
     pitchers.forEach(p => params.append('pitchers', p));
-    params.append('season', '2025');
+    params.append('season', new Date().getFullYear().toString());
 
     try {
       const headers = {

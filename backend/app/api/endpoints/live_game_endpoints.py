@@ -3,6 +3,7 @@ MLB リアルタイム試合速報 エンドポイント
 """
 from fastapi import APIRouter, HTTPException, Query
 from typing import List
+from datetime import datetime
 
 from backend.app.services.live_game_service import LiveGameService
 from backend.app.services.live_fatigue_service import LiveFatigueService
@@ -55,7 +56,7 @@ async def get_standings(season: int = None):
 @router.get("/live/fatigue/baselines")
 async def get_pitcher_baselines(
     pitchers: List[str] = Query(..., description="投手名リスト（MLB API形式: 'Gerrit Cole'）"),
-    season: int = 2025,
+    season: int = datetime.now().year,
 ):
     """複数投手のシーズン平均球速ベースライン（イニング1）を一括取得"""
     try:
