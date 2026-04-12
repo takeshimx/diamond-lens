@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     bigquery_batter_performance_flags_15days_table_id: str = "view_tbl_batter_rolling_vs_season_stats_15_days"
     bigquery_stuff_plus_rankings_table_id: str = "stuff_plus_rankings"
     bigquery_statcast_master_table_id: str = "statcast_master"
+    bigquery_pitch_performance_xba_whiff_table_id: str = "view_pitch_performance_xba_whiff"
+    bigquery_batter_hit_loc_quality_table_id: str = "view_batter_performance_hit_loc_quality"
     bigquery_dim_players_master_table_id: str = "dim_players_master"
     bigquery_pitching_stats_master_table_id: str = "fact_pitching_stats_master"
 

@@ -729,3 +729,56 @@ class PlayerProfileResponse(BaseModel):
     monthly_offensive_stats: Optional[List["PlayerMonthlyRow"]] = None
     risp_stats: Optional[List["PlayerRISPSeasonRow"]] = None
     risp_monthly_stats: Optional[List["PlayerRISPMonthlyRow"]] = None
+    inning_stats: Optional[List["PlayerInningRow"]] = None
+    statcast_pitches: Optional[List["StatcastPitchRow"]] = None
+    pitch_performance: Optional[List["PitchPerformanceRow"]] = None
+    hit_location: Optional[List["HitLocationRow"]] = None
+
+
+class PlayerInningRow(BaseModel):
+    inning: Optional[int] = None
+    hits_allowed: Optional[int] = None
+    home_runs_allowed: Optional[int] = None
+    free_passes: Optional[int] = None
+    outs_recorded: Optional[int] = None
+    baa: Optional[float] = None   # Batting Average Against
+    obp_against: Optional[float] = None
+    slg_against: Optional[float] = None
+    ops_against: Optional[float] = None
+
+
+class HitLocationRow(BaseModel):
+    hit_direction: Optional[str] = None      # Left / Center / Right
+    bb_type: Optional[str] = None            # ground_ball / line_drive / fly_ball / popup
+    p_throws: Optional[str] = None           # L / R
+    stand: Optional[str] = None
+    hit_count: Optional[int] = None
+    avg_exit_velocity: Optional[float] = None
+    avg_xba: Optional[float] = None
+    total_bip: Optional[int] = None
+    type_pct_in_dir: Optional[float] = None
+    pull_pct: Optional[float] = None
+    center_pct: Optional[float] = None
+    oppo_pct: Optional[float] = None
+
+
+class PitchPerformanceRow(BaseModel):
+    pitch_type: Optional[str] = None
+    pitch_name: Optional[str] = None
+    pitch_count: Optional[int] = None
+    usage_pct: Optional[float] = None
+    whiff_pct: Optional[float] = None
+    xba: Optional[float] = None
+    avg_speed: Optional[float] = None
+    avg_spin_rate: Optional[float] = None
+
+
+class StatcastPitchRow(BaseModel):
+    pitch_type: Optional[str] = None
+    pitch_name: Optional[str] = None
+    pfx_x: Optional[float] = None       # Horizontal movement (ft, spin-induced)
+    pfx_z: Optional[float] = None       # Vertical movement (ft, spin-induced)
+    plate_x: Optional[float] = None     # Horizontal position at plate (ft)
+    plate_z: Optional[float] = None     # Vertical position at plate (ft)
+    release_speed: Optional[float] = None
+    result: Optional[str] = None        # B=Ball, S=Strike, X=InPlay
