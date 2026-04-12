@@ -162,8 +162,6 @@ steps:
       - '1Gi'
       - '--port'
       - '8080' # FastAPIのデフォルトポートを指定
-      - '--update-env-vars'
-      - 'WORKFLOWS_SA_EMAIL=cloud-build-dbt@tksm-dash-test-25.iam.gserviceaccount.com'
 
   # ----------------------------------------------------------------------
   # 4. フロントエンド (React) のDockerイメージをビルド
