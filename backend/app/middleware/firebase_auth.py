@@ -76,9 +76,7 @@ class FirebaseAuthMiddleware:
         # 内部パス（Cloud Workflows など）は OIDC トークンで検証
         if path in INTERNAL_PATHS:
             try:
-                headers_dict = dict(scope.get("headers", []))
-                host = headers_dict.get(b"host", b"").decode()
-                audience = f"https://{host}"
+                audience = os.getenv("BACKEND_CLOUD_RUN_URL", "")
                 decoded = id_token.verify_oauth2_token(
                     token,
                     google_requests.Request(),

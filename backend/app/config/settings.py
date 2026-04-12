@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     bigquery_statcast_master_table_id: str = "statcast_master"
     bigquery_pitch_performance_xba_whiff_table_id: str = "view_pitch_performance_xba_whiff"
     bigquery_batter_hit_loc_quality_table_id: str = "view_batter_performance_hit_loc_quality"
+    bigquery_pitch_whiff_heatmap_table_id: str = "view_pitch_performance_whiff_heatmap"
+    bigquery_batter_count_state_woba_table_id: str = "view_batter_count_state_woba"
+    bigquery_batter_xwoba_zone_table_id: str = "view_batter_xwoba_zone"
     bigquery_dim_players_master_table_id: str = "dim_players_master"
     bigquery_pitching_stats_master_table_id: str = "fact_pitching_stats_master"
 

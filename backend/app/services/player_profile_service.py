@@ -19,6 +19,9 @@ from backend.app.api.schemas import (
     StatcastPitchRow,
     PitchPerformanceRow,
     HitLocationRow,
+    WhiffHeatmapRow,
+    CountStateWobaRow,
+    XwobaZoneRow,
 )
 from .base import (
     get_bq_client,
@@ -34,6 +37,9 @@ from .base import (
     STATCAST_MASTER_TABLE_ID,
     PITCH_PERFORMANCE_XBA_WHIFF_TABLE_ID,
     BATTER_HIT_LOC_QUALITY_TABLE_ID,
+    PITCH_WHIFF_HEATMAP_TABLE_ID,
+    BATTER_COUNT_STATE_WOBA_TABLE_ID,
+    BATTER_XWOBA_ZONE_TABLE_ID,
 )
 
 
@@ -521,6 +527,103 @@ def get_player_profile(idfg: int, season: Optional[int] = None) -> Optional[Play
         except Exception as e:
             logger.warning(f"hit_location query failed for mlbid={mlbid}: {e}")
 
+    # ── Query 11: Whiff Zone Heatmap (投手のみ) ──────────────────────────────
+    whiff_heatmap = None
+    if mlbid and resolved_season and pitching_kpi is not None:
+        wh_params = [
+            bigquery.ScalarQueryParameter("mlbid",  "INT64", int(mlbid)),
+            bigquery.ScalarQueryParameter("season", "INT64", int(resolved_season)),
+        ]
+        wh_job_config = bigquery.QueryJobConfig(query_parameters=wh_params)
+        wh_query = f"""
+            SELECT
+                pitch_type,
+                pitch_name,
+                stand,
+                zone_x,
+                zone_z,
+                total_pitches,
+                whiff_count,
+                swing_count,
+                whiff_pct
+            FROM `{PROJECT_ID}.{DATASET_ID}.{PITCH_WHIFF_HEATMAP_TABLE_ID}`
+            WHERE pitcher   = @mlbid
+              AND game_year = @season
+            ORDER BY pitch_type, stand, zone_z DESC, zone_x ASC
+        """
+        try:
+            wh_df = client.query(wh_query, job_config=wh_job_config).to_dataframe()
+            if not wh_df.empty:
+                whiff_heatmap = [
+                    WhiffHeatmapRow(**_clean_row(wh_df.iloc[[i]]))
+                    for i in range(len(wh_df))
+                ]
+        except Exception as e:
+            logger.warning(f"whiff_heatmap query failed for mlbid={mlbid}: {e}")
+
+    # ── Query 12: Count State wOBA Matrix（打者のみ） ────────────────────────
+    count_state_woba = None
+    if mlbid and resolved_season and batting_kpi is not None:
+        cs_params = [
+            bigquery.ScalarQueryParameter("mlbid",  "INT64", int(mlbid)),
+            bigquery.ScalarQueryParameter("season", "INT64", int(resolved_season)),
+        ]
+        cs_job_config = bigquery.QueryJobConfig(query_parameters=cs_params)
+        cs_query = f"""
+            SELECT
+                balls,
+                strikes,
+                pa_count,
+                woba,
+                xwoba_contact
+            FROM `{PROJECT_ID}.{DATASET_ID}.{BATTER_COUNT_STATE_WOBA_TABLE_ID}`
+            WHERE batter    = @mlbid
+              AND game_year = @season
+            ORDER BY balls ASC, strikes ASC
+        """
+        try:
+            cs_df = client.query(cs_query, job_config=cs_job_config).to_dataframe()
+            if not cs_df.empty:
+                count_state_woba = [
+                    CountStateWobaRow(**_clean_row(cs_df.iloc[[i]]))
+                    for i in range(len(cs_df))
+                ]
+        except Exception as e:
+            logger.warning(f"count_state_woba query failed for mlbid={mlbid}: {e}")
+
+    # ── Query 13: xwOBA Zone Heatmap（打者のみ） ─────────────────────────────
+    xwoba_zone = None
+    if mlbid and resolved_season and batting_kpi is not None:
+        xz_params = [
+            bigquery.ScalarQueryParameter("mlbid",  "INT64", int(mlbid)),
+            bigquery.ScalarQueryParameter("season", "INT64", int(resolved_season)),
+        ]
+        xz_job_config = bigquery.QueryJobConfig(query_parameters=xz_params)
+        xz_query = f"""
+            SELECT
+                p_throws,
+                stand,
+                zone_x,
+                zone_z,
+                pa_count,
+                woba,
+                xwoba_contact,
+                contact_count
+            FROM `{PROJECT_ID}.{DATASET_ID}.{BATTER_XWOBA_ZONE_TABLE_ID}`
+            WHERE batter    = @mlbid
+              AND game_year = @season
+            ORDER BY p_throws, zone_z DESC, zone_x ASC
+        """
+        try:
+            xz_df = client.query(xz_query, job_config=xz_job_config).to_dataframe()
+            if not xz_df.empty:
+                xwoba_zone = [
+                    XwobaZoneRow(**_clean_row(xz_df.iloc[[i]]))
+                    for i in range(len(xz_df))
+                ]
+        except Exception as e:
+            logger.warning(f"xwoba_zone query failed for mlbid={mlbid}: {e}")
+
     return PlayerProfileResponse(
         idfg=idfg,
         mlbid=mlbid,
@@ -534,4 +637,7 @@ def get_player_profile(idfg: int, season: Optional[int] = None) -> Optional[Play
         statcast_pitches=statcast_pitches,
         pitch_performance=pitch_performance,
         hit_location=hit_location,
+        whiff_heatmap=whiff_heatmap,
+        count_state_woba=count_state_woba,
+        xwoba_zone=xwoba_zone,
     )

@@ -440,6 +440,261 @@ const HitLocationChart = ({ data, season }) => {
 };
 
 // =============================================
+// =============================================
+// wOBA 発散カラースケール（中心 = リーグ平均 .320）
+// =============================================
+const LEAGUE_AVG_WOBA = 0.320;
+const _WOBA_STOPS = [
+  [0.00, [0,   0,   180]],
+  [0.20, [0,   120, 255]],
+  [0.32, [70,  70,  70 ]],   // league avg → neutral gray
+  [0.42, [255, 120, 0  ]],
+  [0.55, [200, 0,   0  ]],
+];
+const _lerpWoba = (t) => {
+  const v = Math.min(Math.max(t, 0), 0.55);
+  const s = _WOBA_STOPS;
+  if (v <= s[0][0]) return s[0][1];
+  if (v >= s[s.length - 1][0]) return s[s.length - 1][1];
+  for (let i = 0; i < s.length - 1; i++) {
+    const [t0, c0] = s[i], [t1, c1] = s[i + 1];
+    if (v >= t0 && v <= t1) {
+      const f = (v - t0) / (t1 - t0);
+      return c0.map((cv, j) => Math.round(cv + f * (c1[j] - cv)));
+    }
+  }
+};
+const wobaColor = (val) => {
+  if (val == null) return 'rgba(75,85,99,0.25)';
+  const [r, g, b] = _lerpWoba(val);
+  return `rgb(${r},${g},${b})`;
+};
+const wobaLabelColor = (val) => {
+  if (val == null) return 'rgba(255,255,255,0.85)';
+  const [r, g, b] = _lerpWoba(val);
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return lum > 0.5 ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.9)';
+};
+const WOBA_LEGEND_GRADIENT =
+  'linear-gradient(to right, #0000b4, #0078ff, #464646, #ff7800, #c80000)';
+
+// =============================================
+// Count State wOBA Matrix（打者のみ）
+// =============================================
+const CountStateWobaMatrix = ({ data, season }) => {
+  const [metric, setMetric] = useState('woba');
+  if (!data || data.length === 0) return null;
+
+  const cellMap = {};
+  for (const row of data) cellMap[`${row.balls},${row.strikes}`] = row;
+
+  const CW = 68, CH = 52;
+
+  return (
+    <div className="bg-gray-800/50 rounded-xl p-5 border border-gray-700">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold text-gray-200">
+          Count State wOBA
+          {season && <span className="ml-2 text-xs text-gray-400">{season}</span>}
+        </h3>
+        <div className="flex gap-1">
+          {[['woba', 'wOBA'], ['xwoba', 'xwOBA']].map(([k, lbl]) => (
+            <button key={k} onClick={() => setMetric(k)}
+              className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                metric === k ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }`}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Strike header */}
+      <div className="flex mb-1" style={{ marginLeft: 36 }}>
+        {[0, 1, 2].map(s => (
+          <div key={s} className="text-xs text-gray-400 text-center font-medium"
+            style={{ width: CW, marginRight: 3 }}>
+            {s}S
+          </div>
+        ))}
+      </div>
+
+      {[0, 1, 2, 3].map(b => (
+        <div key={b} className="flex items-center mb-1">
+          <div className="text-xs text-gray-400 font-medium text-right pr-2 flex-shrink-0"
+            style={{ width: 36 }}>
+            {b}B
+          </div>
+          {[0, 1, 2].map(s => {
+            const cell = cellMap[`${b},${s}`];
+            const val  = cell ? (metric === 'woba' ? cell.woba : cell.xwoba_contact) : null;
+            return (
+              <div key={s} className="rounded flex flex-col items-center justify-center"
+                style={{ width: CW, height: CH, backgroundColor: wobaColor(val), marginRight: 3 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: wobaLabelColor(val) }}>
+                  {val != null ? val.toFixed(3) : '—'}
+                </span>
+                {cell?.pa_count != null && (
+                  <span style={{ fontSize: 9, color: wobaLabelColor(val), opacity: 0.7 }}>
+                    {cell.pa_count} PA
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+
+      <div className="flex items-center gap-2 mt-3">
+        <span className="text-xs text-gray-400">Low</span>
+        <div style={{ flex: 1, maxWidth: 160, height: 8, borderRadius: 4, background: WOBA_LEGEND_GRADIENT }} />
+        <span className="text-xs text-gray-400">High</span>
+        <span className="text-xs text-gray-500 ml-2">Avg ≈ .320</span>
+      </div>
+    </div>
+  );
+};
+
+// =============================================
+// xwOBA Zone Heatmap（打者のみ）
+// =============================================
+const XwobaZoneHeatmap = ({ data, season }) => {
+  const [metric,   setMetric]   = useState('woba');
+  const [pThrows,  setPThrows]  = useState('All');
+  const [tooltip,  setTooltip]  = useState(null);
+  if (!data || data.length === 0) return null;
+
+  const filtered = data.filter(d => pThrows === 'All' || d.p_throws === pThrows);
+
+  const cellMap = {};
+  for (const row of filtered) {
+    const key = `${row.zone_x},${row.zone_z}`;
+    if (!cellMap[key]) {
+      cellMap[key] = { zone_x: row.zone_x, zone_z: row.zone_z,
+        pa_count: 0, woba_sum: 0, xwoba_sum: 0, contact_count: 0 };
+    }
+    cellMap[key].pa_count      += row.pa_count      ?? 0;
+    cellMap[key].woba_sum      += (row.woba          ?? 0) * (row.pa_count      ?? 0);
+    cellMap[key].xwoba_sum     += (row.xwoba_contact ?? 0) * (row.contact_count ?? 0);
+    cellMap[key].contact_count += row.contact_count  ?? 0;
+  }
+  const cells = Object.values(cellMap).map(c => ({
+    ...c,
+    woba:  c.pa_count      > 0 ? c.woba_sum  / c.pa_count      : null,
+    xwoba: c.contact_count > 0 ? c.xwoba_sum / c.contact_count : null,
+  }));
+
+  const gridW = HM_X_VALS.length * (HM_CELL_W + HM_GAP);
+  const gridH = HM_Z_VALS.length * (HM_CELL_H + HM_GAP);
+  const szL = hmPixelX(SZ_LEFT),  szR = hmPixelX(SZ_RIGHT);
+  const szT = hmPixelZ(SZ_TOP_FT), szB = hmPixelZ(SZ_BOT_FT);
+
+  return (
+    <div className="bg-gray-800/50 rounded-xl p-5 border border-gray-700">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-gray-200">
+          xwOBA Zone Map
+          {season && <span className="ml-2 text-xs text-gray-400">{season}</span>}
+        </h3>
+        <div className="flex gap-1">
+          {['All', 'L', 'R'].map(p => (
+            <button key={p} onClick={() => setPThrows(p)}
+              className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                pThrows === p ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }`}>
+              {p === 'All' ? 'ALL' : `vs ${p}HP`}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex gap-1 mb-3">
+        {[['woba', 'wOBA'], ['xwoba', 'xwOBA']].map(([k, lbl]) => (
+          <button key={k} onClick={() => setMetric(k)}
+            className={`px-2.5 py-1 rounded text-xs transition-colors ${
+              metric === k ? 'bg-gray-600 text-white ring-1 ring-white/30' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+            }`}>
+            {lbl}
+          </button>
+        ))}
+      </div>
+
+      <div className="relative flex-shrink-0" style={{ width: gridW, height: gridH }}>
+        {HM_Z_VALS.map((zv, zi) =>
+          HM_X_VALS.map((xv, xi) => {
+            const cell = cells.find(
+              c => Math.abs(c.zone_x - xv) < 0.01 && Math.abs(c.zone_z - zv) < 0.01
+            );
+            const val = cell ? (metric === 'woba' ? cell.woba : cell.xwoba) : null;
+            return (
+              <div key={`${xi}-${zi}`}
+                onMouseEnter={(e) => cell && setTooltip({
+                  x: e.clientX, y: e.clientY,
+                  woba: cell.woba, xwoba: cell.xwoba,
+                  pa_count: cell.pa_count, contact_count: cell.contact_count,
+                  zone_x: xv, zone_z: zv,
+                })}
+                onMouseLeave={() => setTooltip(null)}
+                style={{
+                  position: 'absolute',
+                  left: xi * (HM_CELL_W + HM_GAP), top: zi * (HM_CELL_H + HM_GAP),
+                  width: HM_CELL_W, height: HM_CELL_H,
+                  backgroundColor: wobaColor(val),
+                  borderRadius: 2, display: 'flex',
+                  alignItems: 'center', justifyContent: 'center',
+                  cursor: cell ? 'crosshair' : 'default',
+                }}>
+                {val != null && (
+                  <span style={{ fontSize: 9, color: wobaLabelColor(val), fontWeight: 700 }}>
+                    {val.toFixed(3)}
+                  </span>
+                )}
+              </div>
+            );
+          })
+        )}
+        <div style={{
+          position: 'absolute', left: szL, top: szT,
+          width: szR - szL, height: szB - szT,
+          border: '2px solid rgba(255,255,255,0.7)',
+          borderRadius: 2, pointerEvents: 'none',
+        }} />
+      </div>
+
+      <div className="mt-2" style={{ width: gridW }}>
+        <div className="flex justify-between text-xs text-gray-500 mb-2">
+          <span>Inside</span><span>← Horizontal Position →</span><span>Outside</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400">Low</span>
+          <div style={{ flex: 1, height: 10, borderRadius: 4, background: WOBA_LEGEND_GRADIENT }} />
+          <span className="text-xs text-gray-400">High</span>
+          <span className="text-xs text-gray-500 ml-1">Avg≈.320</span>
+        </div>
+      </div>
+
+      {tooltip && (
+        <div style={{
+          position: 'fixed', left: tooltip.x + 12, top: tooltip.y - 8,
+          zIndex: 9999, pointerEvents: 'none',
+          backgroundColor: '#1f2937', border: '1px solid #374151',
+          borderRadius: 6, padding: '6px 10px',
+          fontSize: 11, color: '#e5e7eb',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.5)', minWidth: 140,
+        }}>
+          <div className="font-semibold mb-1" style={{ fontSize: 11 }}>
+            x={tooltip.zone_x?.toFixed(1)} · z={tooltip.zone_z?.toFixed(1)}
+          </div>
+          <div>wOBA:&nbsp;<span style={{ fontWeight: 700, color: '#60a5fa' }}>{tooltip.woba?.toFixed(3) ?? '—'}</span></div>
+          <div>xwOBA:&nbsp;<span style={{ fontWeight: 700, color: '#34d399' }}>{tooltip.xwoba?.toFixed(3) ?? '—'}</span></div>
+          <div>PA: {tooltip.pa_count} · Contact: {tooltip.contact_count}</div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// =============================================
 // 月別打撃チャート
 // =============================================
 const MONTH_NAMES = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -949,6 +1204,249 @@ const PitchPerformanceChart = ({ data, season }) => {
   );
 };
 
+// =============================================
+// Whiff Zone Heatmap（投手のみ）
+// =============================================
+const HM_X_VALS = [-2.0, -1.5, -1.0, -0.5,  0.0,  0.5,  1.0,  1.5,  2.0]; // 9 cols
+const HM_Z_VALS = [ 4.5,  4.0,  3.5,  3.0,  2.5,  2.0,  1.5,  1.0,  0.5]; // 9 rows top→bottom
+const HM_CELL_W  = 40;
+const HM_CELL_H  = 34;
+const HM_GAP     = 1;
+
+const HM_X_MIN   = -2.0;
+const HM_Z_MAX   =  4.5;
+const HM_STEP    =  0.5;
+const SZ_LEFT    = -0.83;
+const SZ_RIGHT   =  0.83;
+const SZ_TOP_FT  =  3.5;
+const SZ_BOT_FT  =  1.5;
+
+const hmPixelX = (x) => ((x - HM_X_MIN) / HM_STEP) * (HM_CELL_W + HM_GAP);
+const hmPixelZ = (z) => ((HM_Z_MAX - z) / HM_STEP) * (HM_CELL_H + HM_GAP);
+
+// Jet-like colormap: dark-blue → blue → cyan → green → yellow → orange → red
+const _JET_STOPS = [
+  [0.00, [0,   0,   100]],
+  [0.15, [0,   0,   200]],
+  [0.35, [0,   170, 200]],
+  [0.50, [0,   200, 80 ]],
+  [0.65, [200, 200, 0  ]],
+  [0.82, [210, 105, 0  ]],
+  [1.00, [180, 0,   0  ]],
+];
+const _lerpJet = (t) => {
+  const s = _JET_STOPS;
+  if (t <= s[0][0]) return s[0][1];
+  if (t >= s[s.length - 1][0]) return s[s.length - 1][1];
+  for (let i = 0; i < s.length - 1; i++) {
+    const [t0, c0] = s[i], [t1, c1] = s[i + 1];
+    if (t >= t0 && t <= t1) {
+      const f = (t - t0) / (t1 - t0);
+      return c0.map((v, j) => Math.round(v + f * (c1[j] - v)));
+    }
+  }
+};
+const whiffColor = (pct) => {
+  if (pct == null) return 'rgba(75,85,99,0.25)';
+  const [r, g, b] = _lerpJet(Math.min(Math.max(pct, 0), 1));
+  return `rgb(${r},${g},${b})`;
+};
+// 輝度に応じてラベル色を決定（明るい背景→黒、暗い背景→白）
+const whiffLabelColor = (pct) => {
+  if (pct == null) return 'rgba(255,255,255,0.85)';
+  const [r, g, b] = _lerpJet(Math.min(Math.max(pct, 0), 1));
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.55 ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.9)';
+};
+
+const WhiffHeatmapChart = ({ data, season }) => {
+  const [activePitch,  setActivePitch]  = useState(null);
+  const [standFilter,  setStandFilter]  = useState('All');
+  const [tooltip,      setTooltip]      = useState(null);
+
+  if (!data || data.length === 0) return null;
+
+  const pitchTypes = [...new Set(data.map(d => d.pitch_type).filter(Boolean))].sort();
+  const currentPitch = activePitch ?? 'ALL';
+
+  const filtered = data.filter(d =>
+    (currentPitch === 'ALL' || d.pitch_type === currentPitch) &&
+    (standFilter === 'All' || d.stand === standFilter)
+  );
+
+  // aggregate cells (sum when multiple stand values)
+  const cellMap = {};
+  for (const row of filtered) {
+    const key = `${row.zone_x},${row.zone_z}`;
+    if (!cellMap[key]) {
+      cellMap[key] = { zone_x: row.zone_x, zone_z: row.zone_z, total_pitches: 0, whiff_count: 0, swing_count: 0 };
+    }
+    cellMap[key].total_pitches += row.total_pitches ?? 0;
+    cellMap[key].whiff_count   += row.whiff_count   ?? 0;
+    cellMap[key].swing_count   += row.swing_count   ?? 0;
+  }
+  const cells = Object.values(cellMap).map(c => ({
+    ...c,
+    whiff_pct: c.swing_count > 0 ? c.whiff_count / c.swing_count : null,
+  }));
+
+  const pitchName  = currentPitch === 'ALL'
+    ? 'All Pitches'
+    : (data.find(d => d.pitch_type === currentPitch)?.pitch_name ?? currentPitch);
+  const gridW      = HM_X_VALS.length * (HM_CELL_W + HM_GAP);
+  const gridH      = HM_Z_VALS.length * (HM_CELL_H + HM_GAP);
+
+  const szL = hmPixelX(SZ_LEFT);
+  const szR = hmPixelX(SZ_RIGHT);
+  const szT = hmPixelZ(SZ_TOP_FT);
+  const szB = hmPixelZ(SZ_BOT_FT);
+
+  return (
+    <div className="bg-gray-800 rounded-xl p-5">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-200">
+            Whiff Zone Heatmap
+            {season && <span className="ml-2 text-xs text-gray-400">{season}</span>}
+          </h3>
+          <p className="text-xs text-gray-500 mt-0.5">{pitchName}</p>
+        </div>
+        <div className="flex gap-1">
+          {['All', 'L', 'R'].map(s => (
+            <button key={s} onClick={() => setStandFilter(s)}
+              className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                standFilter === s
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }`}>
+              {s === 'All' ? 'ALL' : `vs ${s}HB`}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Pitch type selector */}
+      <div className="flex flex-wrap gap-1.5 mb-4">
+        {/* ALL button */}
+        <button onClick={() => setActivePitch('ALL')}
+          className={`px-2.5 py-1 rounded text-xs transition-colors ${
+            currentPitch === 'ALL'
+              ? 'bg-gray-600 text-white ring-1 ring-white/30'
+              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+          }`}>
+          ALL
+        </button>
+        {pitchTypes.map(pt => (
+          <button key={pt} onClick={() => setActivePitch(pt)}
+            className={`px-2.5 py-1 rounded text-xs transition-colors ${
+              pt === currentPitch
+                ? 'bg-gray-600 text-white ring-1 ring-white/30'
+                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+            }`}>
+            {pt}
+          </button>
+        ))}
+      </div>
+
+      {/* Heatmap grid */}
+      <div className="relative flex-shrink-0" style={{ width: gridW, height: gridH }}>
+        {HM_Z_VALS.map((zv, zi) =>
+          HM_X_VALS.map((xv, xi) => {
+            const cell = cells.find(
+              c => Math.abs(c.zone_x - xv) < 0.01 && Math.abs(c.zone_z - zv) < 0.01
+            );
+            return (
+              <div key={`${xi}-${zi}`}
+                onMouseEnter={(e) => cell && setTooltip({
+                  x: e.clientX, y: e.clientY,
+                  pct: cell.whiff_pct,
+                  whiff: cell.whiff_count,
+                  swing: cell.swing_count,
+                  total: cell.total_pitches,
+                  zone_x: xv, zone_z: zv,
+                })}
+                onMouseLeave={() => setTooltip(null)}
+                style={{
+                  position: 'absolute',
+                  left:  xi * (HM_CELL_W + HM_GAP),
+                  top:   zi * (HM_CELL_H + HM_GAP),
+                  width:  HM_CELL_W,
+                  height: HM_CELL_H,
+                  backgroundColor: whiffColor(cell?.whiff_pct ?? null),
+                  borderRadius: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: cell ? 'crosshair' : 'default',
+                }}>
+                {cell?.whiff_pct != null && (
+                  <span style={{ fontSize: 9, color: whiffLabelColor(cell.whiff_pct), fontWeight: 700 }}>
+                    {Math.round(cell.whiff_pct * 100)}%
+                  </span>
+                )}
+              </div>
+            );
+          })
+        )}
+        {/* Strike zone border */}
+        <div style={{
+          position: 'absolute',
+          left: szL, top: szT,
+          width: szR - szL, height: szB - szT,
+          border: '2px solid rgba(255,255,255,0.7)',
+          borderRadius: 2,
+          pointerEvents: 'none',
+        }} />
+      </div>
+
+      {/* X-axis label + color legend（グリッド下） */}
+      <div className="mt-2" style={{ width: gridW }}>
+        <div className="flex justify-between text-xs text-gray-500 mb-2">
+          <span>Inside</span>
+          <span>← Horizontal Position →</span>
+          <span>Outside</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-gray-400">0%</span>
+          <div style={{
+            flex: 1, height: 10, borderRadius: 4,
+            background: 'linear-gradient(to right, #000064, #0000c8, #00aac8, #00c850, #c8c800, #d26900, #b40000)',
+          }} />
+          <span className="text-xs text-gray-400">100% Whiff%</span>
+        </div>
+      </div>
+
+      {/* Floating tooltip */}
+      {tooltip && (
+        <div style={{
+          position: 'fixed',
+          left: tooltip.x + 12, top: tooltip.y - 8,
+          zIndex: 9999, pointerEvents: 'none',
+          backgroundColor: '#1f2937',
+          border: '1px solid #374151',
+          borderRadius: 6,
+          padding: '6px 10px',
+          fontSize: 11, color: '#e5e7eb',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+          minWidth: 130,
+        }}>
+          <div className="font-semibold mb-1" style={{ fontSize: 11 }}>
+            x={tooltip.zone_x?.toFixed(1)} · z={tooltip.zone_z?.toFixed(1)}
+          </div>
+          <div>Whiff%:&nbsp;
+            <span style={{ fontWeight: 700, color: '#fb923c' }}>
+              {tooltip.pct != null ? (tooltip.pct * 100).toFixed(1) + '%' : '—'}
+            </span>
+          </div>
+          <div>Whiff / Swing: {tooltip.whiff} / {tooltip.swing}</div>
+          <div>Total pitches: {tooltip.total}</div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const PitchArsenalPanel = ({ data, season }) => {
   const [posMode, setPosMode] = useState('result'); // 'result' | 'pitch'
 
@@ -1318,6 +1816,20 @@ const PlayerProfile = ({ onSearchPlayers, getAuthHeaders, getBackendURL }) => {
             />
           )}
 
+          {/* Count State wOBA ＋ xwOBA Zone Map（打者のみ、2カラム） */}
+          {(profile.batting_kpi || isTWP) && (
+            <div className="grid grid-cols-2 gap-4">
+              <CountStateWobaMatrix
+                data={profile.count_state_woba}
+                season={profile.batting_kpi?.season}
+              />
+              <XwobaZoneHeatmap
+                data={profile.xwoba_zone}
+                season={profile.batting_kpi?.season}
+              />
+            </div>
+          )}
+
           {/* 月別打撃チャート */}
           <MonthlyOffensiveChart
             data={profile.monthly_offensive_stats}
@@ -1339,20 +1851,26 @@ const PlayerProfile = ({ onSearchPlayers, getAuthHeaders, getBackendURL }) => {
             />
           )}
 
-          {/* xBA & Whiff% バブルチャート（投手のみ） */}
-          {(profile.pitching_kpi || isTWP) && (
-            <PitchPerformanceChart
-              data={profile.pitch_performance}
-              season={profile.pitching_kpi?.season}
-            />
-          )}
-
           {/* Pitch Arsenal（投手のみ） */}
           {(profile.pitching_kpi || isTWP) && (
             <PitchArsenalPanel
               data={profile.statcast_pitches}
               season={profile.pitching_kpi?.season}
             />
+          )}
+
+          {/* xBA & Whiff% ＋ Whiff Zone Heatmap（投手のみ、2カラム） */}
+          {(profile.pitching_kpi || isTWP) && (
+            <div className="grid grid-cols-2 gap-4 mt-4">
+              <PitchPerformanceChart
+                data={profile.pitch_performance}
+                season={profile.pitching_kpi?.season}
+              />
+              <WhiffHeatmapChart
+                data={profile.whiff_heatmap}
+                season={profile.pitching_kpi?.season}
+              />
+            </div>
           )}
         </div>
       )}

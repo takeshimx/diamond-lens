@@ -733,6 +733,9 @@ class PlayerProfileResponse(BaseModel):
     statcast_pitches: Optional[List["StatcastPitchRow"]] = None
     pitch_performance: Optional[List["PitchPerformanceRow"]] = None
     hit_location: Optional[List["HitLocationRow"]] = None
+    whiff_heatmap: Optional[List["WhiffHeatmapRow"]] = None
+    count_state_woba: Optional[List["CountStateWobaRow"]] = None
+    xwoba_zone: Optional[List["XwobaZoneRow"]] = None
 
 
 class PlayerInningRow(BaseModel):
@@ -782,3 +785,34 @@ class StatcastPitchRow(BaseModel):
     plate_z: Optional[float] = None     # Vertical position at plate (ft)
     release_speed: Optional[float] = None
     result: Optional[str] = None        # B=Ball, S=Strike, X=InPlay
+
+
+class WhiffHeatmapRow(BaseModel):
+    pitch_type: Optional[str] = None
+    pitch_name: Optional[str] = None
+    stand: Optional[str] = None         # L / R (batter side)
+    zone_x: Optional[float] = None      # ROUND(plate_x / 0.5) * 0.5
+    zone_z: Optional[float] = None      # ROUND(plate_z / 0.5) * 0.5
+    total_pitches: Optional[int] = None
+    whiff_count: Optional[int] = None
+    swing_count: Optional[int] = None
+    whiff_pct: Optional[float] = None
+
+
+class CountStateWobaRow(BaseModel):
+    balls: Optional[int] = None
+    strikes: Optional[int] = None
+    pa_count: Optional[int] = None
+    woba: Optional[float] = None
+    xwoba_contact: Optional[float] = None
+
+
+class XwobaZoneRow(BaseModel):
+    p_throws: Optional[str] = None      # L / R (pitcher hand)
+    stand: Optional[str] = None         # L / R (batter side)
+    zone_x: Optional[float] = None
+    zone_z: Optional[float] = None
+    pa_count: Optional[int] = None
+    woba: Optional[float] = None
+    xwoba_contact: Optional[float] = None
+    contact_count: Optional[int] = None
