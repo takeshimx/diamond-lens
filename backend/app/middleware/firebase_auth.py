@@ -84,8 +84,9 @@ class FirebaseAuthMiddleware:
                     audience=audience,
                 )
                 caller_email = decoded.get("email", "")
-                workflows_sa_email = os.getenv("WORKFLOWS_SA_EMAIL", "")
-                if workflows_sa_email and caller_email != workflows_sa_email:
+                allowed_emails_raw = os.getenv("WORKFLOWS_SA_EMAIL", "")
+                allowed_emails = [e.strip() for e in allowed_emails_raw.split(",") if e.strip()]
+                if allowed_emails and caller_email not in allowed_emails:
                     logger.warning("OIDC SA mismatch", email=caller_email)
                     await self._send_401(send, "Unauthorized service account")
                     return
