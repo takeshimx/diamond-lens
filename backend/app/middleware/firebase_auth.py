@@ -77,7 +77,7 @@ class FirebaseAuthMiddleware:
         if path in INTERNAL_PATHS:
             try:
                 host = headers.get(b"host", b"").decode()
-                audience = f"https://{host}{path}"
+                audience = f"https://{host}"
                 decoded = id_token.verify_oauth2_token(
                     token,
                     google_requests.Request(),
