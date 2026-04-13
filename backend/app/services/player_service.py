@@ -1,20 +1,16 @@
 """
 選手基本情報および詳細データの取得に関するサービス
 """
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 from google.cloud import bigquery
 from google.cloud.exceptions import GoogleCloudError
 import pandas as pd
-import numpy as np
 from functools import lru_cache
 from backend.app.api.schemas import * # For Development, add backend. path
 from .base import (
     get_bq_client, client, logger,
     PROJECT_ID, DATASET_ID,
-    DIM_PLAYERS_TABLE_ID,
-    BATTING_STATS_TABLE_ID,
-    PITCHING_STATS_TABLE_ID,
-    BATTER_SPLIT_STATS_TABLE_ID
+    DIM_PLAYERS_MASTER_TABLE_ID,
 )
 
 
@@ -471,80 +467,67 @@ from .base import (
 
 
 @lru_cache(maxsize=128)
-def get_players_by_name(player_name: str) -> Optional[List[PlayerSearchItem]]: # 戻り値の型を修正
+def get_players_by_name(player_name: str) -> Optional[List[PlayerSearchItem]]:
     """
-    選手名に基づいて選手情報を検索します。
-    All active player from 2021 to 2025 are returned.
+    選手名に基づいて選手情報を検索します。dim_players_master を使用し mlbid を主キーとする。
     """
-
-    # ★★★ 修正箇所: player_name が空文字列の場合のWHERE句の挙動を調整 ★★★
     where_clause_parts = []
     query_parameters = []
 
-    if player_name: # player_name が空文字列でない場合のみフィルタリング
+    if player_name:
         where_clause_parts.append("""
-                (UPPER(CONCAT(first_name, ' ', last_name)) LIKE @player_name_pattern
-                OR UPPER(first_name) LIKE @player_name_pattern
-                OR UPPER(last_name) LIKE @player_name_pattern)
+                (UPPER(CONCAT(p.first_name, ' ', p.last_name)) LIKE @player_name_pattern
+                OR UPPER(p.first_name) LIKE @player_name_pattern
+                OR UPPER(p.last_name) LIKE @player_name_pattern)
         """)
         query_parameters.append(
             bigquery.ScalarQueryParameter("player_name_pattern", "STRING", f"%{player_name.upper()}%")
         )
 
-    # Filter for active players from 2021 to 2025
-    where_clause_parts.append("""
-            (mlb_debut_year <= @end_year AND mlb_last_year >= @start_year)
-    """)
+    where_clause_parts.append("(p.mlb_debut_year <= @end_year AND p.mlb_last_year >= @start_year)")
     query_parameters.append(bigquery.ScalarQueryParameter("start_year", "INT64", 2021))
-    query_parameters.append(bigquery.ScalarQueryParameter("end_year", "INT64", 2025))
+    query_parameters.append(bigquery.ScalarQueryParameter("end_year", "INT64", 2026))
 
-    final_where_clause = "WHERE " + " AND ".join(where_clause_parts) if where_clause_parts else ""
+    final_where_clause = "WHERE " + " AND ".join(where_clause_parts)
 
     query = f"""
         SELECT
-            mlb_id,
-            fangraphs_id AS idfg,
-            first_name,
-            last_name,
-            mlb_debut_year,
-            mlb_last_year,
-            team,
-            league
+            p.mlbid,
+            p.first_name,
+            p.last_name,
+            p.mlb_debut_year,
+            p.mlb_last_year,
+            t.abbreviation AS team,
+            t.league
         FROM
-            `{PROJECT_ID}.{DATASET_ID}.{DIM_PLAYERS_TABLE_ID}`
+            `{PROJECT_ID}.{DATASET_ID}.{DIM_PLAYERS_MASTER_TABLE_ID}` p
+        LEFT JOIN
+            `{PROJECT_ID}.{DATASET_ID}.dim_teams` t ON p.current_team_id = t.team_id
         {final_where_clause}
         ORDER BY
-            last_name ASC, first_name ASC
+            p.last_name ASC, p.first_name ASC
         LIMIT 10000
     """
-    job_config = bigquery.QueryJobConfig(
-        query_parameters=query_parameters
-    )
-    
+    job_config = bigquery.QueryJobConfig(query_parameters=query_parameters)
 
     try:
         df = client.query(query, job_config=job_config).to_dataframe()
 
-        # ★★★ 修正箇所: idfgとmlb_idのNaN値をNoneに変換 ★★★
-        # PydanticのOptional[int]がNoneを期待するため
-        if 'idfg' in df.columns:
-            df['idfg'] = df['idfg'].replace({pd.NA: None, float('nan'): None}).astype(object) # object型にしてNoneを保持
-        if 'mlb_id' in df.columns:
-            df['mlb_id'] = df['mlb_id'].replace({pd.NA: None, float('nan'): None}).astype(object) # object型にしてNoneを保持
+        if 'mlbid' in df.columns:
+            df['mlbid'] = df['mlbid'].replace({pd.NA: None, float('nan'): None}).astype(object)
 
         if df.empty:
-            logger.debug(f"No players found for name: {player_name} in 2021-2025 season.")
+            logger.debug(f"No players found for name: {player_name}")
             return []
-        
-        results: List[PlayerSearchItem] = [] # PlayerSearchItemのリストとして初期化
+
+        results: List[PlayerSearchItem] = []
         for _, row in df.iterrows():
             full_name = f"{row['first_name']} {row['last_name']}".strip()
             results.append(PlayerSearchItem(
-                idfg=row['idfg'],
-                mlb_id=row.get('mlb_id'), # Optionalなので .get() を使用
+                mlbid=row['mlbid'],
                 player_name=full_name,
-                team=row.get('team'),  # Add team field
-                league=row.get('league')  # Add league field
+                team=row.get('team'),
+                league=row.get('league'),
             ))
         return results
 
@@ -563,9 +546,9 @@ def get_player_name_by_id(player_id: int) -> Optional[str]:
     """
     client = get_bq_client()
     query = f"""
-        SELECT CONCAT(first_name, ' ', last_name) AS full_name
-        FROM `{PROJECT_ID}.{DATASET_ID}.{DIM_PLAYERS_TABLE_ID}`
-        WHERE fangraphs_id = @player_id OR mlb_id = @player_id
+        SELECT full_name
+        FROM `{PROJECT_ID}.{DATASET_ID}.{DIM_PLAYERS_MASTER_TABLE_ID}`
+        WHERE mlbid = @player_id
         LIMIT 1
     """
     job_config = bigquery.QueryJobConfig(

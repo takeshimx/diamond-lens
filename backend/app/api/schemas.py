@@ -561,10 +561,8 @@ class PlayerSearchItem(BaseModel):
     """
     選手名検索結果の各項目を表すスキーマ。
     """
-    # 検索結果には、検索に使ったID (idfg) と、mlb_idの両方を含める
-    idfg: Optional[int] = Field(None, description="FanGraphs選手ID")
-    mlb_id: Optional[int] = Field(None, description="MLB選手ID")
-    player_name: str = Field(..., description="選手名") # full_nameがここに入る
+    mlbid: Optional[int] = Field(None, description="MLB選手ID")
+    player_name: str = Field(..., description="選手名")
     team: Optional[str] = Field(None, description="所属チーム名")
     league: Optional[str] = Field(None, description="所属リーグ")
 
@@ -736,6 +734,34 @@ class PlayerProfileResponse(BaseModel):
     whiff_heatmap: Optional[List["WhiffHeatmapRow"]] = None
     count_state_woba: Optional[List["CountStateWobaRow"]] = None
     xwoba_zone: Optional[List["XwobaZoneRow"]] = None
+    clutch_stats: Optional[List["BatterClutchRow"]] = None
+    pitcher_risp_performance: Optional[List["PitcherRispRow"]] = None
+    pitcher_tto: Optional[List["PitcherTtoRow"]] = None
+
+
+class PitcherTtoRow(BaseModel):
+    tto: Optional[int] = None              # 1 | 2 | 3 (3 = 3rd+)
+    # 被打撃成績
+    pa: Optional[int] = None
+    hits: Optional[int] = None
+    baa: Optional[float] = None
+    xwoba_against: Optional[float] = None
+    # 球質
+    pitch_count: Optional[int] = None
+    avg_velo: Optional[float] = None
+    avg_spin: Optional[float] = None
+
+
+class PitcherRispRow(BaseModel):
+    situation: Optional[str] = None       # 'risp' | 'non_risp'
+    pa: Optional[int] = None
+    hits: Optional[int] = None
+    home_runs: Optional[int] = None
+    baa: Optional[float] = None
+    xwoba: Optional[float] = None
+    k_pct: Optional[float] = None
+    bb_pct: Optional[float] = None
+    hard_hit_pct: Optional[float] = None
 
 
 class PlayerInningRow(BaseModel):
@@ -802,17 +828,47 @@ class WhiffHeatmapRow(BaseModel):
 class CountStateWobaRow(BaseModel):
     balls: Optional[int] = None
     strikes: Optional[int] = None
+    is_risp: Optional[bool] = None
     pa_count: Optional[int] = None
     woba: Optional[float] = None
     xwoba_contact: Optional[float] = None
 
 
 class XwobaZoneRow(BaseModel):
-    p_throws: Optional[str] = None      # L / R (pitcher hand)
-    stand: Optional[str] = None         # L / R (batter side)
+    p_throws: Optional[str] = None
+    stand: Optional[str] = None
     zone_x: Optional[float] = None
     zone_z: Optional[float] = None
+    is_risp: Optional[bool] = None
     pa_count: Optional[int] = None
     woba: Optional[float] = None
     xwoba_contact: Optional[float] = None
     contact_count: Optional[int] = None
+
+
+class BatterClutchRow(BaseModel):
+    game_year: Optional[int] = None
+    situation_type: Optional[str] = None
+    pa: Optional[int] = None
+    ab: Optional[int] = None
+    hits: Optional[int] = None
+    homeruns: Optional[int] = None
+    doubles: Optional[int] = None
+    triples: Optional[int] = None
+    singles: Optional[int] = None
+    bb_hbp: Optional[int] = None
+    so: Optional[int] = None
+    avg: Optional[float] = None
+    obp: Optional[float] = None
+    slg: Optional[float] = None
+    ops: Optional[float] = None
+    woba: Optional[float] = None
+    xwoba: Optional[float] = None
+    bb_rate: Optional[float] = None
+    hitting_events: Optional[int] = None
+    avg_exit_velocity: Optional[float] = None
+    avg_bat_speed: Optional[float] = None
+    hard_hit_rate: Optional[float] = None
+    barrels_rate: Optional[float] = None
+    strikeout_rate: Optional[float] = None
+    swinging_strike_rate: Optional[float] = None

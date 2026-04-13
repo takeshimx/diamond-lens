@@ -4,6 +4,7 @@ import {
   ComposedChart, Bar, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer, LabelList,
   ScatterChart, Scatter, ReferenceLine, ReferenceArea,
+  RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
 } from 'recharts';
 
 // =============================================
@@ -101,7 +102,7 @@ const ProfileSearchBar = ({ onSearchPlayers, onPlayerSelect }) => {
           ) : results.length > 0 ? (
             results.map((player, i) => (
               <button
-                key={player.idfg || player.mlb_id || i}
+                key={player.mlbid || i}
                 onMouseDown={() => handleSelect(player)}
                 className="w-full px-4 py-2.5 text-left hover:bg-gray-700 flex items-center gap-3 border-b border-gray-700 last:border-0"
               >
@@ -483,10 +484,12 @@ const WOBA_LEGEND_GRADIENT =
 // =============================================
 const CountStateWobaMatrix = ({ data, season }) => {
   const [metric, setMetric] = useState('woba');
+  const [risp,   setRisp]   = useState(false);
   if (!data || data.length === 0) return null;
 
+  const filtered = data.filter(r => risp ? r.is_risp === true : !r.is_risp);
   const cellMap = {};
-  for (const row of data) cellMap[`${row.balls},${row.strikes}`] = row;
+  for (const row of filtered) cellMap[`${row.balls},${row.strikes}`] = row;
 
   const CW = 68, CH = 52;
 
@@ -502,6 +505,15 @@ const CountStateWobaMatrix = ({ data, season }) => {
             <button key={k} onClick={() => setMetric(k)}
               className={`px-2 py-0.5 text-xs rounded transition-colors ${
                 metric === k ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }`}>
+              {lbl}
+            </button>
+          ))}
+          <div className="w-px bg-gray-600 mx-1" />
+          {[[false, 'Non-RISP'], [true, 'RISP']].map(([val, lbl]) => (
+            <button key={lbl} onClick={() => setRisp(val)}
+              className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                risp === val ? 'bg-emerald-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
               }`}>
               {lbl}
             </button>
@@ -561,10 +573,14 @@ const CountStateWobaMatrix = ({ data, season }) => {
 const XwobaZoneHeatmap = ({ data, season }) => {
   const [metric,   setMetric]   = useState('woba');
   const [pThrows,  setPThrows]  = useState('All');
+  const [risp,     setRisp]     = useState(false);
   const [tooltip,  setTooltip]  = useState(null);
   if (!data || data.length === 0) return null;
 
-  const filtered = data.filter(d => pThrows === 'All' || d.p_throws === pThrows);
+  const filtered = data.filter(d =>
+    (pThrows === 'All' || d.p_throws === pThrows) &&
+    (risp ? d.is_risp === true : !d.is_risp)
+  );
 
   const cellMap = {};
   for (const row of filtered) {
@@ -613,6 +629,15 @@ const XwobaZoneHeatmap = ({ data, season }) => {
           <button key={k} onClick={() => setMetric(k)}
             className={`px-2.5 py-1 rounded text-xs transition-colors ${
               metric === k ? 'bg-gray-600 text-white ring-1 ring-white/30' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+            }`}>
+            {lbl}
+          </button>
+        ))}
+        <div className="w-px bg-gray-600 mx-1" />
+        {[[false, 'Non-RISP'], [true, 'RISP']].map(([val, lbl]) => (
+          <button key={lbl} onClick={() => setRisp(val)}
+            className={`px-2.5 py-1 rounded text-xs transition-colors ${
+              risp === val ? 'bg-emerald-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
             }`}>
             {lbl}
           </button>
@@ -1093,6 +1118,141 @@ const SZ_H3 = (SZ_T - SZ_B) / 3;
 
 
 // =============================================
+// =============================================
+// Pitcher RISP Performance チャート
+// =============================================
+const RISP_METRICS = [
+  { key: 'baa',          label: 'BAA',      fmt: (v) => v?.toFixed(3) ?? '—' },
+  { key: 'xwoba',        label: 'xwOBA',    fmt: (v) => v?.toFixed(3) ?? '—' },
+  { key: 'k_pct',        label: 'K%',       fmt: (v) => v != null ? `${(v * 100).toFixed(1)}%` : '—' },
+  { key: 'bb_pct',       label: 'BB%',      fmt: (v) => v != null ? `${(v * 100).toFixed(1)}%` : '—' },
+  { key: 'hard_hit_pct', label: 'Hard Hit%',fmt: (v) => v != null ? `${(v * 100).toFixed(1)}%` : '—' },
+];
+
+// レーダーチャート用: メトリクスごとの正規化レンジ（MLB目安）
+// lower_is_better=true のメトリクスは正規化スコアを反転（高スコア = 良い）
+const RISP_RADAR_CONFIG = [
+  { key: 'baa',          label: 'BAA',       min: 0.150, max: 0.380, lower_is_better: true },
+  { key: 'xwoba',        label: 'xwOBA',     min: 0.200, max: 0.450, lower_is_better: true },
+  { key: 'k_pct',        label: 'K%',        min: 0.10,  max: 0.38,  lower_is_better: false },
+  { key: 'bb_pct',       label: 'BB%',       min: 0.03,  max: 0.18,  lower_is_better: true },
+  { key: 'hard_hit_pct', label: 'Hard Hit%', min: 0.25,  max: 0.55,  lower_is_better: true },
+];
+
+// 値を 0–100 に正規化し、lower_is_better なら反転
+const normalizeRisp = (value, { min, max, lower_is_better }) => {
+  if (value == null) return 0;
+  const clamped = Math.max(min, Math.min(max, value));
+  const score = ((clamped - min) / (max - min)) * 100;
+  return lower_is_better ? 100 - score : score;
+};
+
+const PitcherRispChart = ({ data, season }) => {
+  if (!data || data.length === 0) return null;
+
+  const risp    = data.find((r) => r.situation === 'risp');
+  const nonRisp = data.find((r) => r.situation === 'non_risp');
+  if (!risp || !nonRisp) return null;
+
+  // レーダー用データ（正規化スコア）
+  const radarData = RISP_RADAR_CONFIG.map((cfg) => ({
+    metric:   cfg.label,
+    risp:     +normalizeRisp(risp[cfg.key],    cfg).toFixed(1),
+    non_risp: +normalizeRisp(nonRisp[cfg.key], cfg).toFixed(1),
+    // 生値（ツールチップ表示用）
+    rawRisp:    risp[cfg.key],
+    rawNonRisp: nonRisp[cfg.key],
+    cfg,
+  }));
+
+  // サマリーカード
+  const summaryCards = [
+    { label: 'PA (RISP)',      value: risp.pa    ?? '—' },
+    { label: 'PA (Non-RISP)',  value: nonRisp.pa ?? '—' },
+    { label: 'BAA RISP',       value: risp.baa?.toFixed(3)      ?? '—' },
+    { label: 'BAA Non-RISP',   value: nonRisp.baa?.toFixed(3)   ?? '—' },
+    { label: 'xwOBA RISP',     value: risp.xwoba?.toFixed(3)    ?? '—' },
+    { label: 'xwOBA Non-RISP', value: nonRisp.xwoba?.toFixed(3) ?? '—' },
+  ];
+
+  // カスタムツールチップ: 生値を表示
+  const CustomTooltip = ({ active, payload }) => {
+    if (!active || !payload?.length) return null;
+    const d = payload[0]?.payload;
+    if (!d) return null;
+    const fmtVal = (v, cfg) => {
+      if (v == null) return '—';
+      return cfg.key.endsWith('pct') ? `${(v * 100).toFixed(1)}%` : v.toFixed(3);
+    };
+    return (
+      <div style={{
+        background: '#1f2937', border: '1px solid #374151',
+        borderRadius: 8, padding: '8px 12px', fontSize: 12,
+      }}>
+        <p style={{ color: '#e5e7eb', fontWeight: 600, marginBottom: 4 }}>{d.metric}</p>
+        <p style={{ color: '#f87171' }}>RISP:     {fmtVal(d.rawRisp,    d.cfg)}</p>
+        <p style={{ color: '#60a5fa' }}>Non-RISP: {fmtVal(d.rawNonRisp, d.cfg)}</p>
+      </div>
+    );
+  };
+
+  return (
+    <div className="bg-gray-800/50 rounded-xl p-5 border border-gray-700">
+      <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-3">
+        Pitching Performance — RISP vs Non-RISP
+        {season && <span className="text-gray-500 ml-2 text-xs normal-case">{season}</span>}
+      </h3>
+
+      {/* サマリーカード */}
+      <div className="grid grid-cols-3 gap-3 mb-5 sm:grid-cols-6">
+        {summaryCards.map(({ label, value }) => (
+          <div key={label}>
+            <div className="text-xs text-gray-400 mb-0.5">{label}</div>
+            <div className="text-lg font-bold text-white">{value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* レーダーチャート */}
+      <ResponsiveContainer width="100%" height={280}>
+        <RadarChart data={radarData} margin={{ top: 10, right: 30, bottom: 10, left: 30 }}>
+          <PolarGrid stroke="#374151" />
+          <PolarAngleAxis dataKey="metric" tick={{ fill: '#9ca3af', fontSize: 11 }} />
+          <PolarRadiusAxis
+            angle={90}
+            domain={[0, 100]}
+            tick={{ fill: '#6b7280', fontSize: 9 }}
+            tickCount={4}
+          />
+          <Radar
+            name="RISP"
+            dataKey="risp"
+            stroke="#f87171"
+            fill="#f87171"
+            fillOpacity={0.25}
+            dot={{ r: 3, fill: '#f87171' }}
+          />
+          <Radar
+            name="Non-RISP"
+            dataKey="non_risp"
+            stroke="#60a5fa"
+            fill="#60a5fa"
+            fillOpacity={0.20}
+            dot={{ r: 3, fill: '#60a5fa' }}
+          />
+          <Tooltip content={<CustomTooltip />} />
+          <Legend wrapperStyle={{ fontSize: 12, color: '#9ca3af' }} />
+        </RadarChart>
+      </ResponsiveContainer>
+
+      {/* 注釈 */}
+      <p className="text-xs text-gray-500 mt-2">
+        スコアは MLB 参照レンジで 0–100 に正規化。外周ほど良い（BAA・xwOBA・BB%・Hard Hit% は低いほど外周）。
+      </p>
+    </div>
+  );
+};
+
 // xBA & Whiff% バブルチャート
 // =============================================
 // リーグ平均参照値（MLB全体の目安）
@@ -1447,6 +1607,146 @@ const WhiffHeatmapChart = ({ data, season }) => {
   );
 };
 
+// =============================================
+// Pitcher TTO — 2-panel chart (batting perf + fastball quality)
+// =============================================
+const TTO_LABELS = { 1: '1st Time', 2: '2nd Time', 3: '3rd+ Time' };
+
+const PitcherTtoChart = ({ data, season }) => {
+  if (!data || data.length === 0) return null;
+
+  const chartData = data.map((r) => ({
+    tto:           TTO_LABELS[r.tto] ?? `TTO ${r.tto}`,
+    xwoba_against: r.xwoba_against,
+    baa:           r.baa,
+    pa:            r.pa,
+    avg_velo:      r.avg_velo,
+    avg_spin:      r.avg_spin,
+    pitch_count:   r.pitch_count,
+  }));
+
+  const BattingTooltip = ({ active, payload, label }) => {
+    if (!active || !payload?.length) return null;
+    const d = payload[0]?.payload;
+    return (
+      <div style={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 8, padding: '8px 12px', fontSize: 12 }}>
+        <p style={{ color: '#e5e7eb', fontWeight: 600, marginBottom: 4 }}>{label}</p>
+        <p style={{ color: '#fb923c' }}>xwOBA: {d?.xwoba_against?.toFixed(3) ?? '—'}</p>
+        <p style={{ color: '#60a5fa' }}>BAA: {d?.baa?.toFixed(3) ?? '—'}</p>
+        <p style={{ color: '#6b7280', marginTop: 4 }}>PA: {d?.pa ?? '—'}</p>
+      </div>
+    );
+  };
+
+  const VeloTooltip = ({ active, payload, label }) => {
+    if (!active || !payload?.length) return null;
+    const d = payload[0]?.payload;
+    return (
+      <div style={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 8, padding: '8px 12px', fontSize: 12 }}>
+        <p style={{ color: '#e5e7eb', fontWeight: 600, marginBottom: 4 }}>{label}</p>
+        <p style={{ color: '#34d399' }}>Avg Velo: {d?.avg_velo?.toFixed(1) ?? '—'} mph</p>
+        <p style={{ color: '#a78bfa' }}>Avg Spin: {d?.avg_spin?.toFixed(0) ?? '—'} rpm</p>
+        <p style={{ color: '#6b7280', marginTop: 4 }}>Pitches: {d?.pitch_count ?? '—'}</p>
+      </div>
+    );
+  };
+
+  return (
+    <div className="bg-gray-800/50 rounded-xl p-5 border border-gray-700">
+      <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-4">
+        Times Through Order (TTO)
+        {season && <span className="text-gray-500 ml-2 text-xs normal-case">{season}</span>}
+      </h3>
+
+      <div className="grid grid-cols-2 gap-4">
+        {/* 左: 被打撃成績 × TTO */}
+        <div>
+          <p className="text-xs text-gray-400 mb-2">Batting Performance Against</p>
+          <ResponsiveContainer width="100%" height={220}>
+            <ComposedChart data={chartData} margin={{ top: 5, right: 15, left: 0, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <XAxis dataKey="tto" tick={{ fill: '#9ca3af', fontSize: 11 }} />
+              <YAxis
+                domain={[0, 0.600]}
+                tick={{ fill: '#9ca3af', fontSize: 10 }}
+                tickFormatter={(v) => v.toFixed(3)}
+              />
+              <Tooltip content={<BattingTooltip />} />
+              <Legend wrapperStyle={{ fontSize: 11, color: '#9ca3af' }} />
+              <Line
+                type="monotone"
+                dataKey="xwoba_against"
+                name="xwOBA Against"
+                stroke="#fb923c"
+                strokeWidth={2}
+                dot={{ r: 4, fill: '#fb923c' }}
+              />
+              <Line
+                type="monotone"
+                dataKey="baa"
+                name="BAA"
+                stroke="#60a5fa"
+                strokeWidth={2}
+                dot={{ r: 4, fill: '#60a5fa' }}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* 右: 球質 × TTO */}
+        <div>
+          <p className="text-xs text-gray-400 mb-2">Fastball Quality</p>
+          <ResponsiveContainer width="100%" height={220}>
+            <ComposedChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <XAxis dataKey="tto" tick={{ fill: '#9ca3af', fontSize: 11 }} />
+              <YAxis
+                yAxisId="velo"
+                orientation="left"
+                domain={['auto', 'auto']}
+                tick={{ fill: '#34d399', fontSize: 10 }}
+                label={{ value: 'mph', angle: -90, position: 'insideLeft', fill: '#34d399', fontSize: 10, dy: 20 }}
+              />
+              <YAxis
+                yAxisId="spin"
+                orientation="right"
+                domain={['auto', 'auto']}
+                tick={{ fill: '#a78bfa', fontSize: 10 }}
+                label={{ value: 'rpm', angle: 90, position: 'insideRight', fill: '#a78bfa', fontSize: 10, dy: -20 }}
+              />
+              <Tooltip content={<VeloTooltip />} />
+              <Legend wrapperStyle={{ fontSize: 11, color: '#9ca3af' }} />
+              <Line
+                yAxisId="velo"
+                type="monotone"
+                dataKey="avg_velo"
+                name="Avg Velo (mph)"
+                stroke="#34d399"
+                strokeWidth={2}
+                dot={{ r: 4, fill: '#34d399' }}
+              />
+              <Line
+                yAxisId="spin"
+                type="monotone"
+                dataKey="avg_spin"
+                name="Avg Spin (rpm)"
+                stroke="#a78bfa"
+                strokeWidth={2}
+                dot={{ r: 4, fill: '#a78bfa' }}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <p className="text-xs text-gray-500 mt-2">
+        左: 被打撃成績。右: ファストボール系（FF / SI / FC / FS / FA）のみ。TTO = 同一打者への登場巡。
+      </p>
+    </div>
+  );
+};
+
+
 const PitchArsenalPanel = ({ data, season }) => {
   const [posMode, setPosMode] = useState('result'); // 'result' | 'pitch'
 
@@ -1633,9 +1933,192 @@ const PitchArsenalPanel = ({ data, season }) => {
 };
 
 // =============================================
+// Clutch Situation Chart（打者のみ）
+// =============================================
+const SITUATION_ORDER  = ['no_runner', 'on_1b', 'risp', 'bases_loaded'];
+const SITUATION_LABELS = {
+  no_runner:    'No Runner',
+  on_1b:        'On 1B',
+  risp:         'RISP',
+  bases_loaded: 'Bases Loaded',
+};
+const SITUATION_COLORS = {
+  no_runner:    '#3b82f6',
+  on_1b:        '#f59e0b',
+  risp:         '#10b981',
+  bases_loaded: '#ef4444',
+};
+
+const ClutchSituationChart = ({ data, season }) => {
+  const [tab, setTab] = useState('rates');
+
+  if (!data || data.length === 0) return null;
+
+  const resolvedSeason = season ?? Math.max(...data.map(d => d.game_year));
+
+  // 現シーズンデータ（situation別）
+  const seasonRows = SITUATION_ORDER
+    .map(sit => data.find(d => d.game_year === resolvedSeason && d.situation_type === sit))
+    .filter(Boolean);
+
+  // 年度トレンド（rispoのみ）
+  const trendRows = data
+    .filter(d => d.situation_type === 'risp')
+    .sort((a, b) => a.game_year - b.game_year);
+
+  const fmt = (v, d = 3) => v != null ? v.toFixed(d) : '—';
+  const fmtPct = (v) => v != null ? `${(v * 100).toFixed(1)}%` : '—';
+
+  const TOOLTIP_STYLE = {
+    contentStyle: { backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: 8 },
+    labelStyle: { color: '#f9fafb', fontWeight: 600 },
+    itemStyle: { color: '#d1d5db' },
+  };
+
+  // --- Chart 1: OPS / wOBA / xwOBA by situation ---
+  const ratesData = seasonRows.map(r => ({
+    situation: SITUATION_LABELS[r.situation_type] ?? r.situation_type,
+    BA:    r.avg   != null ? +r.avg.toFixed(3)   : null,
+    OPS:   r.ops   != null ? +r.ops.toFixed(3)   : null,
+    wOBA:  r.woba  != null ? +r.woba.toFixed(3)  : null,
+    xwOBA: r.xwoba != null ? +r.xwoba.toFixed(3) : null,
+    pa:    r.pa,
+  }));
+
+  // --- Chart 2: Statcast quality by situation ---
+  const statcastData = seasonRows.map(r => ({
+    situation:  SITUATION_LABELS[r.situation_type] ?? r.situation_type,
+    'Exit Velo': r.avg_exit_velocity != null ? +r.avg_exit_velocity.toFixed(1) : null,
+    'Barrel%':   r.barrels_rate      != null ? +(r.barrels_rate * 100).toFixed(1) : null,
+    'Hard Hit%': r.hard_hit_rate     != null ? +(r.hard_hit_rate * 100).toFixed(1) : null,
+  }));
+
+  // --- Chart 3: RISP wOBA trend ---
+  const trendData = trendRows.map(r => ({
+    year:  r.game_year,
+    BA:    r.avg   != null ? +r.avg.toFixed(3)   : null,
+    wOBA:  r.woba  != null ? +r.woba.toFixed(3)  : null,
+    xwOBA: r.xwoba != null ? +r.xwoba.toFixed(3) : null,
+    OPS:   r.ops   != null ? +r.ops.toFixed(3)   : null,
+  }));
+
+  const tabs = [
+    { key: 'rates',    label: 'BA / OPS / wOBA' },
+    { key: 'statcast', label: 'Statcast' },
+    { key: 'trend',    label: 'RISP Trend' },
+  ];
+
+  return (
+    <div className="bg-gray-800/50 rounded-xl p-5 border border-gray-700">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">
+            Clutch Situation Breakdown
+            {resolvedSeason && <span className="ml-2 text-xs text-gray-500 normal-case font-normal">{resolvedSeason}</span>}
+          </h3>
+          <p className="text-xs text-gray-500 mt-0.5">状況別打撃成績 · Statcast指標 · RISPトレンド</p>
+        </div>
+        <div className="flex gap-1">
+          {tabs.map(t => (
+            <button key={t.key} onClick={() => setTab(t.key)}
+              className={`px-2.5 py-1 text-xs rounded transition-colors ${
+                tab === t.key ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* PA サマリーバッジ */}
+      {tab !== 'trend' && (
+        <div className="flex gap-3 mb-4 flex-wrap">
+          {seasonRows.map(r => (
+            <div key={r.situation_type} className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                style={{ backgroundColor: SITUATION_COLORS[r.situation_type] }} />
+              <span className="text-xs text-gray-400">
+                {SITUATION_LABELS[r.situation_type]}: <span className="text-gray-200">{r.pa ?? '—'} PA</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Chart 1: OPS / wOBA / xwOBA */}
+      {tab === 'rates' && (
+        <ResponsiveContainer width="100%" height={280}>
+          <ComposedChart data={ratesData} margin={{ top: 4, right: 20, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+            <XAxis dataKey="situation" tick={{ fill: '#9ca3af', fontSize: 12 }} />
+            <YAxis domain={[0, 1.2]} tick={{ fill: '#9ca3af', fontSize: 11 }}
+              tickFormatter={v => v.toFixed(2)} />
+            <Tooltip {...TOOLTIP_STYLE} formatter={(v, name) => [v?.toFixed(3) ?? '—', name]} />
+            <Legend wrapperStyle={{ color: '#9ca3af', fontSize: 12 }} />
+            <Line type="monotone" dataKey="BA" name="BA" stroke="#a78bfa" strokeWidth={2} dot={{ r: 4 }}>
+              <LabelList dataKey="BA" position="top" style={{ fill: '#a78bfa', fontSize: 10, fontWeight: 600 }} formatter={v => v?.toFixed(3)} />
+            </Line>
+            <Line type="monotone" dataKey="OPS"   name="OPS"   stroke="#3b82f6" strokeWidth={2} dot={{ r: 4 }} />
+            <Line type="monotone" dataKey="wOBA"  name="wOBA"  stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} />
+            <Line type="monotone" dataKey="xwOBA" name="xwOBA" stroke="#f59e0b" strokeWidth={2} dot={{ r: 4 }} strokeDasharray="4 2" />
+          </ComposedChart>
+        </ResponsiveContainer>
+      )}
+
+      {/* Chart 2: Statcast */}
+      {tab === 'statcast' && (
+        <ResponsiveContainer width="100%" height={280}>
+          <ComposedChart data={statcastData} margin={{ top: 4, right: 40, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+            <XAxis dataKey="situation" tick={{ fill: '#9ca3af', fontSize: 12 }} />
+            <YAxis yAxisId="ev" domain={[80, 100]} tick={{ fill: '#9ca3af', fontSize: 11 }}
+              label={{ value: 'Exit Velo (mph)', angle: -90, position: 'insideLeft', fill: '#6b7280', fontSize: 10, dy: 55 }} />
+            <YAxis yAxisId="pct" orientation="right" domain={[0, 30]}
+              tick={{ fill: '#9ca3af', fontSize: 11 }}
+              label={{ value: '%', angle: 90, position: 'insideRight', fill: '#6b7280', fontSize: 10, dy: -10 }} />
+            <Tooltip {...TOOLTIP_STYLE}
+              formatter={(v, name) => name === 'Exit Velo' ? [`${v} mph`, name] : [`${v}%`, name]} />
+            <Legend wrapperStyle={{ color: '#9ca3af', fontSize: 12 }} />
+            <Bar yAxisId="ev"  dataKey="Exit Velo" fill="#3b82f6" radius={[3,3,0,0]} opacity={0.85} />
+            <Line yAxisId="pct" type="monotone" dataKey="Barrel%"   stroke="#ef4444" strokeWidth={2} dot={{ r: 4 }} />
+            <Line yAxisId="pct" type="monotone" dataKey="Hard Hit%" stroke="#f59e0b" strokeWidth={2} dot={{ r: 4 }} strokeDasharray="4 2" />
+          </ComposedChart>
+        </ResponsiveContainer>
+      )}
+
+      {/* Chart 3: RISP Trend */}
+      {tab === 'trend' && (
+        trendData.length > 0 ? (
+          <>
+            <p className="text-xs text-gray-500 mb-3">RISP時のwOBA / xwOBA / OPS年度推移</p>
+            <ResponsiveContainer width="100%" height={280}>
+              <ComposedChart data={trendData} margin={{ top: 4, right: 20, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis dataKey="year" tick={{ fill: '#9ca3af', fontSize: 12 }} />
+                <YAxis domain={[0, 1.2]} tick={{ fill: '#9ca3af', fontSize: 11 }}
+                  tickFormatter={v => v.toFixed(2)} />
+                <Tooltip {...TOOLTIP_STYLE} formatter={(v, name) => [v?.toFixed(3) ?? '—', name]} />
+                <Legend wrapperStyle={{ color: '#9ca3af', fontSize: 12 }} />
+                <Line type="monotone" dataKey="BA"    name="BA (RISP)"    stroke="#a78bfa" strokeWidth={2} dot={{ r: 4 }} />
+                <Line type="monotone" dataKey="OPS"   name="OPS (RISP)"   stroke="#3b82f6" strokeWidth={2} dot={{ r: 4 }} />
+                <Line type="monotone" dataKey="wOBA"  name="wOBA (RISP)"  stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} />
+                <Line type="monotone" dataKey="xwOBA" name="xwOBA (RISP)" stroke="#f59e0b" strokeWidth={2} dot={{ r: 4 }} strokeDasharray="4 2" />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </>
+        ) : (
+          <p className="text-sm text-gray-500">RISPトレンドデータなし</p>
+        )
+      )}
+    </div>
+  );
+};
+
+// =============================================
 // シーズン選択ボタン
 // =============================================
-const SEASONS = [2021, 2022, 2023, 2024, 2025];
+const SEASONS = [2021, 2022, 2023, 2024, 2025, 2026];
 
 const SeasonSelector = ({ selectedSeason, onChange }) => (
   <div className="flex items-center gap-1.5">
@@ -1668,7 +2151,7 @@ const loadRecent = () => {
 };
 
 const saveRecent = (player, prev) => {
-  const next = [player, ...prev.filter((p) => p.idfg !== player.idfg)].slice(0, MAX_RECENT);
+  const next = [player, ...prev.filter((p) => p.mlbid !== player.mlbid)].slice(0, MAX_RECENT);
   localStorage.setItem(RECENT_KEY, JSON.stringify(next));
   return next;
 };
@@ -1682,7 +2165,7 @@ const PlayerProfile = ({ onSearchPlayers, getAuthHeaders, getBackendURL }) => {
   const [recentPlayers, setRecentPlayers] = useState(loadRecent);
 
   const fetchProfile = useCallback(
-    async (idfg, season) => {
+    async (mlbid, season) => {
       setProfile(null);
       setError(null);
       setIsLoading(true);
@@ -1690,8 +2173,8 @@ const PlayerProfile = ({ onSearchPlayers, getAuthHeaders, getBackendURL }) => {
         const baseURL = getBackendURL();
         const headers = await getAuthHeaders();
         const url = season
-          ? `${baseURL}/api/v1/players/${idfg}/profile?season=${season}`
-          : `${baseURL}/api/v1/players/${idfg}/profile`;
+          ? `${baseURL}/api/v1/players/${mlbid}/profile?season=${season}`
+          : `${baseURL}/api/v1/players/${mlbid}/profile`;
         const res = await fetch(url, { headers });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
@@ -1713,22 +2196,22 @@ const PlayerProfile = ({ onSearchPlayers, getAuthHeaders, getBackendURL }) => {
       setError(null);
       if (!player) return;
 
-      const idfg = player.idfg;
-      if (!idfg) {
-        setError('この選手は idfg が取得できませんでした。');
+      const mlbid = player.mlbid;
+      if (!mlbid) {
+        setError('この選手は mlbid が取得できませんでした。');
         return;
       }
       setRecentPlayers((prev) => saveRecent(player, prev));
-      await fetchProfile(idfg, null);
+      await fetchProfile(mlbid, null);
     },
     [fetchProfile]
   );
 
   const handleSeasonChange = useCallback(
     async (season) => {
-      if (!selectedPlayer?.idfg) return;
+      if (!selectedPlayer?.mlbid) return;
       setSelectedSeason(season);
-      await fetchProfile(selectedPlayer.idfg, season);
+      await fetchProfile(selectedPlayer.mlbid, season);
     },
     [selectedPlayer, fetchProfile]
   );
@@ -1830,6 +2313,14 @@ const PlayerProfile = ({ onSearchPlayers, getAuthHeaders, getBackendURL }) => {
             </div>
           )}
 
+          {/* Clutch Situation チャート（打者のみ） */}
+          {(profile.batting_kpi || isTWP) && (
+            <ClutchSituationChart
+              data={profile.clutch_stats}
+              season={profile.batting_kpi?.season}
+            />
+          )}
+
           {/* 月別打撃チャート */}
           <MonthlyOffensiveChart
             data={profile.monthly_offensive_stats}
@@ -1847,6 +2338,22 @@ const PlayerProfile = ({ onSearchPlayers, getAuthHeaders, getBackendURL }) => {
           {(profile.pitching_kpi || isTWP) && (
             <PitchingByInningChart
               data={profile.inning_stats}
+              season={profile.pitching_kpi?.season}
+            />
+          )}
+
+          {/* Pitcher RISP Performance（投手のみ） */}
+          {(profile.pitching_kpi || isTWP) && (
+            <PitcherRispChart
+              data={profile.pitcher_risp_performance}
+              season={profile.pitching_kpi?.season}
+            />
+          )}
+
+          {/* Pitcher TTO — Fastball Velo & Spin（投手のみ） */}
+          {(profile.pitching_kpi || isTWP) && (
+            <PitcherTtoChart
+              data={profile.pitcher_tto}
               season={profile.pitching_kpi?.season}
             />
           )}
@@ -1887,7 +2394,7 @@ const PlayerProfile = ({ onSearchPlayers, getAuthHeaders, getBackendURL }) => {
               <div className="flex flex-wrap justify-center gap-2">
                 {recentPlayers.map((player) => (
                   <button
-                    key={player.idfg}
+                    key={player.mlbid}
                     onClick={() => handlePlayerSelect(player)}
                     className="px-4 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-600 hover:border-blue-500 rounded-full text-sm text-gray-200 transition-colors"
                   >

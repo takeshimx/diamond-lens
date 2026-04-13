@@ -14,6 +14,7 @@ import LiveScoreboard from './components/LiveScoreboard.jsx';
 import LiveMonitorBoard from './components/LiveMonitorBoard.jsx';
 import Standings from './components/Standings.jsx';
 import Leaderboard from './components/Leaderboard.jsx';
+import HotSlumpDashboard from './components/HotSlumpDashboard.jsx';
 import PlayerProfile from './components/PlayerProfile.jsx';
 import VoiceInput from './components/VoiceInput.jsx';
 import MatchupAnalysisCard from './components/MatchupAnalysisCard.jsx';
@@ -2698,11 +2699,12 @@ const MLBChatApp = () => {
               {[
                 { mode: 'chat', icon: MessageCircle, label: 'チャット' },
                 { mode: 'quick', icon: Zap, label: 'クイック質問' },
-                { mode: 'custom', icon: Settings, label: 'カスタムクエリ' },
+                // { mode: 'custom', icon: Settings, label: 'カスタムクエリ' },
                 { mode: 'statistics', icon: Activity, label: '統計分析' },
                 { mode: 'segmentation', icon: Users, label: '選手分類' },
                 { mode: 'stuff-plus', icon: Target, label: '球質評価' },
                 { mode: 'advanced-stats', icon: BarChart3, label: 'Advanced Stats' },
+                { mode: 'hot-slump', icon: TrendingUp, label: 'Hot / Slump' },
                 { mode: 'leaderboard', icon: Trophy, label: 'リーダーボード' },
                 { mode: 'live', icon: Radio, label: '試合速報' },
                 { mode: 'monitor', icon: LayoutDashboard, label: 'モニターボード' },
@@ -2755,6 +2757,7 @@ const MLBChatApp = () => {
                   {uiMode === 'segmentation' && 'K-meansクラスタリングで選手タイプを分析'}
                   {uiMode === 'stuff-plus' && '球質（Stuff+）評価'}
                   {uiMode === 'advanced-stats' && 'Advanced Stats Rankings'}
+                  {uiMode === 'hot-slump' && '直近7日スタッツで打者のホット/スランプをランキング'}
                   {uiMode === 'leaderboard' && '打者・投手のシーズンリーダーボード'}
                   {uiMode === 'live' && '進行中の試合をリアルタイム表示'}
                   {uiMode === 'monitor' && '全試合をグリッドで一覧監視・異常検知'}
@@ -3057,6 +3060,11 @@ const MLBChatApp = () => {
               /* ===== Pitcher Whiff予測エリア ===== */
               <div className="px-4 sm:px-6 py-6 sm:py-8 h-full">
                 <PitcherWhiffPredictor />
+              </div>
+            ) : uiMode === 'hot-slump' ? (
+              /* ===== Hot / Slump ダッシュボード ===== */
+              <div className="h-full overflow-y-auto">
+                <HotSlumpDashboard />
               </div>
             ) : uiMode === 'leaderboard' ? (
               /* ===== リーダーボードエリア ===== */

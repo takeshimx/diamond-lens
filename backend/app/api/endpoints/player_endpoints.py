@@ -48,22 +48,22 @@ async def search_players_endpoint(
 
 
 @router.get(
-    "/players/{idfg}/profile",
+    "/players/{mlbid}/profile",
     response_model=PlayerProfileResponse,
     summary="選手プロフィール取得",
-    description="FanGraphs ID (idfg) から選手のBio情報とKPIを取得します。season を指定しない場合は最新シーズンを返します。",
+    description="MLB ID (mlbid) から選手のBio情報とKPIを取得します。season を指定しない場合は最新シーズンを返します。",
     tags=["players"]
 )
 async def get_player_profile_endpoint(
-    idfg: int,
+    mlbid: int,
     season: Optional[int] = Query(None, description="取得するシーズン (例: 2024)。省略時は最新シーズン。"),
 ):
     """
-    指定された idfg の選手プロフィール（Bio + 打者/投手KPI + 月別成績）を返します。
+    指定された mlbid の選手プロフィール（Bio + 打者/投手KPI + 月別成績）を返します。
     """
-    profile = get_player_profile(idfg, season=season)
+    profile = get_player_profile(mlbid, season=season)
     if profile is None:
-        raise HTTPException(status_code=404, detail=f"Player with idfg={idfg} not found.")
+        raise HTTPException(status_code=404, detail=f"Player with mlbid={mlbid} not found.")
     return profile
 
 
