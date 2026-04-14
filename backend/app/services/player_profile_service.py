@@ -2,7 +2,13 @@
 選手プロフィールページ用データ取得サービス
 Bio情報（dim_players_master + dim_teams）と
 現シーズンKPI（fact_batting_stats_with_risp / fact_pitching_stats_master）を返す
+
+パフォーマンス最適化（並列実行）:
+- Phase 1: Bio クエリ（idfg 取得のため先行実行）
+- Phase 2: 打者KPI / 投手KPI / RISP season を並列実行
+- Phase 3: 残り全クエリを並列実行
 """
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 import numpy as np
 from google.cloud import bigquery
@@ -50,15 +56,58 @@ from .base import (
 )
 
 
+def _nan_to_none(v):
+    """単一値のNaN を None に変換する"""
+    try:
+        if isinstance(v, (float, np.floating)) and np.isnan(v):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return v
+
+
 def _clean_row(df) -> dict:
     """DataFrameの先頭行をdictに変換し、NaN/NaT を None に置換する"""
     if df.empty:
         return {}
     row = df.iloc[0].to_dict()
-    return {
-        k: (None if (isinstance(v, float) and np.isnan(v)) else v)
-        for k, v in row.items()
-    }
+    return {k: _nan_to_none(v) for k, v in row.items()}
+
+
+def _bat_rank_cols(p: str = "") -> str:
+    """p='b.' のようなプレフィックスを付けてRANKカラム列を生成する"""
+    return f"""
+        RANK() OVER (ORDER BY {p}avg        DESC) AS avg_rank,
+        RANK() OVER (ORDER BY {p}obp        DESC) AS obp_rank,
+        RANK() OVER (ORDER BY {p}slg        DESC) AS slg_rank,
+        RANK() OVER (ORDER BY {p}ops        DESC) AS ops_rank,
+        RANK() OVER (ORDER BY {p}hr         DESC) AS hr_rank,
+        RANK() OVER (ORDER BY {p}rbi        DESC) AS rbi_rank,
+        RANK() OVER (ORDER BY {p}sb         DESC) AS sb_rank,
+        RANK() OVER (ORDER BY {p}bb         DESC) AS bb_rank,
+        RANK() OVER (ORDER BY {p}so         ASC)  AS so_rank,
+        RANK() OVER (ORDER BY {p}woba       DESC) AS woba_rank,
+        RANK() OVER (ORDER BY {p}wrcplus    DESC) AS wrcplus_rank,
+        RANK() OVER (ORDER BY {p}war        DESC) AS war_rank,
+        RANK() OVER (ORDER BY {p}hardhitpct DESC) AS hardhitpct_rank,
+        RANK() OVER (ORDER BY {p}barrelpct  DESC) AS barrelpct_rank,
+        RANK() OVER (ORDER BY {p}swstrpct   ASC)  AS swstrpct_rank
+    """
+
+
+def _pit_rank_cols(p: str = "") -> str:
+    return f"""
+        RANK() OVER (ORDER BY {p}era        ASC)  AS era_rank,
+        RANK() OVER (ORDER BY {p}whip       ASC)  AS whip_rank,
+        RANK() OVER (ORDER BY {p}fip        ASC)  AS fip_rank,
+        RANK() OVER (ORDER BY {p}k_9        DESC) AS k_9_rank,
+        RANK() OVER (ORDER BY {p}bb_9       ASC)  AS bb_9_rank,
+        RANK() OVER (ORDER BY {p}war        DESC) AS war_rank,
+        RANK() OVER (ORDER BY {p}so         DESC) AS so_rank,
+        RANK() OVER (ORDER BY {p}hardhitpct ASC)  AS hardhitpct_rank,
+        RANK() OVER (ORDER BY {p}barrelpct  ASC)  AS barrelpct_rank,
+        RANK() OVER (ORDER BY {p}swstrpct   DESC) AS swstrpct_rank
+    """
 
 
 def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[PlayerProfileResponse]:
@@ -71,13 +120,9 @@ def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[Pla
     """
     client = get_bq_client()
 
-    # Bio クエリ（シーズン非依存）
+    # ── Phase 1: Bio（idfg 取得のため必須・先行実行）────────────────────────
     bio_params = [bigquery.ScalarQueryParameter("mlbid", "INT64", mlbid)]
     bio_job_config = bigquery.QueryJobConfig(query_parameters=bio_params)
-
-    # ------------------------------------------------------------------
-    # 1. Bio
-    # ------------------------------------------------------------------
     bio_query = f"""
         SELECT
             p.mlbid,
@@ -101,36 +146,6 @@ def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[Pla
         WHERE p.mlbid = @mlbid
         LIMIT 1
     """
-
-    # ------------------------------------------------------------------
-    # 2. 打者KPI（RANK付き）
-    # PA閾値: 2025以前=350, 2026=30
-    # ------------------------------------------------------------------
-    _BAT_TABLE = f"`{PROJECT_ID}.{DATASET_ID}.{BATTING_STATS_TABLE_ID}`"
-
-    def _bat_rank_cols(p: str = "") -> str:
-        """p='b.' のようなプレフィックスを付けてRANKカラム列を生成する"""
-        return f"""
-            RANK() OVER (ORDER BY {p}avg        DESC) AS avg_rank,
-            RANK() OVER (ORDER BY {p}obp        DESC) AS obp_rank,
-            RANK() OVER (ORDER BY {p}slg        DESC) AS slg_rank,
-            RANK() OVER (ORDER BY {p}ops        DESC) AS ops_rank,
-            RANK() OVER (ORDER BY {p}hr         DESC) AS hr_rank,
-            RANK() OVER (ORDER BY {p}rbi        DESC) AS rbi_rank,
-            RANK() OVER (ORDER BY {p}sb         DESC) AS sb_rank,
-            RANK() OVER (ORDER BY {p}bb         DESC) AS bb_rank,
-            RANK() OVER (ORDER BY {p}so         ASC)  AS so_rank,
-            RANK() OVER (ORDER BY {p}woba       DESC) AS woba_rank,
-            RANK() OVER (ORDER BY {p}wrcplus    DESC) AS wrcplus_rank,
-            RANK() OVER (ORDER BY {p}war        DESC) AS war_rank,
-            RANK() OVER (ORDER BY {p}hardhitpct DESC) AS hardhitpct_rank,
-            RANK() OVER (ORDER BY {p}barrelpct  DESC) AS barrelpct_rank,
-            RANK() OVER (ORDER BY {p}swstrpct   ASC)  AS swstrpct_rank
-        """
-
-    # ------------------------------------------------------------------
-    # bio を先に実行して idfg を取得（batting/pitching は idfg で検索）
-    # ------------------------------------------------------------------
     try:
         bio_df = client.query(bio_query, job_config=bio_job_config).to_dataframe()
     except Exception as e:
@@ -146,13 +161,14 @@ def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[Pla
     bio_data.pop("mlbid", None)
     bio = PlayerBio(**bio_data)
 
-    # ------------------------------------------------------------------
-    # 2. 打者KPI（idfg 使用）
-    # PA閾値: 2025以前=350, 2026=30
-    # ------------------------------------------------------------------
-    batting_kpi = None
-    batting_data: dict = {}
-    if idfg and idfg > 0:
+    _BAT_TABLE = f"`{PROJECT_ID}.{DATASET_ID}.{BATTING_STATS_TABLE_ID}`"
+    _PIT_TABLE = f"`{PROJECT_ID}.{DATASET_ID}.{PITCHING_STATS_TABLE_ID}`"
+
+    # ── Phase 2 ヘルパー関数 ──────────────────────────────────────────────────
+
+    def _fetch_batting_kpi():
+        if not (idfg and idfg > 0):
+            return {"kpi": None, "data": {}}
         if season:
             min_pa = 350 if season <= 2025 else 30
             batting_params = [
@@ -194,34 +210,16 @@ def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[Pla
         batting_job_config = bigquery.QueryJobConfig(query_parameters=batting_params)
         try:
             batting_df = client.query(batting_query, job_config=batting_job_config).to_dataframe()
-            batting_data = _clean_row(batting_df)
-            batting_kpi = PlayerBattingKPI(**batting_data) if batting_data else None
+            data = _clean_row(batting_df)
+            kpi = PlayerBattingKPI(**data) if data else None
+            return {"kpi": kpi, "data": data}
         except Exception as e:
             logger.warning(f"batting_kpi query failed for idfg={idfg}: {e}")
+            return {"kpi": None, "data": {}}
 
-    # ------------------------------------------------------------------
-    # 3. 投手KPI（fact_pitching_stats / idfg 使用）
-    # IP閾値: 2025以前=100, 2026=6
-    # ------------------------------------------------------------------
-    _PIT_TABLE = f"`{PROJECT_ID}.{DATASET_ID}.{PITCHING_STATS_TABLE_ID}`"
-
-    def _pit_rank_cols(p: str = "") -> str:
-        return f"""
-            RANK() OVER (ORDER BY {p}era        ASC)  AS era_rank,
-            RANK() OVER (ORDER BY {p}whip       ASC)  AS whip_rank,
-            RANK() OVER (ORDER BY {p}fip        ASC)  AS fip_rank,
-            RANK() OVER (ORDER BY {p}k_9        DESC) AS k_9_rank,
-            RANK() OVER (ORDER BY {p}bb_9       ASC)  AS bb_9_rank,
-            RANK() OVER (ORDER BY {p}war        DESC) AS war_rank,
-            RANK() OVER (ORDER BY {p}so         DESC) AS so_rank,
-            RANK() OVER (ORDER BY {p}hardhitpct ASC)  AS hardhitpct_rank,
-            RANK() OVER (ORDER BY {p}barrelpct  ASC)  AS barrelpct_rank,
-            RANK() OVER (ORDER BY {p}swstrpct   DESC) AS swstrpct_rank
-        """
-
-    pitching_kpi = None
-    pitching_data: dict = {}
-    if idfg and idfg > 0:
+    def _fetch_pitching_kpi():
+        if not (idfg and idfg > 0):
+            return {"kpi": None, "data": {}}
         if season:
             min_ip = 100.0 if season <= 2025 else 6.0
             pitching_params = [
@@ -230,16 +228,25 @@ def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[Pla
                 bigquery.ScalarQueryParameter("min_ip", "FLOAT64", min_ip),
             ]
             pitching_query = f"""
-                WITH ranked AS (
-                    SELECT
-                        idfg, season, team, g, gs, w, l, sv, ip,
-                        era, whip, so, bb, fip, war,
-                        k_9, bb_9, hardhitpct, barrelpct, swstrpct,
-                        {_pit_rank_cols()}
+                WITH pool AS (
+                    SELECT idfg, {_pit_rank_cols()}
                     FROM {_PIT_TABLE}
                     WHERE season = @season AND ip >= @min_ip
+                ),
+                target AS (
+                    SELECT idfg, season, team, g, gs, w, l, sv, ip,
+                        era, whip, so, bb, fip, war,
+                        k_9, bb_9, hardhitpct, barrelpct, swstrpct
+                    FROM {_PIT_TABLE}
+                    WHERE season = @season AND idfg = @idfg
+                    LIMIT 1
                 )
-                SELECT * FROM ranked WHERE idfg = @idfg LIMIT 1
+                SELECT
+                    t.*,
+                    p.era_rank, p.whip_rank, p.fip_rank, p.k_9_rank, p.bb_9_rank,
+                    p.war_rank, p.so_rank, p.hardhitpct_rank, p.barrelpct_rank, p.swstrpct_rank
+                FROM target t
+                LEFT JOIN pool p ON t.idfg = p.idfg
             """
         else:
             pitching_params = [bigquery.ScalarQueryParameter("idfg", "INT64", idfg)]
@@ -247,69 +254,40 @@ def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[Pla
                 WITH latest AS (
                     SELECT MAX(season) AS s FROM {_PIT_TABLE} WHERE idfg = @idfg
                 ),
-                ranked AS (
-                    SELECT
-                        p.idfg, p.season, p.team, p.g, p.gs, p.w, p.l, p.sv, p.ip,
-                        p.era, p.whip, p.so, p.bb, p.fip, p.war,
-                        p.k_9, p.bb_9, p.hardhitpct, p.barrelpct, p.swstrpct,
-                        {_pit_rank_cols("p.")}
+                pool AS (
+                    SELECT p.idfg, {_pit_rank_cols("p.")}
                     FROM {_PIT_TABLE} p
                     CROSS JOIN latest l
                     WHERE p.season = l.s
                       AND p.ip >= CASE WHEN l.s <= 2025 THEN 100 ELSE 6 END
+                ),
+                target AS (
+                    SELECT p.idfg, p.season, p.team, p.g, p.gs, p.w, p.l, p.sv, p.ip,
+                        p.era, p.whip, p.so, p.bb, p.fip, p.war,
+                        p.k_9, p.bb_9, p.hardhitpct, p.barrelpct, p.swstrpct
+                    FROM {_PIT_TABLE} p
+                    CROSS JOIN latest l
+                    WHERE p.season = l.s AND p.idfg = @idfg
+                    LIMIT 1
                 )
-                SELECT * FROM ranked WHERE idfg = @idfg LIMIT 1
+                SELECT
+                    t.*,
+                    p.era_rank, p.whip_rank, p.fip_rank, p.k_9_rank, p.bb_9_rank,
+                    p.war_rank, p.so_rank, p.hardhitpct_rank, p.barrelpct_rank, p.swstrpct_rank
+                FROM target t
+                LEFT JOIN pool p ON t.idfg = p.idfg
             """
         pitching_job_config = bigquery.QueryJobConfig(query_parameters=pitching_params)
         try:
             pitching_df = client.query(pitching_query, job_config=pitching_job_config).to_dataframe()
-            pitching_data = _clean_row(pitching_df)
-            pitching_kpi = PlayerPitchingKPI(**pitching_data) if pitching_data else None
+            data = _clean_row(pitching_df)
+            kpi = PlayerPitchingKPI(**data) if data else None
+            return {"kpi": kpi, "data": data}
         except Exception as e:
             logger.warning(f"pitching_kpi query failed for idfg={idfg}: {e}")
+            return {"kpi": None, "data": {}}
 
-    # ------------------------------------------------------------------
-    # 4. 月別打撃成績
-    # ------------------------------------------------------------------
-    monthly_offensive_stats = None
-    if mlbid:
-        resolved_season = season or (batting_data.get("season") if batting_data else None)
-        if resolved_season is None and pitching_data:
-            resolved_season = pitching_data.get("season")
-
-        if resolved_season:
-            monthly_params = [
-                bigquery.ScalarQueryParameter("mlbid", "INT64", int(mlbid)),
-                bigquery.ScalarQueryParameter("season", "INT64", int(resolved_season)),
-            ]
-            monthly_job_config = bigquery.QueryJobConfig(query_parameters=monthly_params)
-            monthly_query = f"""
-                SELECT
-                    game_month,
-                    home_runs,
-                    on_base_percentage,
-                    slugging_percentage,
-                    on_base_plus_slugging
-                FROM `{PROJECT_ID}.{DATASET_ID}.{BATTING_OFFENSIVE_STATS_TABLE_ID}`
-                WHERE batter_id = @mlbid
-                  AND game_year  = @season
-                ORDER BY game_month ASC
-            """
-            try:
-                monthly_df = client.query(monthly_query, job_config=monthly_job_config).to_dataframe()
-                if not monthly_df.empty:
-                    monthly_offensive_stats = [
-                        PlayerMonthlyRow(**_clean_row(monthly_df.iloc[[i]]))
-                        for i in range(len(monthly_df))
-                    ]
-            except Exception as e:
-                logger.warning(f"monthly_offensive_stats query failed for mlbid={mlbid}: {e}")
-
-    # ------------------------------------------------------------------
-    # 5. RISP シーズン別集計（2021〜）
-    # ------------------------------------------------------------------
-    risp_stats = None
-    if mlbid:
+    def _fetch_risp_season():
         risp_params = [bigquery.ScalarQueryParameter("mlbid", "INT64", int(mlbid))]
         risp_job_config = bigquery.QueryJobConfig(query_parameters=risp_params)
         risp_query = f"""
@@ -338,153 +316,207 @@ def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[Pla
         try:
             risp_df = client.query(risp_query, job_config=risp_job_config).to_dataframe()
             if not risp_df.empty:
-                risp_stats = [
+                return [
                     PlayerRISPSeasonRow(**_clean_row(risp_df.iloc[[i]]))
                     for i in range(len(risp_df))
                 ]
         except Exception as e:
             logger.warning(f"risp_stats query failed for mlbid={mlbid}: {e}")
+        return None
 
-    # ------------------------------------------------------------------
-    # 6. RISP 月別（Single Season 表示用）
-    # ------------------------------------------------------------------
-    risp_monthly_stats = None
-    if mlbid:
-        resolved_season = season or (batting_data.get("season") if batting_data else None)
-        if resolved_season is None and pitching_data:
-            resolved_season = pitching_data.get("season")
+    # ── Phase 2: 並列実行（打者KPI / 投手KPI / RISP season）────────────────
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        fut_bat    = executor.submit(_fetch_batting_kpi)
+        fut_pit    = executor.submit(_fetch_pitching_kpi)
+        fut_risp_s = executor.submit(_fetch_risp_season)
 
-        if resolved_season:
-            risp_m_params = [
-                bigquery.ScalarQueryParameter("mlbid",  "INT64", int(mlbid)),
-                bigquery.ScalarQueryParameter("season", "INT64", int(resolved_season)),
-            ]
-            risp_m_job_config = bigquery.QueryJobConfig(query_parameters=risp_m_params)
-            risp_monthly_query = f"""
-                SELECT
-                    game_month                                                              AS month,
-                    SUM(singles_at_risp)                                                   AS singles,
-                    SUM(doubles_at_risp)                                                   AS doubles,
-                    SUM(triples_at_risp)                                                   AS triples,
-                    SUM(home_runs_at_risp)                                                 AS home_runs,
-                    SUM(hits_at_risp)                                                      AS hits,
-                    SUM(at_bats_at_risp)                                                   AS at_bats,
-                    SAFE_DIVIDE(SUM(hits_at_risp), SUM(at_bats_at_risp))                  AS batting_average,
-                    SAFE_DIVIDE(
-                        SUM(singles_at_risp)
-                        + 2 * SUM(doubles_at_risp)
-                        + 3 * SUM(triples_at_risp)
-                        + 4 * SUM(home_runs_at_risp),
-                        SUM(at_bats_at_risp)
-                    )                                                                      AS slugging_percentage
-                FROM `{PROJECT_ID}.{DATASET_ID}.{BAT_PERFORMANCE_RISP_TABLE_ID}`
-                WHERE batter_id = @mlbid
-                  AND game_year  = @season
-                GROUP BY game_month
-                ORDER BY game_month ASC
-            """
+        bat_result  = fut_bat.result()
+        pit_result  = fut_pit.result()
+        risp_stats  = fut_risp_s.result()
+
+    batting_kpi   = bat_result["kpi"]
+    batting_data  = bat_result["data"]
+    pitching_kpi  = pit_result["kpi"]
+    pitching_data = pit_result["data"]
+
+    # resolved_season 決定
+    resolved_season = season or (batting_data.get("season") if batting_data else None)
+    if resolved_season is None and pitching_data:
+        resolved_season = pitching_data.get("season")
+
+    # ── Phase 3 ヘルパー関数 ──────────────────────────────────────────────────
+
+    def _fetch_monthly():
+        if not resolved_season:
+            return None
+        monthly_params = [
+            bigquery.ScalarQueryParameter("mlbid",  "INT64", int(mlbid)),
+            bigquery.ScalarQueryParameter("season", "INT64", int(resolved_season)),
+        ]
+        monthly_job_config = bigquery.QueryJobConfig(query_parameters=monthly_params)
+        monthly_query = f"""
+            SELECT
+                game_month,
+                home_runs,
+                on_base_percentage,
+                slugging_percentage,
+                on_base_plus_slugging
+            FROM `{PROJECT_ID}.{DATASET_ID}.{BATTING_OFFENSIVE_STATS_TABLE_ID}`
+            WHERE batter_id = @mlbid
+              AND game_year  = @season
+            ORDER BY game_month ASC
+        """
+        try:
+            monthly_df = client.query(monthly_query, job_config=monthly_job_config).to_dataframe()
+            if not monthly_df.empty:
+                return [
+                    PlayerMonthlyRow(**_clean_row(monthly_df.iloc[[i]]))
+                    for i in range(len(monthly_df))
+                ]
+        except Exception as e:
+            logger.warning(f"monthly_offensive_stats query failed for mlbid={mlbid}: {e}")
+        return None
+
+    def _fetch_risp_monthly():
+        if not resolved_season:
+            return None
+        risp_m_params = [
+            bigquery.ScalarQueryParameter("mlbid",  "INT64", int(mlbid)),
+            bigquery.ScalarQueryParameter("season", "INT64", int(resolved_season)),
+        ]
+        risp_m_job_config = bigquery.QueryJobConfig(query_parameters=risp_m_params)
+        risp_monthly_query = f"""
+            SELECT
+                game_month                                                              AS month,
+                SUM(singles_at_risp)                                                   AS singles,
+                SUM(doubles_at_risp)                                                   AS doubles,
+                SUM(triples_at_risp)                                                   AS triples,
+                SUM(home_runs_at_risp)                                                 AS home_runs,
+                SUM(hits_at_risp)                                                      AS hits,
+                SUM(at_bats_at_risp)                                                   AS at_bats,
+                SAFE_DIVIDE(SUM(hits_at_risp), SUM(at_bats_at_risp))                  AS batting_average,
+                SAFE_DIVIDE(
+                    SUM(singles_at_risp)
+                    + 2 * SUM(doubles_at_risp)
+                    + 3 * SUM(triples_at_risp)
+                    + 4 * SUM(home_runs_at_risp),
+                    SUM(at_bats_at_risp)
+                )                                                                      AS slugging_percentage
+            FROM `{PROJECT_ID}.{DATASET_ID}.{BAT_PERFORMANCE_RISP_TABLE_ID}`
+            WHERE batter_id = @mlbid
+              AND game_year  = @season
+            GROUP BY game_month
+            ORDER BY game_month ASC
+        """
+        try:
+            risp_m_df = client.query(risp_monthly_query, job_config=risp_m_job_config).to_dataframe()
+            if not risp_m_df.empty:
+                return [
+                    PlayerRISPMonthlyRow(**_clean_row(risp_m_df.iloc[[i]]))
+                    for i in range(len(risp_m_df))
+                ]
+        except Exception as e:
+            logger.warning(f"risp_monthly_stats query failed for mlbid={mlbid}: {e}")
+        return None
+
+    def _fetch_inning_and_era():
+        """inning stats と ERA by inning を並列取得してマージして返す"""
+        if not resolved_season:
+            return None
+        params = [
+            bigquery.ScalarQueryParameter("mlbid",  "INT64", int(mlbid)),
+            bigquery.ScalarQueryParameter("season", "INT64", int(resolved_season)),
+        ]
+        inning_query = f"""
+            SELECT
+                inning,
+                SUM(hits_allowed)                                                       AS hits_allowed,
+                SUM(home_runs_allowed)                                                  AS home_runs_allowed,
+                SUM(free_passes)                                                        AS free_passes,
+                SUM(outs_recorded)                                                      AS outs_recorded,
+                SAFE_DIVIDE(SUM(obp_numerator), SUM(obp_denominator))                  AS obp_against,
+                SAFE_DIVIDE(SUM(slg_numerator), SUM(slg_denominator))                  AS slg_against,
+                SAFE_DIVIDE(
+                    SUM(obp_numerator) + SUM(slg_numerator),
+                    SUM(obp_denominator) + SUM(slg_denominator)
+                )                                                                       AS ops_against,
+                SAFE_DIVIDE(
+                    SUM(hits_allowed),
+                    SUM(obp_denominator) - SUM(free_passes)
+                )                                                                       AS baa
+            FROM `{PROJECT_ID}.{DATASET_ID}.{PITCHING_PERFORMANCE_BY_INNING_TABLE_ID}`
+            WHERE pitcher_id = @mlbid
+              AND game_year  = @season
+            GROUP BY inning
+            ORDER BY inning ASC
+        """
+        era_query = f"""
+            SELECT
+                inning,
+                innings_pitched,
+                earned_runs,
+                era_by_inning AS era
+            FROM `{PROJECT_ID}.{DATASET_ID}.{MART_PITCHER_ERA_BY_INNING_TABLE_ID}`
+            WHERE pitcher    = @mlbid
+              AND game_year  = @season
+            ORDER BY inning ASC
+        """
+        # inning と ERA を並列取得
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            fut_inning = ex.submit(
+                lambda: client.query(
+                    inning_query,
+                    job_config=bigquery.QueryJobConfig(query_parameters=params)
+                ).to_dataframe()
+            )
+            fut_era = ex.submit(
+                lambda: client.query(
+                    era_query,
+                    job_config=bigquery.QueryJobConfig(query_parameters=params)
+                ).to_dataframe()
+            )
             try:
-                risp_m_df = client.query(risp_monthly_query, job_config=risp_m_job_config).to_dataframe()
-                if not risp_m_df.empty:
-                    risp_monthly_stats = [
-                        PlayerRISPMonthlyRow(**_clean_row(risp_m_df.iloc[[i]]))
-                        for i in range(len(risp_m_df))
-                    ]
-            except Exception as e:
-                logger.warning(f"risp_monthly_stats query failed for mlbid={mlbid}: {e}")
-
-    # ------------------------------------------------------------------
-    # 7. イニング別投球成績（pitcher_id = mlbid + resolved_season）
-    # ------------------------------------------------------------------
-    inning_stats = None
-    if mlbid:
-        resolved_season = season or (pitching_data.get("season") if pitching_data else None)
-        if resolved_season is None and batting_data:
-            resolved_season = batting_data.get("season")
-
-        if resolved_season:
-            inning_params = [
-                bigquery.ScalarQueryParameter("mlbid",  "INT64", int(mlbid)),
-                bigquery.ScalarQueryParameter("season", "INT64", int(resolved_season)),
-            ]
-            inning_job_config = bigquery.QueryJobConfig(query_parameters=inning_params)
-            inning_query = f"""
-                SELECT
-                    inning,
-                    SUM(hits_allowed)                                                       AS hits_allowed,
-                    SUM(home_runs_allowed)                                                  AS home_runs_allowed,
-                    SUM(free_passes)                                                        AS free_passes,
-                    SUM(outs_recorded)                                                      AS outs_recorded,
-                    SAFE_DIVIDE(SUM(obp_numerator), SUM(obp_denominator))                  AS obp_against,
-                    SAFE_DIVIDE(SUM(slg_numerator), SUM(slg_denominator))                  AS slg_against,
-                    SAFE_DIVIDE(
-                        SUM(obp_numerator) + SUM(slg_numerator),
-                        SUM(obp_denominator) + SUM(slg_denominator)
-                    )                                                                       AS ops_against,
-                    SAFE_DIVIDE(
-                        SUM(hits_allowed),
-                        SUM(obp_denominator) - SUM(free_passes)
-                    )                                                                       AS baa
-                FROM `{PROJECT_ID}.{DATASET_ID}.{PITCHING_PERFORMANCE_BY_INNING_TABLE_ID}`
-                WHERE pitcher_id = @mlbid
-                  AND game_year  = @season
-                GROUP BY inning
-                ORDER BY inning ASC
-            """
-            try:
-                inning_df = client.query(inning_query, job_config=inning_job_config).to_dataframe()
-                if not inning_df.empty:
-                    inning_stats = [
-                        PlayerInningRow(**_clean_row(inning_df.iloc[[i]]))
-                        for i in range(len(inning_df))
-                    ]
+                inning_df = fut_inning.result()
             except Exception as e:
                 logger.warning(f"inning_stats query failed for mlbid={mlbid}: {e}")
+                return None
+            try:
+                era_df = fut_era.result()
+            except Exception as e:
+                logger.warning(f"era_by_inning query failed for mlbid={mlbid}: {e}")
+                era_df = None
 
-            # ERA by inning（mart_pitcher_era_by_inning から取得）
-            if inning_stats:
-                era_params = [
-                    bigquery.ScalarQueryParameter("mlbid",  "INT64", int(mlbid)),
-                    bigquery.ScalarQueryParameter("season", "INT64", int(resolved_season)),
-                ]
-                era_job_config = bigquery.QueryJobConfig(query_parameters=era_params)
-                era_query = f"""
-                    SELECT
-                        inning,
-                        innings_pitched,
-                        earned_runs,
-                        era_by_inning AS era
-                    FROM `{PROJECT_ID}.{DATASET_ID}.{MART_PITCHER_ERA_BY_INNING_TABLE_ID}`
-                    WHERE pitcher    = @mlbid
-                      AND game_year  = @season
-                    ORDER BY inning ASC
-                """
-                try:
-                    era_df = client.query(era_query, job_config=era_job_config).to_dataframe()
-                    if not era_df.empty:
-                        era_by_inning = {int(r["inning"]): r for _, r in era_df.iterrows()}
-                        merged = []
-                        for stat_row in inning_stats:
-                            row_dict = (
-                                stat_row.model_dump()
-                                if hasattr(stat_row, "model_dump")
-                                else stat_row.dict()
-                            )
-                            if stat_row.inning in era_by_inning:
-                                er = era_by_inning[stat_row.inning]
-                                row_dict["era"] = er.get("era")
-                                row_dict["earned_runs"] = (
-                                    int(er["earned_runs"]) if er.get("earned_runs") is not None else None
-                                )
-                                row_dict["innings_pitched"] = er.get("innings_pitched")
-                            merged.append(PlayerInningRow(**row_dict))
-                        inning_stats = merged
-                except Exception as e:
-                    logger.warning(f"era_by_inning query failed for mlbid={mlbid}: {e}")
+        if inning_df.empty:
+            return None
 
-    # ── Query 8: Statcast pitches (投手のみ) ──────────────────────────────────
-    statcast_pitches = None
-    if mlbid and resolved_season and pitching_kpi is not None:
+        inning_stats = [
+            PlayerInningRow(**_clean_row(inning_df.iloc[[i]]))
+            for i in range(len(inning_df))
+        ]
+
+        if era_df is not None and not era_df.empty:
+            era_by_inning = {int(r["inning"]): r for _, r in era_df.iterrows()}
+            merged = []
+            for stat_row in inning_stats:
+                row_dict = (
+                    stat_row.model_dump()
+                    if hasattr(stat_row, "model_dump")
+                    else stat_row.dict()
+                )
+                if stat_row.inning in era_by_inning:
+                    er = era_by_inning[stat_row.inning]
+                    row_dict["era"] = _nan_to_none(er.get("era"))
+                    er_val = _nan_to_none(er.get("earned_runs"))
+                    row_dict["earned_runs"] = int(er_val) if er_val is not None else None
+                    row_dict["innings_pitched"] = _nan_to_none(er.get("innings_pitched"))
+                merged.append(PlayerInningRow(**row_dict))
+            return merged
+
+        return inning_stats
+
+    def _fetch_statcast():
+        if not (resolved_season and pitching_kpi is not None):
+            return None
         sc_params = [
             bigquery.ScalarQueryParameter("mlbid",  "INT64", int(mlbid)),
             bigquery.ScalarQueryParameter("season", "INT64", int(resolved_season)),
@@ -514,16 +546,17 @@ def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[Pla
         try:
             sc_df = client.query(sc_query, job_config=sc_job_config).to_dataframe()
             if not sc_df.empty:
-                statcast_pitches = [
+                return [
                     StatcastPitchRow(**_clean_row(sc_df.iloc[[i]]))
                     for i in range(len(sc_df))
                 ]
         except Exception as e:
             logger.warning(f"statcast_pitches query failed for mlbid={mlbid}: {e}")
+        return None
 
-    # ── Query 9: Pitch Performance xBA & Whiff% (投手のみ) ───────────────────
-    pitch_performance = None
-    if mlbid and resolved_season and pitching_kpi is not None:
+    def _fetch_pitch_performance():
+        if not (resolved_season and pitching_kpi is not None):
+            return None
         pp_params = [
             bigquery.ScalarQueryParameter("mlbid",  "INT64", int(mlbid)),
             bigquery.ScalarQueryParameter("season", "INT64", int(resolved_season)),
@@ -547,16 +580,17 @@ def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[Pla
         try:
             pp_df = client.query(pp_query, job_config=pp_job_config).to_dataframe()
             if not pp_df.empty:
-                pitch_performance = [
+                return [
                     PitchPerformanceRow(**_clean_row(pp_df.iloc[[i]]))
                     for i in range(len(pp_df))
                 ]
         except Exception as e:
             logger.warning(f"pitch_performance query failed for mlbid={mlbid}: {e}")
+        return None
 
-    # ── Query 10: Hit Location & Type Distribution (打者のみ) ────────────────
-    hit_location = None
-    if mlbid and resolved_season and batting_kpi is not None:
+    def _fetch_hit_location():
+        if not (resolved_season and batting_kpi is not None):
+            return None
         hl_params = [
             bigquery.ScalarQueryParameter("mlbid",  "INT64", int(mlbid)),
             bigquery.ScalarQueryParameter("season", "INT64", int(resolved_season)),
@@ -584,16 +618,17 @@ def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[Pla
         try:
             hl_df = client.query(hl_query, job_config=hl_job_config).to_dataframe()
             if not hl_df.empty:
-                hit_location = [
+                return [
                     HitLocationRow(**_clean_row(hl_df.iloc[[i]]))
                     for i in range(len(hl_df))
                 ]
         except Exception as e:
             logger.warning(f"hit_location query failed for mlbid={mlbid}: {e}")
+        return None
 
-    # ── Query 11: Whiff Zone Heatmap (投手のみ) ──────────────────────────────
-    whiff_heatmap = None
-    if mlbid and resolved_season and pitching_kpi is not None:
+    def _fetch_whiff_heatmap():
+        if not (resolved_season and pitching_kpi is not None):
+            return None
         wh_params = [
             bigquery.ScalarQueryParameter("mlbid",  "INT64", int(mlbid)),
             bigquery.ScalarQueryParameter("season", "INT64", int(resolved_season)),
@@ -618,16 +653,17 @@ def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[Pla
         try:
             wh_df = client.query(wh_query, job_config=wh_job_config).to_dataframe()
             if not wh_df.empty:
-                whiff_heatmap = [
+                return [
                     WhiffHeatmapRow(**_clean_row(wh_df.iloc[[i]]))
                     for i in range(len(wh_df))
                 ]
         except Exception as e:
             logger.warning(f"whiff_heatmap query failed for mlbid={mlbid}: {e}")
+        return None
 
-    # ── Query 12: Count State wOBA Matrix（打者のみ） ────────────────────────
-    count_state_woba = None
-    if mlbid and resolved_season and batting_kpi is not None:
+    def _fetch_count_state_woba():
+        if not (resolved_season and batting_kpi is not None):
+            return None
         cs_params = [
             bigquery.ScalarQueryParameter("mlbid",  "INT64", int(mlbid)),
             bigquery.ScalarQueryParameter("season", "INT64", int(resolved_season)),
@@ -649,16 +685,17 @@ def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[Pla
         try:
             cs_df = client.query(cs_query, job_config=cs_job_config).to_dataframe()
             if not cs_df.empty:
-                count_state_woba = [
+                return [
                     CountStateWobaRow(**_clean_row(cs_df.iloc[[i]]))
                     for i in range(len(cs_df))
                 ]
         except Exception as e:
             logger.warning(f"count_state_woba query failed for mlbid={mlbid}: {e}")
+        return None
 
-    # ── Query 13: xwOBA Zone Heatmap（打者のみ） ─────────────────────────────
-    xwoba_zone = None
-    if mlbid and resolved_season and batting_kpi is not None:
+    def _fetch_xwoba_zone():
+        if not (resolved_season and batting_kpi is not None):
+            return None
         xz_params = [
             bigquery.ScalarQueryParameter("mlbid",  "INT64", int(mlbid)),
             bigquery.ScalarQueryParameter("season", "INT64", int(resolved_season)),
@@ -683,16 +720,17 @@ def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[Pla
         try:
             xz_df = client.query(xz_query, job_config=xz_job_config).to_dataframe()
             if not xz_df.empty:
-                xwoba_zone = [
+                return [
                     XwobaZoneRow(**_clean_row(xz_df.iloc[[i]]))
                     for i in range(len(xz_df))
                 ]
         except Exception as e:
             logger.warning(f"xwoba_zone query failed for mlbid={mlbid}: {e}")
+        return None
 
-    # ── Query 14: Clutch Stats（打者のみ、全シーズン） ────────────────────────
-    clutch_stats = None
-    if mlbid and batting_kpi is not None:
+    def _fetch_clutch():
+        if batting_kpi is None:
+            return None
         clutch_params = [bigquery.ScalarQueryParameter("mlbid", "INT64", int(mlbid))]
         clutch_job_config = bigquery.QueryJobConfig(query_parameters=clutch_params)
         clutch_query = f"""
@@ -729,16 +767,17 @@ def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[Pla
         try:
             clutch_df = client.query(clutch_query, job_config=clutch_job_config).to_dataframe()
             if not clutch_df.empty:
-                clutch_stats = [
+                return [
                     BatterClutchRow(**_clean_row(clutch_df.iloc[[i]]))
                     for i in range(len(clutch_df))
                 ]
         except Exception as e:
             logger.warning(f"clutch_stats query failed for mlbid={mlbid}: {e}")
+        return None
 
-    # ── Query 15: Pitcher RISP Performance（投手のみ） ────────────────────────
-    pitcher_risp_performance = None
-    if mlbid and resolved_season and pitching_kpi is not None:
+    def _fetch_pitcher_risp():
+        if not (resolved_season and pitching_kpi is not None):
+            return None
         pr_params = [
             bigquery.ScalarQueryParameter("mlbid",  "INT64", int(mlbid)),
             bigquery.ScalarQueryParameter("season", "INT64", int(resolved_season)),
@@ -763,16 +802,17 @@ def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[Pla
         try:
             pr_df = client.query(pr_query, job_config=pr_job_config).to_dataframe()
             if not pr_df.empty:
-                pitcher_risp_performance = [
+                return [
                     PitcherRispRow(**_clean_row(pr_df.iloc[[i]]))
                     for i in range(len(pr_df))
                 ]
         except Exception as e:
             logger.warning(f"pitcher_risp_performance query failed for mlbid={mlbid}: {e}")
+        return None
 
-    # ── Query 16: Pitcher TTO Velo & Spin（投手のみ） ────────────────────────
-    pitcher_tto = None
-    if mlbid and resolved_season and pitching_kpi is not None:
+    def _fetch_pitcher_tto():
+        if not (resolved_season and pitching_kpi is not None):
+            return None
         tto_params = [
             bigquery.ScalarQueryParameter("mlbid",  "INT64", int(mlbid)),
             bigquery.ScalarQueryParameter("season", "INT64", int(resolved_season)),
@@ -788,12 +828,40 @@ def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[Pla
         try:
             tto_df = client.query(tto_query, job_config=tto_job_config).to_dataframe()
             if not tto_df.empty:
-                pitcher_tto = [
+                return [
                     PitcherTtoRow(**_clean_row(tto_df.iloc[[i]]))
                     for i in range(len(tto_df))
                 ]
         except Exception as e:
             logger.warning(f"pitcher_tto query failed for mlbid={mlbid}: {e}")
+        return None
+
+    # ── Phase 3: 並列実行（残り全クエリ）────────────────────────────────────
+    phase3_funcs = {
+        "monthly":           _fetch_monthly,
+        "risp_monthly":      _fetch_risp_monthly,
+        "inning":            _fetch_inning_and_era,
+        "statcast":          _fetch_statcast,
+        "pitch_performance": _fetch_pitch_performance,
+        "hit_location":      _fetch_hit_location,
+        "whiff_heatmap":     _fetch_whiff_heatmap,
+        "count_state_woba":  _fetch_count_state_woba,
+        "xwoba_zone":        _fetch_xwoba_zone,
+        "clutch":            _fetch_clutch,
+        "pitcher_risp":      _fetch_pitcher_risp,
+        "pitcher_tto":       _fetch_pitcher_tto,
+    }
+
+    phase3_results: dict = {}
+    with ThreadPoolExecutor(max_workers=12) as executor:
+        futures_map = {executor.submit(fn): key for key, fn in phase3_funcs.items()}
+        for future in as_completed(futures_map):
+            key = futures_map[future]
+            try:
+                phase3_results[key] = future.result()
+            except Exception as e:
+                logger.warning(f"Phase3 '{key}' failed: {e}")
+                phase3_results[key] = None
 
     return PlayerProfileResponse(
         idfg=idfg,
@@ -801,17 +869,17 @@ def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[Pla
         bio=bio,
         batting_kpi=batting_kpi,
         pitching_kpi=pitching_kpi,
-        monthly_offensive_stats=monthly_offensive_stats,
+        monthly_offensive_stats=phase3_results.get("monthly"),
         risp_stats=risp_stats,
-        risp_monthly_stats=risp_monthly_stats,
-        inning_stats=inning_stats,
-        statcast_pitches=statcast_pitches,
-        pitch_performance=pitch_performance,
-        hit_location=hit_location,
-        whiff_heatmap=whiff_heatmap,
-        count_state_woba=count_state_woba,
-        xwoba_zone=xwoba_zone,
-        clutch_stats=clutch_stats,
-        pitcher_risp_performance=pitcher_risp_performance,
-        pitcher_tto=pitcher_tto,
+        risp_monthly_stats=phase3_results.get("risp_monthly"),
+        inning_stats=phase3_results.get("inning"),
+        statcast_pitches=phase3_results.get("statcast"),
+        pitch_performance=phase3_results.get("pitch_performance"),
+        hit_location=phase3_results.get("hit_location"),
+        whiff_heatmap=phase3_results.get("whiff_heatmap"),
+        count_state_woba=phase3_results.get("count_state_woba"),
+        xwoba_zone=phase3_results.get("xwoba_zone"),
+        clutch_stats=phase3_results.get("clutch"),
+        pitcher_risp_performance=phase3_results.get("pitcher_risp"),
+        pitcher_tto=phase3_results.get("pitcher_tto"),
     )
