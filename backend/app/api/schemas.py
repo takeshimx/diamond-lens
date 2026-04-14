@@ -774,6 +774,10 @@ class PlayerInningRow(BaseModel):
     obp_against: Optional[float] = None
     slg_against: Optional[float] = None
     ops_against: Optional[float] = None
+    # ERA（statcastベース近似）
+    era: Optional[float] = None
+    earned_runs: Optional[int] = None
+    innings_pitched: Optional[float] = None
 
 
 class HitLocationRow(BaseModel):

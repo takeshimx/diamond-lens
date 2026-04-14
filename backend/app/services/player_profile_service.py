@@ -46,6 +46,7 @@ from .base import (
     MART_BATTER_CLUTCH_TABLE_ID,
     PITCHER_RISP_PERFORMANCE_TABLE_ID,
     PITCHER_TTO_VELO_SPIN_TABLE_ID,
+    MART_PITCHER_ERA_BY_INNING_TABLE_ID,
 )
 
 
@@ -439,6 +440,47 @@ def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[Pla
                     ]
             except Exception as e:
                 logger.warning(f"inning_stats query failed for mlbid={mlbid}: {e}")
+
+            # ERA by inning（mart_pitcher_era_by_inning から取得）
+            if inning_stats:
+                era_params = [
+                    bigquery.ScalarQueryParameter("mlbid",  "INT64", int(mlbid)),
+                    bigquery.ScalarQueryParameter("season", "INT64", int(resolved_season)),
+                ]
+                era_job_config = bigquery.QueryJobConfig(query_parameters=era_params)
+                era_query = f"""
+                    SELECT
+                        inning,
+                        innings_pitched,
+                        earned_runs,
+                        era_by_inning AS era
+                    FROM `{PROJECT_ID}.{DATASET_ID}.{MART_PITCHER_ERA_BY_INNING_TABLE_ID}`
+                    WHERE pitcher    = @mlbid
+                      AND game_year  = @season
+                    ORDER BY inning ASC
+                """
+                try:
+                    era_df = client.query(era_query, job_config=era_job_config).to_dataframe()
+                    if not era_df.empty:
+                        era_by_inning = {int(r["inning"]): r for _, r in era_df.iterrows()}
+                        merged = []
+                        for stat_row in inning_stats:
+                            row_dict = (
+                                stat_row.model_dump()
+                                if hasattr(stat_row, "model_dump")
+                                else stat_row.dict()
+                            )
+                            if stat_row.inning in era_by_inning:
+                                er = era_by_inning[stat_row.inning]
+                                row_dict["era"] = er.get("era")
+                                row_dict["earned_runs"] = (
+                                    int(er["earned_runs"]) if er.get("earned_runs") is not None else None
+                                )
+                                row_dict["innings_pitched"] = er.get("innings_pitched")
+                            merged.append(PlayerInningRow(**row_dict))
+                        inning_stats = merged
+                except Exception as e:
+                    logger.warning(f"era_by_inning query failed for mlbid={mlbid}: {e}")
 
     # ── Query 8: Statcast pitches (投手のみ) ──────────────────────────────────
     statcast_pitches = None

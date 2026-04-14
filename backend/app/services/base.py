@@ -52,6 +52,7 @@ BATTER_XWOBA_ZONE_TABLE_ID = settings.bigquery_batter_xwoba_zone_table_id
 MART_BATTER_CLUTCH_TABLE_ID = settings.bigquery_mart_batter_clutch_table_id
 PITCHER_RISP_PERFORMANCE_TABLE_ID = settings.bigquery_pitcher_risp_performance_table_id
 PITCHER_TTO_VELO_SPIN_TABLE_ID = settings.bigquery_pitcher_tto_velo_spin_table_id
+MART_PITCHER_ERA_BY_INNING_TABLE_ID = settings.bigquery_mart_pitcher_era_by_inning_table_id
 SERVICE_ACCOUNT_KEY_PATH = settings.google_application_credentials
 GEMINI_API_KEY = settings.gemini_api_key
 

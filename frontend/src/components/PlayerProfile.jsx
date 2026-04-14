@@ -936,7 +936,8 @@ const RISPChart = ({ data, monthlyData, season }) => {
 // Pitching Performance by Inning チャート
 // =============================================
 const INNING_LINE_OPTIONS = [
-  { key: 'baa',        label: 'BAA',         color: '#f59e0b' },
+  { key: 'era',         label: 'ERA',         color: '#ef4444' },
+  { key: 'baa',         label: 'BAA',         color: '#f59e0b' },
   { key: 'obp_against', label: 'OBP Against', color: '#3b82f6' },
   { key: 'slg_against', label: 'SLG Against', color: '#a78bfa' },
   { key: 'ops_against', label: 'OPS Against', color: '#f43f5e' },
@@ -949,7 +950,7 @@ const INNING_BAR_OPTIONS = [
 ];
 
 const PitchingByInningChart = ({ data, season }) => {
-  const [lineKey, setLineKey] = useState('baa');
+  const [lineKey, setLineKey] = useState('era');
   const [barKey,  setBarKey]  = useState('home_runs_allowed');
 
   if (!data || data.length === 0) return null;
@@ -960,6 +961,7 @@ const PitchingByInningChart = ({ data, season }) => {
     obp_against:       row.obp_against        != null ? +row.obp_against.toFixed(3)        : null,
     slg_against:       row.slg_against        != null ? +row.slg_against.toFixed(3)        : null,
     ops_against:       row.ops_against        != null ? +row.ops_against.toFixed(3)        : null,
+    era:               row.era                != null ? +row.era.toFixed(2)                : null,
     home_runs_allowed: row.home_runs_allowed  ?? 0,
     hits_allowed:      row.hits_allowed       ?? 0,
     free_passes:       row.free_passes        ?? 0,
@@ -970,10 +972,13 @@ const PitchingByInningChart = ({ data, season }) => {
   const barOpt  = INNING_BAR_OPTIONS.find((o)  => o.key === barKey);
 
   // サマリー: totals across all innings
-  const totHR    = data.reduce((s, r) => s + (r.home_runs_allowed ?? 0), 0);
-  const totHits  = data.reduce((s, r) => s + (r.hits_allowed ?? 0), 0);
-  const totBB    = data.reduce((s, r) => s + (r.free_passes ?? 0), 0);
-  const totOuts  = data.reduce((s, r) => s + (r.outs_recorded ?? 0), 0);
+  const totHR      = data.reduce((s, r) => s + (r.home_runs_allowed ?? 0), 0);
+  const totHits    = data.reduce((s, r) => s + (r.hits_allowed ?? 0), 0);
+  const totBB      = data.reduce((s, r) => s + (r.free_passes ?? 0), 0);
+  const totOuts    = data.reduce((s, r) => s + (r.outs_recorded ?? 0), 0);
+  const totEarned  = data.reduce((s, r) => s + (r.earned_runs ?? 0), 0);
+  const totIP      = totOuts > 0 ? (totOuts / 3).toFixed(1) : null;
+  const overallERA = totOuts > 0 ? ((totEarned / (totOuts / 3)) * 9).toFixed(2) : null;
 
   return (
     <div className="bg-gray-800/50 rounded-xl p-5 border border-gray-700">
@@ -982,12 +987,17 @@ const PitchingByInningChart = ({ data, season }) => {
         <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-3">
           Pitching Performance by Inning
           {season && <span className="text-gray-500 ml-2 text-xs normal-case">{season}</span>}
+          <span className="ml-3 text-xs font-normal normal-case text-gray-500">
+            ※ ERA は Statcast ベースの近似値（公式 ERA と異なる場合があります）
+          </span>
         </h3>
-        <div className="grid grid-cols-4 gap-4 mb-4">
+        <div className="grid grid-cols-6 gap-4 mb-4">
           {[
-            { label: 'HR Allowed',  value: totHR },
+            { label: 'ERA',          value: overallERA ?? '—' },
+            { label: 'IP',           value: totIP      ?? '—' },
+            { label: 'HR Allowed',   value: totHR },
             { label: 'Hits Allowed', value: totHits },
-            { label: 'Free Passes', value: totBB },
+            { label: 'Free Passes',  value: totBB },
             { label: 'Outs Recorded', value: totOuts },
           ].map(({ label, value }) => (
             <div key={label}>
@@ -1076,7 +1086,13 @@ const PitchingByInningChart = ({ data, season }) => {
             fill={barOpt?.fill}
             opacity={0.85}
             radius={[3, 3, 0, 0]}
-          />
+          >
+            <LabelList
+              dataKey={barKey}
+              position="top"
+              style={{ fill: '#d1d5db', fontSize: 11, fontWeight: 500 }}
+            />
+          </Bar>
           <Line
             yAxisId="left"
             type="monotone"
@@ -1086,7 +1102,14 @@ const PitchingByInningChart = ({ data, season }) => {
             strokeWidth={2}
             dot={{ r: 3 }}
             connectNulls
-          />
+          >
+            <LabelList
+              dataKey={lineKey}
+              position="top"
+              offset={8}
+              style={{ fill: lineOpt?.color, fontSize: 11, fontWeight: 600 }}
+            />
+          </Line>
         </ComposedChart>
       </ResponsiveContainer>
     </div>

@@ -58,6 +58,7 @@ class Settings(BaseSettings):
     bigquery_pitcher_tto_velo_spin_table_id: str = "view_pitcher_tto_velo_spin"
     bigquery_dim_players_master_table_id: str = "dim_players_master"
     bigquery_pitching_stats_master_table_id: str = "fact_pitching_stats_master"
+    bigquery_mart_pitcher_era_by_inning_table_id: str = "mart_pitcher_era_by_inning"
 
     # ============================================================
     # API Keys

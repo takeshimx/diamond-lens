@@ -36,7 +36,7 @@ const AdvancedStats = () => {
   // --- Shared state ---
   const [view, setView]         = useState('rankings');
   const [category, setCategory] = useState('pitching');
-  const [season, setSeason]     = useState(2025);
+  const [season, setSeason]     = useState(2026);
 
   // --- Profile state ---
   const [profilePlayerId, setProfilePlayerId] = useState(null);
@@ -462,7 +462,7 @@ const AdvancedStats = () => {
           <label className="text-xs text-gray-400">Season</label>
           <select value={season} onChange={(e) => setSeason(Number(e.target.value))}
             className="bg-gray-700 text-white border border-gray-600 rounded-lg px-3 py-1.5 text-sm">
-            {[2025, 2024, 2023, 2022, 2021].map((y) => (
+            {[2026, 2025, 2024, 2023, 2022, 2021].map((y) => (
               <option key={y} value={y}>{y}</option>
             ))}
           </select>
