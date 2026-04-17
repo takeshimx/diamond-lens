@@ -17,6 +17,7 @@ const AdvancedStatsBatting = ({ season, getAuthHeaders, BACKEND_URL }) => {
   const [expandedMetric, setExpandedMetric]                     = useState(null);
   const [isLoading, setIsLoading]                               = useState(false);
   const [error, setError]                                       = useState(null);
+  const [swingEfficiencyRankings, setSwingEfficiencyRankings]   = useState(null); // B1
   const [plateDisciplineRankings, setPlateDisciplineRankings]   = useState(null); // B2
   const [clutchRankings, setClutchRankings]                     = useState(null); // B3
   const [contactConsistencyRankings, setContactConsistencyRankings] = useState(null); // B4
@@ -26,6 +27,26 @@ const AdvancedStatsBatting = ({ season, getAuthHeaders, BACKEND_URL }) => {
     () => generateDummyRankings(BATTING_METRICS, DUMMY_BATTERS),
     []
   );
+
+  // ----------------------------------------------------------
+  // API Calls — B1 Swing Efficiency
+  // ----------------------------------------------------------
+  const fetchSwingEfficiencyRankings = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({ season, limit: 500, offset: 0 });
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${BACKEND_URL}/api/v1/advanced-stats/batting/swing-efficiency/rankings?${params}`, { headers });
+      if (!res.ok) throw new Error(`API error: ${res.status}`);
+      setSwingEfficiencyRankings(await res.json());
+    } catch (e) {
+      console.error('Swing efficiency rankings fetch failed:', e);
+      setError(e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // ----------------------------------------------------------
   // API Calls — B4 Contact Consistency
@@ -101,6 +122,7 @@ const AdvancedStatsBatting = ({ season, getAuthHeaders, BACKEND_URL }) => {
   };
 
   useEffect(() => {
+    fetchSwingEfficiencyRankings();
     fetchPlateDisciplineRankings();
     fetchClutchRankings();
     fetchContactConsistencyRankings();
@@ -111,6 +133,19 @@ const AdvancedStatsBatting = ({ season, getAuthHeaders, BACKEND_URL }) => {
   // getRankingsForMetric
   // ----------------------------------------------------------
   const getRankingsForMetric = (metricId) => {
+    if (metricId === 'B1' && swingEfficiencyRankings?.rankings) {
+      return swingEfficiencyRankings.rankings.map((r) => ({
+        id: r.batter_id, name: r.player_name, team: r.team || '',
+        score: r.swing_efficiency_score,
+        contact_count: r.contact_count,
+        avg_efficiency: r.avg_efficiency,
+        avg_bat_speed: r.avg_bat_speed,
+        avg_swing_length: r.avg_swing_length,
+        avg_ev: r.avg_ev,
+        avg_attack_angle: r.avg_attack_angle,
+        hard_hit_pct: r.hard_hit_pct,
+      }));
+    }
     if (metricId === 'B3' && clutchRankings?.rankings) {
       return clutchRankings.rankings.map((r) => ({
         id: r.batter_id,
@@ -335,6 +370,189 @@ const AdvancedStatsBatting = ({ season, getAuthHeaders, BACKEND_URL }) => {
                 <li className="ml-3">• entropy_z × 0.40 + avg_xwoba_z × 0.35</li>
                 <li className="ml-3">• + oppo_xwoba_z × 0.25 → 再Zスコア化 → 100 + Z × 15</li>
                 <li className="mt-2">フィルタ: 打球数 ≥ 80</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ============================================================
+  // B1 Swing Efficiency — Metric Detail
+  // ============================================================
+  const SwingEfficiencyDetailView = () => {
+    const rawData = getRankingsForMetric('B1');
+    const metric  = BATTING_METRICS.find((m) => m.id === 'B1');
+
+    const defaultMinContact = season >= 2026 ? 20 : 250;
+    const [minContact, setMinContact] = React.useState(defaultMinContact);
+    const [inputVal, setInputVal]     = React.useState(String(defaultMinContact));
+
+    const allRawData   = rawData;
+    const filteredData = allRawData.filter((r) => (r.contact_count ?? 0) >= minContact);
+    const scatterDataFiltered = (swingEfficiencyRankings?.scatter_all || [])
+      .filter((r) => (r.contact_count ?? 0) >= minContact);
+
+    const [sortKey, setSortKey] = React.useState('score');
+    const [sortDir, setSortDir] = React.useState('desc');
+
+    const handleSort = (key) => {
+      if (sortKey === key) setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+      else { setSortKey(key); setSortDir('desc'); }
+    };
+    const data = [...filteredData].sort((a, b) => {
+      const av = a[sortKey] ?? 0; const bv = b[sortKey] ?? 0;
+      return sortDir === 'desc' ? bv - av : av - bv;
+    }).slice(0, 40);
+    const topN = new Set(data.slice(0, 5).map((r) => r.name));
+    const SortIcon = ({ col }) => {
+      if (sortKey !== col) return <span className="text-gray-600 ml-0.5">⇅</span>;
+      return <span className="text-cyan-400 ml-0.5">{sortDir === 'desc' ? '↓' : '↑'}</span>;
+    };
+    const SortTh = ({ col, label, right = true }) => (
+      <th onClick={() => handleSort(col)}
+        className={`${right ? 'text-right' : 'text-left'} text-gray-400 py-2 px-2 cursor-pointer hover:text-white select-none transition-colors`}>
+        {label}<SortIcon col={col} />
+      </th>
+    );
+    const getSwingScoreColor = (score) => {
+      if (score >= 115) return 'text-green-400';
+      if (score >= 107) return 'text-emerald-400';
+      if (score >= 100) return 'text-cyan-400';
+      return 'text-orange-400';
+    };
+
+    return (
+      <div className="space-y-4">
+        <button onClick={() => setExpandedMetric(null)}
+          className="flex items-center gap-1 text-gray-400 hover:text-white text-sm transition-colors">
+          <ChevronLeft className="w-4 h-4" /> Back to Overview
+        </button>
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-bold text-white">{metric.id}. {metric.name} ({metric.nameJp})</h3>
+            <p className="text-sm text-gray-400 mt-0.5">
+              スイング効率(EV/bat×len)(50%) + スイング長の短さ(30%) + ハードヒット率(20%)
+            </p>
+            <span className="inline-flex items-center mt-1.5 px-2 py-0.5 bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-[11px] rounded">
+              100 = リーグ平均（OPS+ スタイル / ±1σ = 85〜115）⚠️ 2024年〜限定
+            </span>
+          </div>
+          <button onClick={fetchSwingEfficiencyRankings}
+            className="flex items-center gap-1.5 text-gray-400 hover:text-white text-xs transition-colors">
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+          {/* Left: Rankings Table */}
+          <div className="xl:col-span-2 bg-gray-800/50 border border-gray-700 rounded-xl p-4 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-700">
+                  <th className="text-left text-gray-400 py-2 px-2 w-8">#</th>
+                  <SortTh col="name"             label="Batter"      right={false} />
+                  <th className="text-left text-gray-400 py-2 px-2">Team</th>
+                  <SortTh col="contact_count"    label="Contact" />
+                  <SortTh col="avg_efficiency"   label="Efficiency" />
+                  <SortTh col="avg_bat_speed"    label="Bat Spd" />
+                  <SortTh col="avg_swing_length" label="Sw Len↓" />
+                  <SortTh col="avg_ev"           label="avg EV" />
+                  <SortTh col="avg_attack_angle" label="Atk Ang" />
+                  <SortTh col="hard_hit_pct"     label="HH%" />
+                  <SortTh col="score"            label="Score" />
+                </tr>
+              </thead>
+              <tbody>
+                {data.map((r, i) => (
+                  <tr key={i} className="border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors">
+                    <td className="py-2 px-2 text-gray-500 font-medium">{i + 1}</td>
+                    <td className="py-2 px-2 text-white font-medium">{r.name}</td>
+                    <td className="py-2 px-2 text-gray-400 text-xs">{r.team}</td>
+                    <td className="py-2 px-2 text-right text-gray-400 font-mono">{r.contact_count?.toLocaleString()}</td>
+                    <td className="py-2 px-2 text-right text-cyan-300 font-mono text-xs">{r.avg_efficiency?.toFixed(4)}</td>
+                    <td className="py-2 px-2 text-right text-amber-400 font-mono text-xs">{r.avg_bat_speed?.toFixed(1)}</td>
+                    <td className="py-2 px-2 text-right text-gray-400 font-mono text-xs">{r.avg_swing_length?.toFixed(2)}</td>
+                    <td className="py-2 px-2 text-right text-gray-400 font-mono text-xs">{r.avg_ev?.toFixed(1)}</td>
+                    <td className="py-2 px-2 text-right text-gray-400 font-mono text-xs">{r.avg_attack_angle?.toFixed(1) ?? '—'}</td>
+                    <td className="py-2 px-2 text-right text-amber-400 font-mono text-xs">{r.hard_hit_pct?.toFixed(1)}%</td>
+                    <td className={`py-2 px-2 text-right font-bold font-mono ${getSwingScoreColor(r.score)}`}>
+                      {Math.round(r.score)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Right: Scatter + Info */}
+          <div className="space-y-4">
+            <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-1">
+                <h4 className="text-sm font-medium text-gray-300">Bat Speed vs Swing Efficiency</h4>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-gray-500">min contact</span>
+                  <input
+                    type="number" min={1} step={10}
+                    value={inputVal}
+                    onChange={(e) => setInputVal(e.target.value)}
+                    onBlur={() => {
+                      const v = parseInt(inputVal, 10);
+                      if (!isNaN(v) && v >= 1) setMinContact(v);
+                      else setInputVal(String(minContact));
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const v = parseInt(inputVal, 10);
+                        if (!isNaN(v) && v >= 1) setMinContact(v);
+                        else setInputVal(String(minContact));
+                      }
+                    }}
+                    className="w-16 bg-gray-700 border border-gray-600 rounded px-1.5 py-0.5 text-white text-xs text-right"
+                  />
+                  <span className="text-[10px] text-gray-500">{scatterDataFiltered.length} batters</span>
+                </div>
+              </div>
+              <p className="text-[10px] text-gray-500 mb-2">
+                理想は <span className="text-cyan-400">右上</span>（速いスイングで高効率）
+              </p>
+              <ResponsiveContainer width="100%" height={280}>
+                <ScatterChart margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                  <XAxis type="number" dataKey="avg_bat_speed" name="Bat Speed"
+                    stroke="#9ca3af" tick={{ fontSize: 10 }}
+                    label={{ value: 'avg Bat Speed (mph)', position: 'insideBottom', offset: -12, fill: '#6b7280', fontSize: 10 }} />
+                  <YAxis type="number" dataKey="avg_efficiency" name="Swing Efficiency"
+                    stroke="#9ca3af" tick={{ fontSize: 10 }}
+                    label={{ value: 'Swing Efficiency', angle: -90, position: 'insideLeft', fill: '#6b7280', fontSize: 10 }} />
+                  <Tooltip content={<ChartTooltip />} cursor={{ strokeDasharray: '3 3' }} />
+                  <Scatter data={scatterDataFiltered}>
+                    {scatterDataFiltered.map((entry, i) => (
+                      <Cell key={i}
+                        fill={topN.has(entry.player_name) ? '#f59e0b' : '#06b6d4'}
+                        fillOpacity={topN.has(entry.player_name) ? 0.9 : 0.45}
+                        r={topN.has(entry.player_name) ? 5 : 3} />
+                    ))}
+                  </Scatter>
+                </ScatterChart>
+              </ResponsiveContainer>
+              <div className="flex items-center gap-3 mt-1.5">
+                <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-full bg-amber-500" /><span className="text-gray-500 text-[10px]">Top 5</span></div>
+                <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-full bg-cyan-500 opacity-50" /><span className="text-gray-500 text-[10px]">Others</span></div>
+              </div>
+            </div>
+            <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+              <h4 className="text-sm font-medium text-gray-300 mb-2">Calculation Details</h4>
+              <ul className="text-xs text-gray-400 space-y-1">
+                <li>算出ロジック</li>
+                <li className="ml-3">• Efficiency = EV / (BatSpeed × SwingLen)</li>
+                <li className="ml-3">• Z(efficiency)×0.50 + Z(neg_swing_len)×0.30</li>
+                <li className="ml-3">• + Z(hard_hit)×0.20 → 再Zスコア化 → 100 + Z × 15</li>
+                <li className="mt-2">補足カラム</li>
+                <li className="ml-3 font-mono text-gray-500">• Attack Angle: 参考値のみ（スコア不含）</li>
+                <li className="mt-2">フィルタ</li>
+                <li className="ml-3 font-mono text-gray-500">• 打球数 ≥ 50（2024年〜限定）</li>
               </ul>
             </div>
           </div>
@@ -834,6 +1052,7 @@ const AdvancedStatsBatting = ({ season, getAuthHeaders, BACKEND_URL }) => {
   // ============================================================
   // Render
   // ============================================================
+  if (expandedMetric === 'B1') return <SwingEfficiencyDetailView />;
   if (expandedMetric === 'B2') return <PlateDisciplineDetailView />;
   if (expandedMetric === 'B3') return <ClutchDetailView />;
   if (expandedMetric === 'B4') return <ContactConsistencyDetailView />;
@@ -909,7 +1128,8 @@ const AdvancedStatsBatting = ({ season, getAuthHeaders, BACKEND_URL }) => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {BATTING_METRICS.map((metric) => {
           const data   = getRankingsForMetric(metric.id).slice(0, 5);
-          const isLive = (metric.id === 'B2' && !!plateDisciplineRankings)
+          const isLive = (metric.id === 'B1' && !!swingEfficiencyRankings)
+                       || (metric.id === 'B2' && !!plateDisciplineRankings)
                        || (metric.id === 'B3' && !!clutchRankings)
                        || (metric.id === 'B4' && !!contactConsistencyRankings)
                        || (metric.id === 'B6' && !!sprayMasteryRankings);
@@ -937,7 +1157,11 @@ const AdvancedStatsBatting = ({ season, getAuthHeaders, BACKEND_URL }) => {
                     <span className="text-gray-500 text-xs font-medium w-4">{i + 1}</span>
                     <span className="text-white text-sm font-medium flex-1 truncate">{r.name}</span>
                     <span className="text-gray-500 text-xs">{r.team}</span>
-                    {metric.id === 'B2' ? (
+                    {metric.id === 'B1' ? (
+                      <span className="text-sm font-bold w-16 text-right text-cyan-400 font-mono">
+                        {Math.round(r.score)}
+                      </span>
+                    ) : metric.id === 'B2' ? (
                       <span className="text-sm font-bold w-16 text-right text-teal-400 font-mono">
                         {Math.round(r.score)}
                       </span>

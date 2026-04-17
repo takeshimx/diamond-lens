@@ -2,22 +2,20 @@
 // Metric Definitions — 追加・削除はここだけ
 // ============================================================
 export const PITCHING_METRICS = [
-  { id: 'P1', name: 'Pitch Tunnel Score',   nameJp: 'ピッチトンネルスコア',  question: '最も球の見分けがつきにくい投手は？',   apiReady: true  },
-  { id: 'P2', name: 'Pressure Dominance',   nameJp: 'プレッシャー支配力',    question: '最もプレッシャーに強い投手は？',       apiReady: true  },
-  { id: 'P3', name: 'Stamina Score',        nameJp: 'スタミナスコア',        question: '最もスタミナのある投手は？',           apiReady: true  },
-  { id: 'P4', name: 'Two-Strike Finisher',  nameJp: '2ストライク仕留め力',   question: '最も追い込んでから仕留める投手は？',   apiReady: true  },
-  { id: 'P6', name: 'Arsenal Effectiveness',nameJp: '球種構成効果',          question: '最も多彩で効果的な球種構成は？',       apiReady: true  },
-  { id: 'P8', name: 'Platoon Neutrality',   nameJp: '対左右均等性スコア',    question: '左右両打者に最も均等に対応できる投手は？', apiReady: true  },
+  { id: 'P1', name: 'Pitch Tunnel Score',   nameJp: 'ピッチトンネルスコア',  question: '最も球の見分けがつきにくい投手は？',       apiReady: true,  decimals: 0 },
+  { id: 'P2', name: 'Pressure Dominance',   nameJp: 'プレッシャー支配力',    question: '最もプレッシャーに強い投手は？',           apiReady: true,  decimals: 0 },
+  { id: 'P3', name: 'Stamina Score',        nameJp: 'スタミナスコア',        question: '最もスタミナのある投手は？',               apiReady: true,  decimals: 0 },
+  { id: 'P4', name: 'Two-Strike Finisher',  nameJp: '2ストライク仕留め力',   question: '最も追い込んでから仕留める投手は？',       apiReady: true,  decimals: 2 },
+  { id: 'P6', name: 'Arsenal Effectiveness',nameJp: '球種構成効果',          question: '最も多彩で効果的な球種構成は？',           apiReady: true,  decimals: 0 },
+  { id: 'P8', name: 'Platoon Neutrality',   nameJp: '対左右均等性スコア',    question: '左右両打者に最も均等に対応できる投手は？', apiReady: true,  decimals: 0 },
 ];
 
 export const BATTING_METRICS = [
-  { id: 'B1', name: 'Swing Efficiency',     nameJp: 'スイング効率',          question: '最も効率的なスイングをする打者は？',   apiReady: false },
+  { id: 'B1', name: 'Swing Efficiency',     nameJp: 'スイング効率',          question: '最も効率的なスイングをする打者は？',   apiReady: true,  decimals: 0 },
   { id: 'B2', name: 'Plate Discipline',     nameJp: '選球眼スコア',          question: '最も選球眼の良い打者は？',             apiReady: true  },
   { id: 'B3', name: 'Clutch Hitting',       nameJp: 'クラッチ打撃',          question: '最もチャンスに強い打者は？',           apiReady: true  },
   { id: 'B4', name: 'Contact Consistency',  nameJp: 'コンタクト一貫性',      question: '最もコンタクトの質が安定している打者は？', apiReady: true  },
-  { id: 'B5', name: 'Adjustment Ability',   nameJp: '対応力',                question: '同一投手への対応力が最も高い打者は？', apiReady: false },
   { id: 'B6', name: 'Spray Mastery',        nameJp: '打球方向マスタリー',    question: '最も広角に打ち分けられる打者は？',     apiReady: true  },
-  { id: 'B7', name: 'Power Under Pressure', nameJp: 'プレッシャー下パワー',  question: 'チャンスで最も長打力を発揮する打者は？', apiReady: false },
 ];
 
 // ============================================================
@@ -78,7 +76,7 @@ export const generateDummyProfile = (metrics, playerId) => {
 
 export const generateDummyTrends = (metrics, playerId) => {
   const rng = seededRandom(playerId * 13);
-  return [2021, 2022, 2023, 2024].map((year) => {
+  return [2021, 2022, 2023, 2024, 2025, 2026].map((year) => {
     const row = { season: year };
     metrics.forEach((m) => { row[m.id] = Math.round((65 + rng() * 30) * 10) / 10; });
     return row;

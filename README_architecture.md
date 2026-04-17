@@ -242,6 +242,14 @@ predictions = await self._predict_with_vertex_ai(endpoint_id, instances)
 | **HITL Feedback** | Feedback UI, BigQuery, pending_review.json | User feedback collection, golden dataset expansion pipeline |
 | **LLM as a Judge** | 5 Judge Services, Gemini 2.0 Flash, BigQuery Logging | Automated multi-dimensional quality evaluation (parse, synthesizer, reflection, routing, drift alerts) |
 | **BQ Embedding Quality Warning** | BigQuery ML, Vertex AI text-multilingual-embedding-002, VECTOR_SEARCH, asyncio.gather | Serverless semantic similarity warning: detects queries similar to past bad-rated ones; daily batch embedding via BQ Scheduled Query; zero always-on instances |
+| **Hot/Slump Dashboard** | BigQuery (mart rolling-window tables), React | Detects hot streaks and slumps across BA/OPS/Barrel%/HH% over 7/14/28-day windows with multi-badge display |
+| **Leaderboard** | BigQuery (mart tables), React | Batting/pitching season leaderboards with league and dynamic min-sample filters |
+| **Standings** | MLB Stats API, FastAPI, React | Real-time division standings with win-rate color coding, no BQ dependency |
+| **Live Monitor Board** | MLB Stats API, FastAPI, React | Multi-game real-time monitoring with rule-based anomaly detection and 40-second auto-polling |
+| **Player Profile** | BigQuery, FastAPI, React, Recharts | Per-player dashboard with debounced autocomplete search and multi-chart visualization (Radar, Composed, Area, Scatter) |
+| **Pitcher Fatigue Analysis** | BigQuery (statcast_master), FastAPI, React, Recharts | Within-game velocity degradation tracking vs. league average baseline |
+| **Pitcher Whiff Predictor** | BigQuery (statcast_master), FastAPI, React, Recharts | Multi-condition whiff rate prediction per pitch type with 7-dimension situational filters |
+| **Voice Input** | MediaRecorder API (browser), FastAPI (transcription), React | Microphone audio capture with backend speech-to-text and direct query injection |
 | **Rate Limiting** | Custom ASGI Middleware, slowapi, In-Memory Counters | Multi-tier rate limiting (Global/Session/Endpoint) + LLM token budget |
 | **Orchestration** | Cloud Workflows, Cloud Scheduler | Pipeline automation |
 | **Monitoring** | Cloud Monitoring, Discord Webhooks | Custom metrics, alerts, dashboards, pipeline notifications |
@@ -684,7 +692,7 @@ python scripts/train_stuff_plus.py --season 2025 --min-pitches 100
 
 **Pitching metrics (P-series)**: P1 Pitch Tunnel, P2 Pressure Dominance (SP), P3 Stamina, P4 Two-Strike Finisher, P6 Arsenal Effectiveness, P8 Platoon Neutrality
 
-**Batting metrics (B-series)**: B2 Plate Discipline, B3 Clutch Hitting, B4 Contact Consistency, B5 Swing Efficiency (2024+), B6 Spray Mastery
+**Batting metrics (B-series)**: B1 Swing Efficiency (2024+), B2 Plate Discipline, B3 Clutch Hitting, B4 Contact Consistency, B6 Spray Mastery
 
 **Key files**:
 
@@ -699,7 +707,7 @@ python scripts/train_stuff_plus.py --season 2025 --min-pitches 100
 | `queries/batter_plate_discipline_score.sql` | B2 — O/Z-swing + decision value |
 | `queries/batter_clutch_hitting_index.sql` | B3 — leverage-split wOBA delta |
 | `queries/batter_contact_consistency_score.sql` | B4 — CV_xwOBA + hard-hit |
-| `queries/batter_swing_efficiency_score.sql` | B5 — bat tracking efficiency |
+| `queries/batter_swing_efficiency_score.sql` | B1 — bat tracking efficiency |
 | `queries/batter_spray_mastery_score_v2_oppo_weighted.sql` | B6 — spray entropy + oppo xwOBA |
 | `backend/app/services/advanced_stats_service.py` | BQ query execution + response shaping |
 | `frontend/src/components/AdvancedStatsPitching.jsx` | Pitching stats UI |
@@ -725,6 +733,76 @@ python scripts/train_stuff_plus.py --season 2025 --min-pitches 100
 |------|---------|
 | `backend/app/services/live_game_service.py` | MLB API integration, response shaping |
 | `backend/app/api/endpoints/live_game_endpoints.py` | FastAPI route definitions |
+
+### 8i. Hot / Slump Dashboard
+
+| Property | Value |
+|----------|-------|
+| **Data Source** | BigQuery mart tables (rolling-window aggregates) |
+| **Rolling Windows** | 7 / 14 / 28 days |
+| **Metrics** | BA, OPS, Barrel%, Hard Hit% |
+| **Detection Logic** | Threshold-based flags (`is_red_hot_*`, `is_slump_*`) pre-computed in mart |
+| **Frontend** | `HotSlumpDashboard.jsx` — metric selector, period toggle, ranked player rows with badge overlays |
+
+### 8j. Leaderboard — リーダーボード
+
+| Property | Value |
+|----------|-------|
+| **Data Source** | BigQuery mart tables |
+| **Tabs** | Batting / Pitching |
+| **Batting Metrics** | AVG, OBP, SLG, OPS, HR, RBI, SB, BB% |
+| **Pitching Metrics** | ERA, WHIP, K/9, BB/9, FIP |
+| **Filters** | Season (2021+), League (MLB / AL / NL) |
+| **Min Samples** | Dynamic: lower thresholds in-season (`getMinPa`, `getMinIp`) |
+| **Frontend** | `Leaderboard.jsx` + `LeaderboardTable.jsx` |
+
+### 8k. Standings — 順位表
+
+| Property | Value |
+|----------|-------|
+| **Data Source** | MLB Stats API (live, no BQ) |
+| **Coverage** | 6 divisions: AL/NL × East/Central/West |
+| **Displayed Fields** | W, L, PCT, GB, home record, away record |
+| **Color Coding** | Green ≥.600, white ≥.500, red < .500 |
+| **Frontend** | `Standings.jsx` |
+
+### 8l. Live Monitor Board — モニターボード
+
+| Property | Value |
+|----------|-------|
+| **Data Source** | MLB Stats API (same as Live Game Updates) |
+| **Polling Interval** | 40 seconds |
+| **Anomaly Detection** | Rule-based: pitches ≥ 100, score diff, inning/runner context |
+| **Alert Types** | `warning` (pitch count), `info` (leverage), `danger` (blowout) |
+| **Frontend** | `LiveMonitorBoard.jsx` — multi-game grid with alert badge overlays |
+
+### 8m. Player Profile — 選手プロフィール
+
+| Property | Value |
+|----------|-------|
+| **Data Source** | BigQuery (Advanced Stats views + traditional stat tables) |
+| **Search** | Debounced autocomplete (300ms, min 2 chars) with AbortController |
+| **Charts** | RadarChart (multi-metric profile), ComposedChart (bar+line trends), AreaChart (season trends), ScatterChart (league positioning) |
+| **Metrics** | Traditional stats + B-series / P-series Advanced Stats scores |
+| **Frontend** | `PlayerProfile.jsx` with `ProfileSearchBar` sub-component |
+
+### 8n. Pitcher Fatigue Analysis
+
+| Property | Value |
+|----------|-------|
+| **Data Source** | BigQuery `statcast_master` |
+| **Analysis Unit** | Release speed change per pitch-count bucket or inning |
+| **Baseline** | League average velocity curve (same season) |
+| **Frontend** | `PitcherFatigue.jsx` — line chart with league avg overlay |
+
+### 8o. Pitcher Whiff Predictor
+
+| Property | Value |
+|----------|-------|
+| **Data Source** | BigQuery `statcast_master` |
+| **Filters** | Batter stand, inning, count state, runner situation, batter tier, pitch count group, times through order |
+| **Output** | Per-pitch-type whiff rate prediction |
+| **Frontend** | `PitcherWhiffPredictor.jsx` — multi-filter panel + color-coded bar chart |
 
 ---
 

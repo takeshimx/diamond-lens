@@ -4,6 +4,7 @@ Statcast pitch-level データから投手・打者の高度指標を算出
 """
 import asyncio
 import logging
+import math
 from typing import Dict, List
 
 from backend.app.services.base import get_bq_client
@@ -25,6 +26,7 @@ PLATE_DISCIPLINE_VIEW      = settings.get_table_full_name("view_batter_plate_dis
 CLUTCH_HITTING_VIEW        = settings.get_table_full_name("view_batter_clutch_hitting")
 CONTACT_CONSISTENCY_VIEW   = settings.get_table_full_name("view_batter_contact_consistency")
 SPRAY_MASTERY_VIEW         = settings.get_table_full_name("view_batter_spray_mastery_score")
+SWING_EFFICIENCY_VIEW      = settings.get_table_full_name("view_batter_swing_efficiency")
 
 
 class AdvancedStatsService:
@@ -900,6 +902,110 @@ class AdvancedStatsService:
             raise
 
     # ----------------------------------------------------------
+    # B1: Swing Efficiency Score
+    # ----------------------------------------------------------
+    async def get_swing_efficiency_rankings(
+        self,
+        season: int = 2024,
+        limit: int = 40,
+        offset: int = 0,
+    ) -> Dict:
+        """
+        B1 Swing Efficiency Score ランキング
+
+        BQ View `view_batter_swing_efficiency` を参照。
+        avg_efficiency(50%) + neg_swing_len(30%) + hard_hit(20%) の合成Zスコア。
+        再Zスコア化済み: 100 + Z*15 (OPS+/wRC+と同等スケール)
+        ⚠️ bat_speed / swing_length は 2024年〜のみ有効。
+        """
+        query = f"""
+            SELECT
+                batter,
+                player_name,
+                team,
+                contact_count,
+                avg_efficiency,
+                avg_bat_speed,
+                avg_swing_length,
+                avg_ev,
+                avg_attack_angle,
+                hard_hit_pct,
+                swing_efficiency_score
+            FROM `{SWING_EFFICIENCY_VIEW}`
+            WHERE game_year = @season
+            ORDER BY swing_efficiency_score DESC
+            LIMIT @limit OFFSET @offset
+        """
+
+        scatter_query = f"""
+            SELECT
+                player_name,
+                avg_bat_speed,
+                avg_efficiency,
+                contact_count,
+                swing_efficiency_score
+            FROM `{SWING_EFFICIENCY_VIEW}`
+            WHERE game_year = @season
+            ORDER BY swing_efficiency_score DESC
+            LIMIT 500
+        """
+
+        params = [
+            ("season", "INT64", season),
+            ("limit",  "INT64", limit),
+            ("offset", "INT64", offset),
+        ]
+        scatter_params = [("season", "INT64", season)]
+
+        try:
+            scatter_config = self._make_job_config(scatter_params)
+            job_config = self._make_job_config(params)
+            scatter_df, df = await asyncio.gather(
+                asyncio.to_thread(lambda: self.client.query(scatter_query, job_config=scatter_config).to_dataframe()),
+                asyncio.to_thread(lambda: self.client.query(query, job_config=job_config).to_dataframe()),
+            )
+            scatter_all = [
+                {
+                    "player_name":            row.get("player_name") or "",
+                    "avg_bat_speed":          float(row["avg_bat_speed"]),
+                    "avg_efficiency":         float(row["avg_efficiency"]),
+                    "contact_count":          int(row["contact_count"]),
+                    "swing_efficiency_score": float(row["swing_efficiency_score"]),
+                }
+                for _, row in scatter_df.iterrows()
+            ]
+            total = len(scatter_all)
+
+            rankings = [
+                {
+                    "batter_id":              int(row["batter"]),
+                    "player_name":            row.get("player_name") or "",
+                    "team":                   row.get("team") or "",
+                    "contact_count":          int(row["contact_count"]),
+                    "avg_efficiency":         float(row["avg_efficiency"]),
+                    "avg_bat_speed":          float(row["avg_bat_speed"]),
+                    "avg_swing_length":       float(row["avg_swing_length"]),
+                    "avg_ev":                 float(row["avg_ev"]),
+                    "avg_attack_angle":       None if (v := row["avg_attack_angle"]) is None or math.isnan(float(v)) else float(v),
+                    "hard_hit_pct":           float(row["hard_hit_pct"]),
+                    "swing_efficiency_score": float(row["swing_efficiency_score"]),
+                }
+                for _, row in df.iterrows()
+            ]
+
+            return {
+                "rankings":    rankings,
+                "scatter_all": scatter_all,
+                "total":       total,
+                "metric":      "B1_swing_efficiency",
+                "season":      season,
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get swing efficiency rankings: {e}")
+            raise
+
+    # ----------------------------------------------------------
     # B6: Spray Mastery Score
     # ----------------------------------------------------------
     async def get_spray_mastery_rankings(
@@ -1231,6 +1337,139 @@ class AdvancedStatsService:
                 "avg_run_exp": float(row["avg_run_exp"]),
             })
         return result
+
+    # ----------------------------------------------------------
+    # Pitcher Trends (全メトリクス・全シーズン)
+    # ----------------------------------------------------------
+    async def get_pitcher_trends(self, pitcher_id: int) -> Dict:
+        """特定投手の全メトリクス・全シーズンスコアを並列取得"""
+        METRIC_SPECS = [
+            ("P1", TUNNEL_VIEW,   "pitcher", "pitch_tunnel_score"),
+            ("P2", PRESSURE_VIEW, "pitcher", "pressure_dominance_index"),
+            ("P3", STAMINA_VIEW,  "pitcher", "stamina_score"),
+            ("P4", FINISHER_VIEW, "pitcher", "finisher_score"),
+            ("P6", ARSENAL_VIEW,  "pitcher", "arsenal_effectiveness_score"),
+            ("P8", PLATOON_VIEW,  "pitcher", "platoon_neutrality_score"),
+        ]
+
+        async def fetch_one(metric_id: str, view: str, id_col: str, score_col: str):
+            q = f"""
+                SELECT game_year, {score_col} AS score
+                FROM `{view}`
+                WHERE {id_col} = @player_id
+                ORDER BY game_year
+            """
+            cfg = self._make_job_config([("player_id", "INT64", pitcher_id)])
+            df = await asyncio.to_thread(lambda: self.client.query(q, job_config=cfg).to_dataframe())
+            return metric_id, {int(r["game_year"]): round(float(r["score"]), 2) for _, r in df.iterrows()}
+
+        results = await asyncio.gather(
+            *[fetch_one(*spec) for spec in METRIC_SPECS],
+            return_exceptions=True,
+        )
+
+        seasons: set = set()
+        metric_data: dict = {}
+        for r in results:
+            if isinstance(r, Exception):
+                logger.warning(f"Pitcher trend fetch failed: {r}")
+                continue
+            mid, season_scores = r
+            metric_data[mid] = season_scores
+            seasons.update(season_scores.keys())
+
+        trends = [
+            {"season": yr, **{mid: metric_data.get(mid, {}).get(yr) for mid in ["P1", "P2", "P3", "P4", "P6", "P8"]}}
+            for yr in sorted(seasons)
+        ]
+        return {"pitcher_id": pitcher_id, "trends": trends}
+
+    # ----------------------------------------------------------
+    # Batter Search
+    # ----------------------------------------------------------
+    async def search_batters(self, name: str, season: int = 2025, limit: int = 10) -> List[Dict]:
+        """打者名で検索（部分一致）"""
+        query = f"""
+            SELECT DISTINCT
+                s.batter AS batter_id,
+                p.full_name AS player_name,
+                tm.abbreviation AS team_abbr
+            FROM `{STATCAST_TABLE}` s
+            JOIN `{DIM_PLAYERS_TABLE}` p ON s.batter = p.mlbid
+            LEFT JOIN `{DIM_TEAMS_TABLE}` tm ON p.current_team_id = tm.team_id
+            WHERE s.game_year = @season
+                AND LOWER(p.full_name) LIKE LOWER(@name_pattern)
+                AND s.pitch_type IS NOT NULL
+            LIMIT @limit
+        """
+        job_config = self._make_job_config([
+            ("season", "INT64", season),
+            ("name_pattern", "STRING", f"%{name}%"),
+            ("limit", "INT64", limit),
+        ])
+        try:
+            df = await asyncio.to_thread(lambda: self.client.query(query, job_config=job_config).to_dataframe())
+            results = []
+            seen = set()
+            for _, row in df.iterrows():
+                bid = int(row["batter_id"])
+                if bid in seen:
+                    continue
+                seen.add(bid)
+                results.append({
+                    "batter_id": bid,
+                    "player_name": row.get("player_name") or "",
+                    "team": row.get("team_abbr") or "",
+                })
+            return results
+        except Exception as e:
+            logger.error(f"Failed to search batters: {e}")
+            raise
+
+    # ----------------------------------------------------------
+    # Batter Trends (全メトリクス・全シーズン)
+    # ----------------------------------------------------------
+    async def get_batter_trends(self, batter_id: int) -> Dict:
+        """特定打者の全メトリクス・全シーズンスコアを並列取得"""
+        METRIC_SPECS = [
+            ("B1", SWING_EFFICIENCY_VIEW,    "batter", "swing_efficiency_score"),
+            ("B2", PLATE_DISCIPLINE_VIEW,    "batter", "plate_discipline_score"),
+            ("B3", CLUTCH_HITTING_VIEW,      "batter", "clutch_hitting_score"),
+            ("B4", CONTACT_CONSISTENCY_VIEW, "batter", "contact_consistency_score"),
+            ("B6", SPRAY_MASTERY_VIEW,       "batter", "spray_mastery_score"),
+        ]
+
+        async def fetch_one(metric_id: str, view: str, id_col: str, score_col: str):
+            q = f"""
+                SELECT game_year, {score_col} AS score
+                FROM `{view}`
+                WHERE {id_col} = @player_id
+                ORDER BY game_year
+            """
+            cfg = self._make_job_config([("player_id", "INT64", batter_id)])
+            df = await asyncio.to_thread(lambda: self.client.query(q, job_config=cfg).to_dataframe())
+            return metric_id, {int(r["game_year"]): round(float(r["score"]), 2) for _, r in df.iterrows()}
+
+        results = await asyncio.gather(
+            *[fetch_one(*spec) for spec in METRIC_SPECS],
+            return_exceptions=True,
+        )
+
+        seasons: set = set()
+        metric_data: dict = {}
+        for r in results:
+            if isinstance(r, Exception):
+                logger.warning(f"Batter trend fetch failed: {r}")
+                continue
+            mid, season_scores = r
+            metric_data[mid] = season_scores
+            seasons.update(season_scores.keys())
+
+        trends = [
+            {"season": yr, **{mid: metric_data.get(mid, {}).get(yr) for mid in ["B1", "B2", "B3", "B4", "B6"]}}
+            for yr in sorted(seasons)
+        ]
+        return {"batter_id": batter_id, "trends": trends}
 
     # ----------------------------------------------------------
     # Helpers

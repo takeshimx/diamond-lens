@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { Activity } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
 
 const PlayerSegmentation = () => {
+  const { getIdToken } = useAuth();
   const [playerType, setPlayerType] = useState('batters');
   const [segmentationData, setSegmentationData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -24,6 +26,14 @@ const PlayerSegmentation = () => {
 
   const BACKEND_URL = getBackendUrl();
 
+  const getAuthHeaders = async () => {
+    const idToken = await getIdToken();
+    return {
+      'Accept': 'application/json',
+      ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {}),
+    };
+  };
+
   const fetchSegmentation = async (type) => {
     setIsLoading(true);
     try {
@@ -31,7 +41,8 @@ const PlayerSegmentation = () => {
         ? '/api/v1/batter-segmentation?season=2024&min_pa=300'
         : '/api/v1/pitcher-segmentation?season=2025&min_ip=90';
 
-      const response = await fetch(`${BACKEND_URL}${endpoint}`);
+      const headers = await getAuthHeaders();
+      const response = await fetch(`${BACKEND_URL}${endpoint}`, { headers });
       const data = await response.json();
       setSegmentationData(data);
     } catch (error) {

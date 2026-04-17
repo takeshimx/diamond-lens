@@ -188,6 +188,33 @@ async def get_platoon_neutrality_rankings(
 
 
 # ==============================================================
+# B1: Swing Efficiency Score
+# ==============================================================
+@router.get("/advanced-stats/batting/swing-efficiency/rankings")
+async def get_swing_efficiency_rankings(
+    season: int = Query(2024, ge=2020, le=2027),
+    limit: int = Query(40, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """
+    B1 Swing Efficiency Score ランキング
+
+    launch_speed / (bat_speed × swing_length) の変換効率(50%) +
+    スイング長の短さ(30%) + ハードヒット率(20%) の合成Zスコア。
+    再Zスコア化済み: 100 + Z*15 (OPS+/wRC+と同等スケール)
+    ⚠️ bat_speed / swing_length は 2024年〜のみ有効。
+    """
+    try:
+        return await service.get_swing_efficiency_rankings(
+            season=season,
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================
 # B6: Spray Mastery Score
 # ==============================================================
 @router.get("/advanced-stats/batting/spray-mastery/rankings")
@@ -306,5 +333,39 @@ async def search_pitchers(
             season=season,
             limit=limit,
         )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/advanced-stats/pitching/trends/{pitcher_id}")
+async def get_pitcher_trends(pitcher_id: int):
+    """投手の全メトリクス・全シーズントレンド取得"""
+    try:
+        return await service.get_pitcher_trends(pitcher_id=pitcher_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================
+# 共通: 打者検索 (オートコンプリート)
+# ==============================================================
+@router.get("/advanced-stats/batting/search")
+async def search_batters(
+    name: str = Query(..., min_length=2, description="検索する選手名（部分一致）"),
+    season: int = Query(2025, ge=2020, le=2027),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """打者名で検索（オートコンプリート用）"""
+    try:
+        return await service.search_batters(name=name, season=season, limit=limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/advanced-stats/batting/trends/{batter_id}")
+async def get_batter_trends(batter_id: int):
+    """打者の全メトリクス・全シーズントレンド取得"""
+    try:
+        return await service.get_batter_trends(batter_id=batter_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

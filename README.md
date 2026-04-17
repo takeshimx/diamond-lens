@@ -11,6 +11,7 @@ An AI-powered analytics interface for exploring Major League Baseball statistics
 - **⚡ Quick Questions**: Pre-defined common baseball queries for instant results
 - **⚙️ Custom Query Builder**: Advanced analytics with custom situational filters
 - **🤖 Autonomous Agent Mode (NEW)**: High-performance reasoning agent using LangGraph for multi-step data exploration and professional analysis
+- **🎤 Voice Input**: Microphone-based audio capture (MediaRecorder API) with backend transcription, injected directly into the query field
 
 **Analytics Capabilities**:
 - **Batting Statistics**: Season stats, splits, and advanced Statcast metrics
@@ -214,8 +215,8 @@ CI/CD Drift Check → Compare active model's training data vs latest season
 
 **Technologies**: scikit-learn, PyTorch, scipy, joblib, Google Cloud Storage, BigQuery
 
-### 9. Stuff+ / Pitching+ / Pitching++ Pitch Quality Evaluation (Backend)
-**Status**: ✅ Backend API ready (frontend pending)
+### 9. Stuff+ / Pitching+ / Pitching++ Pitch Quality Evaluation (Full Stack)
+**Status**: ✅ Production-ready with frontend UI
 
 **Capabilities**:
 - **⚾ Stuff+ Model**: Evaluates pure pitch quality (velocity, spin rate, movement, release point, arm angle) independent of location, using XGBoost regression on `delta_pitcher_run_exp`
@@ -375,7 +376,7 @@ Custom Statcast-based composite scoring system for pitchers and batters. All sco
 | B2 | Plate Discipline Score | O-Swing% inverted (35%) + Z-Swing% (35%) + delta_run_exp decision value (30%) |
 | B3 | Clutch Hitting Index | wOBA_high_LI − wOBA_overall, scale: 100+z×30 |
 | B4 | Contact Consistency Score | neg_CV_xwOBA (35%) + avg_xwOBA (35%) + hard-hit% (20%) + sweet-spot% (10%) |
-| B5 | Swing Efficiency Index | launch_speed/(bat_speed×swing_length) (50%) + neg swing_length (30%) + hard-hit% (20%), 2024+ only |
+| B1 | Swing Efficiency Index | launch_speed/(bat_speed×swing_length) (50%) + neg swing_length (30%) + hard-hit% (20%), 2024+ only |
 | B6 | Spray Mastery Score | spray entropy (40%) + overall xwOBA (35%) + oppo-field xwOBA (25%) |
 
 **Technologies**: BigQuery (views + PARTITION BY season z-scoring), FastAPI, React, Recharts
@@ -405,6 +406,112 @@ LiveGameService (FastAPI + httpx async)
 ```
 
 **Technologies**: FastAPI, httpx (async HTTP), React, ZoneInfo (UTC→JST)
+
+---
+
+### 15. Hot / Slump Dashboard (Full Stack)
+**Status**: ✅ Production-ready with frontend UI
+
+Identifies players on hot streaks or in slumps based on rolling-window performance metrics, powered by BigQuery mart tables.
+
+**Capabilities**:
+- **🔥 Hot Streak Detection**: Flags batters with exceptional recent BA, OPS, Barrel%, and Hard Hit% over 7/14/28-day windows
+- **📉 Slump Detection**: Flags batters with below-threshold performance across the same metrics
+- **📊 Ranked Leaderboards**: Separate hot/slump leaderboards per metric and time window
+- **🏷️ Multi-badge Display**: Each player row shows all active hot/slump badges simultaneously (BA, OPS, Barrel, HH)
+
+**Technologies**: FastAPI, BigQuery (mart tables), React, Recharts
+
+---
+
+### 16. Leaderboard — リーダーボード (Full Stack)
+**Status**: ✅ Production-ready with frontend UI
+
+Traditional season statistics leaderboard for batters and pitchers, sourced from BigQuery mart tables.
+
+**Capabilities**:
+- **⚾ Batting Leaderboard**: AVG, OBP, SLG, OPS, HR, RBI, SB, BB% and more
+- **🎯 Pitching Leaderboard**: ERA, WHIP, K/9, BB/9, FIP and more
+- **🔁 Season Selector**: Historical data from 2021 onward
+- **🌐 League Filter**: MLB-wide, AL-only, or NL-only views
+- **📏 Dynamic Minimum Samples**: Minimum PA/IP thresholds auto-adjusted for current season
+
+**Technologies**: FastAPI, BigQuery (mart tables), React
+
+---
+
+### 17. Standings — 順位表 (Full Stack)
+**Status**: ✅ Production-ready with frontend UI
+
+Real-time MLB division standings powered by the official MLB Stats API.
+
+**Capabilities**:
+- **🏆 Division Standings**: AL East/Central/West and NL East/Central/West
+- **📊 Full Record Display**: W, L, PCT, GB, home/away records
+- **🎨 Win Rate Color Coding**: Green (≥.600), white (.500+), red (below .500)
+- **🔄 Live Data**: Fetched directly from MLB Stats API per request — no database dependency
+
+**Technologies**: FastAPI, httpx (async HTTP), React
+
+---
+
+### 18. Live Monitor Board — モニターボード (Full Stack)
+**Status**: ✅ Production-ready with frontend UI
+
+Real-time game monitoring dashboard with rule-based anomaly detection, extending Live Game Updates with automated in-game alerts.
+
+**Capabilities**:
+- **🚨 Anomaly Detection**: Rule-based alerts for noteworthy in-game events:
+  - Pitcher pitch count ≥ 100 (fatigue warning)
+  - High-leverage situations (close score, late innings with runners)
+  - Exceptional scoring events
+- **🔄 Auto-Polling**: Refreshes every 40 seconds automatically
+- **📋 Multi-game Overview**: Simultaneous monitoring of all live games with alert badges
+
+**Technologies**: FastAPI, MLB Stats API, React
+
+---
+
+### 19. Player Profile — 選手プロフィール (Full Stack)
+**Status**: ✅ Production-ready with frontend UI
+
+Comprehensive per-player profile dashboard with multi-dimensional statistical visualization.
+
+**Capabilities**:
+- **🔍 Player Search**: Debounced autocomplete (300ms delay, min 2 chars) with AbortController for stale-request cancellation
+- **📊 Multi-chart Dashboard**: Radar chart, composed bar/line chart, area chart, and scatter chart
+- **📈 Season Trends**: Year-over-year performance visualization
+- **⚖️ Advanced Metrics Integration**: Displays Advanced Stats scores (B-series / P-series) alongside traditional stats
+
+**Technologies**: FastAPI, BigQuery, React, Recharts (RadarChart, ComposedChart, AreaChart, ScatterChart)
+
+---
+
+### 20. Pitcher Fatigue Analysis (Full Stack)
+**Status**: ✅ Production-ready with frontend UI
+
+Tracks within-game velocity degradation across pitch count buckets or innings to identify pitcher fatigue patterns.
+
+**Capabilities**:
+- **📉 Velocity Degradation Tracking**: Release speed change as pitch count / inning increases
+- **📊 League Average Comparison**: Overlays individual pitcher trend vs. league baseline
+- **🗓️ Season Selector**: Historical analysis across multiple seasons
+
+**Technologies**: FastAPI, BigQuery (`statcast_master`), React, Recharts
+
+---
+
+### 21. Pitcher Whiff Predictor (Full Stack)
+**Status**: ✅ Production-ready with frontend UI
+
+Predicts a pitcher's whiff rate under user-specified situational conditions using multi-filter Statcast analysis.
+
+**Capabilities**:
+- **🎯 Multi-condition Filtering**: Filter simultaneously by batter handedness, inning, count state, runner situation, batter tier, pitch count group, and times through order
+- **📊 Per-pitch-type Breakdown**: Predicted whiff rates per pitch type with color-coded bar chart
+- **🔍 Pitcher Search**: Autocomplete-based pitcher selection with available-pitchers endpoint
+
+**Technologies**: FastAPI, BigQuery (`statcast_master`), React, Recharts
 
 ---
 

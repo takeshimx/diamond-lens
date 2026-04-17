@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -11,11 +11,45 @@ import AdvancedStatsBatting  from './AdvancedStatsBatting';
 import {
   PITCHING_METRICS, BATTING_METRICS,
   DUMMY_PITCHERS, DUMMY_BATTERS,
-  generateDummyProfile, generateDummyTrends,
+  generateDummyProfile,
   getScoreColor, getBarFill,
   RADAR_COLORS, LINE_COLORS,
   getBackendUrl,
 } from './advancedStatsConstants';
+
+// ============================================================
+// PlayerSearchDropdown — コンポーネント外に定義（フォーカス維持のため）
+// ============================================================
+const PlayerSearchDropdown = ({ query, setQuery, onSelect, placeholder, players }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const results = !query || query.length < 1
+    ? []
+    : players.filter((p) => p.name.toLowerCase().includes(query.toLowerCase()));
+  return (
+    <div className="relative">
+      <div className="flex items-center">
+        <Search className="absolute left-2.5 w-3.5 h-3.5 text-gray-500" />
+        <input
+          type="text" value={query}
+          onChange={(e) => { setQuery(e.target.value); setIsOpen(true); }}
+          placeholder={placeholder || 'Search player...'}
+          className="bg-gray-700 text-white border border-gray-600 rounded-lg pl-8 pr-3 py-1.5 text-sm w-56"
+        />
+      </div>
+      {isOpen && results.length > 0 && (
+        <div className="absolute z-50 mt-1 w-72 bg-gray-800 border border-gray-600 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+          {results.map((p) => (
+            <button key={p.id} onClick={() => { onSelect(p.id); setQuery(p.name); setIsOpen(false); }}
+              className="w-full text-left px-3 py-2 hover:bg-gray-700 transition-colors flex items-center justify-between">
+              <span className="text-white text-sm font-medium">{p.name}</span>
+              <span className="text-gray-500 text-xs">{p.team}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ============================================================
 // Main Component
@@ -49,9 +83,22 @@ const AdvancedStats = () => {
   const [compareSearchB, setCompareSearchB]   = useState('');
 
   // --- Trends state ---
-  const [trendsPlayerId, setTrendsPlayerId]             = useState(null);
-  const [trendsSearch, setTrendsSearch]                 = useState('');
+  const trendsQueryRef = useRef('');
+  const [trendsSearch, setTrendsSearch]                   = useState('');
+  const [trendsSearchResults, setTrendsSearchResults]     = useState([]);
+  const [trendsPlayerName, setTrendsPlayerName]           = useState('');
+  const [trendsData, setTrendsData]                       = useState(null);
+  const [trendsLoading, setTrendsLoading]                 = useState(false);
   const [trendsSelectedMetrics, setTrendsSelectedMetrics] = useState([]);
+
+  // category切替時にtrendsをリセット
+  useEffect(() => {
+    setTrendsSearch('');
+    setTrendsSearchResults([]);
+    setTrendsPlayerName('');
+    setTrendsData(null);
+    setTrendsSelectedMetrics([]);
+  }, [category]);
 
   // --- Derived ---
   const metrics = category === 'pitching' ? PITCHING_METRICS : BATTING_METRICS;
@@ -59,13 +106,8 @@ const AdvancedStats = () => {
   const profileData  = useMemo(() => (profilePlayerId  ? generateDummyProfile(metrics, profilePlayerId)  : null), [profilePlayerId,  category]);
   const compareDataA = useMemo(() => (comparePlayerA   ? generateDummyProfile(metrics, comparePlayerA)   : null), [comparePlayerA,   category]);
   const compareDataB = useMemo(() => (comparePlayerB   ? generateDummyProfile(metrics, comparePlayerB)   : null), [comparePlayerB,   category]);
-  const trendsData   = useMemo(() => (trendsPlayerId   ? generateDummyTrends(metrics, trendsPlayerId)    : null), [trendsPlayerId,   category]);
 
   const getPlayer = (id) => players.find((p) => p.id === id);
-  const filteredPlayers = (query) => {
-    if (!query || query.length < 1) return [];
-    return players.filter((p) => p.name.toLowerCase().includes(query.toLowerCase()));
-  };
 
   // ============================================================
   // Shared sub-components
@@ -78,37 +120,9 @@ const AdvancedStats = () => {
         <p className="text-white font-medium text-sm">{d.name || d.metricName || d.season || d.player_name}</p>
         {payload.map((p, i) => (
           <p key={i} className="text-gray-300 text-xs">
-            {p.name}: {typeof p.value === 'number' ? p.value.toFixed(4) : p.value}
+            {p.name}: {typeof p.value === 'number' ? (p.value < 10 ? p.value.toFixed(2) : Math.round(p.value)) : p.value}
           </p>
         ))}
-      </div>
-    );
-  };
-
-  const PlayerSearchDropdown = ({ query, setQuery, onSelect, placeholder }) => {
-    const results = filteredPlayers(query);
-    return (
-      <div className="relative">
-        <div className="flex items-center">
-          <Search className="absolute left-2.5 w-3.5 h-3.5 text-gray-500" />
-          <input
-            type="text" value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={placeholder || 'Search player...'}
-            className="bg-gray-700 text-white border border-gray-600 rounded-lg pl-8 pr-3 py-1.5 text-sm w-56"
-          />
-        </div>
-        {results.length > 0 && query.length >= 1 && (
-          <div className="absolute z-50 mt-1 w-72 bg-gray-800 border border-gray-600 rounded-lg shadow-xl max-h-48 overflow-y-auto">
-            {results.map((p) => (
-              <button key={p.id} onClick={() => { onSelect(p.id); setQuery(p.name); }}
-                className="w-full text-left px-3 py-2 hover:bg-gray-700 transition-colors flex items-center justify-between">
-                <span className="text-white text-sm font-medium">{p.name}</span>
-                <span className="text-gray-500 text-xs">{p.team}</span>
-              </button>
-            ))}
-          </div>
-        )}
       </div>
     );
   };
@@ -130,7 +144,8 @@ const AdvancedStats = () => {
           <div>
             <label className="block text-xs text-gray-400 mb-1">{category === 'pitching' ? '投手名' : '打者名'}</label>
             <PlayerSearchDropdown query={profileSearch} setQuery={setProfileSearch}
-              onSelect={setProfilePlayerId} placeholder={category === 'pitching' ? 'e.g. Ohtani' : 'e.g. Judge'} />
+              onSelect={setProfilePlayerId} placeholder={category === 'pitching' ? 'e.g. Ohtani' : 'e.g. Judge'}
+              players={players} />
           </div>
         </div>
         {!profileData && (
@@ -215,12 +230,12 @@ const AdvancedStats = () => {
         <div className="flex flex-wrap gap-4 items-end">
           <div>
             <label className="block text-xs text-gray-400 mb-1">Player A</label>
-            <PlayerSearchDropdown query={compareSearchA} setQuery={setCompareSearchA} onSelect={setComparePlayerA} placeholder="Player A" />
+            <PlayerSearchDropdown query={compareSearchA} setQuery={setCompareSearchA} onSelect={setComparePlayerA} placeholder="Player A" players={players} />
           </div>
           <span className="text-gray-500 font-bold pb-1">vs</span>
           <div>
             <label className="block text-xs text-gray-400 mb-1">Player B</label>
-            <PlayerSearchDropdown query={compareSearchB} setQuery={setCompareSearchB} onSelect={setComparePlayerB} placeholder="Player B" />
+            <PlayerSearchDropdown query={compareSearchB} setQuery={setCompareSearchB} onSelect={setComparePlayerB} placeholder="Player B" players={players} />
           </div>
         </div>
         {(!compareDataA || !compareDataB) && (
@@ -300,26 +315,86 @@ const AdvancedStats = () => {
   };
 
   // ============================================================
-  // TRENDS VIEW (dummy for now)
+  // TRENDS VIEW
   // ============================================================
   const TrendsView = () => {
-    const player = getPlayer(trendsPlayerId);
     const toggleMetric = (metricId) => {
       setTrendsSelectedMetrics((prev) =>
-        prev.includes(metricId) ? prev.filter((m) => m !== metricId)
-          : prev.length < 5 ? [...prev, metricId] : prev
+        prev.includes(metricId) ? prev.filter((m) => m !== metricId) : [...prev, metricId]
       );
     };
+
+    const handleSearchChange = async (val) => {
+      trendsQueryRef.current = val;
+      setTrendsSearch(val);
+      setTrendsSearchResults([]);
+      if (val.length < 2) return;
+      try {
+        const endpoint = category === 'pitching'
+          ? `/api/v1/advanced-stats/pitching/search?name=${encodeURIComponent(val)}&season=2025&limit=10`
+          : `/api/v1/advanced-stats/batting/search?name=${encodeURIComponent(val)}&season=2025&limit=10`;
+        const headers = await getAuthHeaders();
+        const res = await fetch(`${BACKEND_URL}${endpoint}`, { headers });
+        const data = await res.json();
+        if (trendsQueryRef.current !== val) return;
+        setTrendsSearchResults(Array.isArray(data) ? data : []);
+      } catch (e) {
+        console.error('Search error:', e);
+      }
+    };
+
+    const handleSelectPlayer = async (playerId, playerName) => {
+      trendsQueryRef.current = playerName;
+      setTrendsPlayerName(playerName);
+      setTrendsSearch(playerName);
+      setTrendsSearchResults([]);
+      setTrendsData(null);
+      setTrendsLoading(true);
+      try {
+        const endpoint = category === 'pitching'
+          ? `/api/v1/advanced-stats/pitching/trends/${playerId}`
+          : `/api/v1/advanced-stats/batting/trends/${playerId}`;
+        const headers = await getAuthHeaders();
+        const res = await fetch(`${BACKEND_URL}${endpoint}`, { headers });
+        const data = await res.json();
+        setTrendsData(data.trends || []);
+      } catch (e) {
+        console.error('Trends error:', e);
+      } finally {
+        setTrendsLoading(false);
+      }
+    };
+
     return (
       <div className="space-y-4">
         <div className="flex flex-wrap gap-3 items-end">
           <div>
             <label className="block text-xs text-gray-400 mb-1">{category === 'pitching' ? '投手名' : '打者名'}</label>
-            <PlayerSearchDropdown query={trendsSearch} setQuery={setTrendsSearch}
-              onSelect={(id) => {
-                setTrendsPlayerId(id);
-                if (trendsSelectedMetrics.length === 0) setTrendsSelectedMetrics(metrics.slice(0, 3).map((m) => m.id));
-              }} placeholder="Search player..." />
+            <div className="relative">
+              <div className="flex items-center">
+                <Search className="absolute left-2.5 w-3.5 h-3.5 text-gray-500" />
+                <input
+                  type="text" value={trendsSearch}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  placeholder="Search player..."
+                  className="bg-gray-700 text-white border border-gray-600 rounded-lg pl-8 pr-3 py-1.5 text-sm w-56"
+                />
+              </div>
+              {trendsSearchResults.length > 0 && (
+                <div className="absolute z-50 mt-1 w-72 bg-gray-800 border border-gray-600 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                  {trendsSearchResults.map((p) => {
+                    const id = p.pitcher_id ?? p.batter_id;
+                    return (
+                      <button key={id} onClick={() => handleSelectPlayer(id, p.player_name)}
+                        className="w-full text-left px-3 py-2 hover:bg-gray-700 transition-colors flex items-center justify-between">
+                        <span className="text-white text-sm font-medium">{p.player_name}</span>
+                        <span className="text-gray-500 text-xs">{p.team}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -329,26 +404,30 @@ const AdvancedStats = () => {
                 trendsSelectedMetrics.includes(m.id) ? 'border-blue-500/50 text-white' : 'border-gray-600 text-gray-500 hover:text-gray-300'
               }`}
               style={trendsSelectedMetrics.includes(m.id) ? { backgroundColor: LINE_COLORS[i % LINE_COLORS.length] + '20' } : {}}>
-              {m.id}
+              {m.id}: {m.name}
             </button>
           ))}
-          <span className="text-gray-600 text-xs self-center ml-1">(max 5)</span>
         </div>
-        {!trendsData && (
+        {trendsLoading && (
+          <div className="text-center py-16 text-gray-500">
+            <p className="text-sm">Loading...</p>
+          </div>
+        )}
+        {!trendsLoading && !trendsData && (
           <div className="text-center py-16 text-gray-500">
             <TrendingUp className="w-12 h-12 mx-auto mb-3 opacity-30" />
             <p className="text-sm">選手を検索してトレンドを表示</p>
           </div>
         )}
-        {trendsData && player && trendsSelectedMetrics.length > 0 && (
+        {!trendsLoading && trendsData && trendsPlayerName && trendsSelectedMetrics.length > 0 && (
           <>
             <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
-              <h4 className="text-sm font-medium text-gray-300 mb-2">{player.name} — Season Trends</h4>
+              <h4 className="text-sm font-medium text-gray-300 mb-2">{trendsPlayerName} — Season Trends</h4>
               <ResponsiveContainer width="100%" height={350}>
                 <LineChart data={trendsData} margin={{ top: 10, right: 10, left: 0, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                   <XAxis dataKey="season" stroke="#9ca3af" tick={{ fontSize: 12 }} />
-                  <YAxis stroke="#9ca3af" tick={{ fontSize: 12 }} domain={[50, 100]} />
+                  <YAxis stroke="#9ca3af" tick={{ fontSize: 12 }} domain={['auto', 'auto']} />
                   <Tooltip content={<ChartTooltip />} />
                   <Legend wrapperStyle={{ fontSize: 11, color: '#9ca3af' }} />
                   {trendsSelectedMetrics.map((metricId, i) => {
@@ -379,6 +458,8 @@ const AdvancedStats = () => {
                   <tbody>
                     {trendsSelectedMetrics.map((metricId) => {
                       const m      = metrics.find((x) => x.id === metricId);
+                      const dec    = m?.decimals ?? 0;
+                      const fmt    = (v) => v != null ? v.toFixed(dec) : '—';
                       const latest = trendsData[trendsData.length - 1]?.[metricId];
                       const prev   = trendsData[trendsData.length - 2]?.[metricId];
                       const yoy    = latest != null && prev != null ? latest - prev : null;
@@ -386,10 +467,12 @@ const AdvancedStats = () => {
                         <tr key={metricId} className="border-b border-gray-700/50">
                           <td className="py-2 px-3 text-gray-300">{metricId} {m?.nameJp}</td>
                           {trendsData.map((row) => (
-                            <td key={row.season} className="py-2 px-3 text-right text-gray-300">{row[metricId]?.toFixed(1)}</td>
+                            <td key={row.season} className="py-2 px-3 text-right text-gray-300">
+                              {fmt(row[metricId])}
+                            </td>
                           ))}
                           <td className={`py-2 px-3 text-right font-medium ${yoy > 0 ? 'text-green-400' : yoy < 0 ? 'text-red-400' : 'text-gray-400'}`}>
-                            {yoy != null ? `${yoy > 0 ? '+' : ''}${yoy.toFixed(1)}` : '—'}
+                            {yoy != null ? `${yoy > 0 ? '+' : ''}${yoy.toFixed(dec)}` : '—'}
                           </td>
                         </tr>
                       );
@@ -476,9 +559,9 @@ const AdvancedStats = () => {
       {view === 'rankings' && category === 'batting' && (
         <AdvancedStatsBatting season={season} getAuthHeaders={getAuthHeaders} BACKEND_URL={BACKEND_URL} />
       )}
-      {view === 'profile'  && <ProfileView />}
-      {view === 'compare'  && <CompareView />}
-      {view === 'trends'   && <TrendsView />}
+      {view === 'profile'  && ProfileView()}
+      {view === 'compare'  && CompareView()}
+      {view === 'trends'   && TrendsView()}
     </div>
   );
 };
