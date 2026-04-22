@@ -38,13 +38,19 @@ class SimpleChartService:
             # Convert to month names
             month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
             
+            # metric名とDataFrameのカラム名のマッピング
+            metric_to_col = {
+                "homerun": "home_runs",
+            }
+            col_name = metric_to_col.get(metric, metric)
+
             # Convert to chart data format
             chart_data = []
             for _, row in data_df.iterrows():
                 month_num = row.get('month', row.get('game_month', 1))
                 month_name = month_names[int(month_num) - 1] if pd.notna(month_num) and 1 <= int(month_num) <= 12 else f"Month {int(month_num)}"
-                
-                metric_value = row.get(metric, 0)
+
+                metric_value = row.get(col_name, row.get(metric, 0))
                 if pd.notna(metric_value):
                     chart_data.append({
                         "month": month_name,

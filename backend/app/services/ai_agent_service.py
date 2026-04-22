@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Annotated, TypedDict, List, Dict, Any, Union, Optional, AsyncGenerator
 from operator import add
@@ -397,10 +398,15 @@ class MLBStatsAgent:
         logger.info("Oracle node started", node="oracle", status="thinking")
         
         system_prompt = """あなたはMLBデータ収集の司令塔です。ユーザーの質問を分析し、最適なツール呼び出しを計画してください。
-        
+
+        **【絶対ルール】:**
+        - 自分の知識だけで回答することは絶対に禁止です。必ずツールを呼び出してデータを取得してください。
+        - **2025年を含む全シーズンのデータがデータベースに存在します。** 「データがない」「まだシーズンが始まっていない」などと判断せず、必ずツールを呼んでください。
+        - ツールを呼ばずに直接回答することは禁止です。
+
         **重要な行動指針:**
         1. 打者と投手の特定の対戦（Matchup）に関する質問の場合、必ず `mlb_matchup_analytics_tool` と `mlb_matchup_history_tool` を使用して最新データを取得してください。
-        2. 自分の知識だけで答えず、必ずBigQuery上のカスタムビューからデータを取得してください。
+        2. 必ずBigQuery上のカスタムビューからデータを取得してください。
         3. 複数の選手を比較する場合、各対象について個別かつ詳細にデータを取得してください。
         4. 必要なデータが全て揃ったと確信できるまで、繰り返し実行（continue）を選択してください。"""
 
@@ -730,7 +736,7 @@ def run_mlb_agent(query: str) -> dict:
 
     # Step 3: Initialize model
     model = ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         google_api_key=os.getenv("GEMINI_API_KEY_V2"),
         temperature=0 # 分析精度を高めるため、ランダム性を排除
     )
@@ -816,7 +822,7 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
 
     # Step 3: Initialize model
     model = ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         google_api_key=os.getenv("GEMINI_API_KEY_V2"),
         temperature=0
     )

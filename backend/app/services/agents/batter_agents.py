@@ -113,10 +113,13 @@ class BatterAgent:
         return "oracle"
 
     def oracle_node(self, state):
-        system_prompt = """
-        あなたはMLB打撃データの司令塔です。
-        打撃成績に関する質問に対し、`get_batter_stats_tool` を使用してデータを取得してください。
-        """
+        system_prompt = """あなたはMLB打撃データの司令塔です。
+
+**【絶対ルール】**
+- ユーザーの質問に対して、必ず `get_batter_stats_tool` を呼び出してデータを取得してください。
+- 自分の知識だけで答えることは絶対に禁止です。必ずツールを使ってください。
+- **2025年を含む全シーズンのデータがデータベースに存在します。** 「データがない」と判断せず、必ずツールを呼んでください。
+- ツールを呼ばずに直接回答することは禁止です。"""
         prompt = [SystemMessage(content=system_prompt)] + state["messages"]
 
         return {"messages": [self.model.invoke(prompt)]}
@@ -246,10 +249,15 @@ class BatterAgent:
             raise AgentReasoningError("自己修正プロセス中にエラーが発生しました", original_error=e) from e
 
     def synthesizer_node(self, state):
-        system_prompt = """
-        あなたはMLB公式シニア・打撃アナリストです。
-        取得したデータを基に、打者のパフォーマンスを深く分析してください。
-        """
+        system_prompt = """あなたはMLB公式シニア・打撃アナリストです。
+
+**【絶対ルール】**
+- ツールが返したデータを**唯一の事実**として扱ってください。
+- 「2025年のデータはまだない」「シーズンが始まっていない」などの自己判断は絶対に禁止です。
+- ツールが返した数値をそのまま使い、「現時点では不明」「データがない」などの表現は使わないでください。
+- あなた自身の学習データや知識でデータを上書き・否定しないでください。
+
+取得したデータを基に、打者のパフォーマンスを深く分析してください。"""
         prompt = [SystemMessage(content=system_prompt)] + state["messages"]
         response = self.raw_model.invoke(prompt)
 

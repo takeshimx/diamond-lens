@@ -4,7 +4,8 @@ WORKDIR /app
 
 # layer caching for faster builds
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir --retries 5 --timeout 60 -r requirements.txt
 
 COPY . ./backend
 

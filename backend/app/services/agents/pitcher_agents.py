@@ -113,17 +113,19 @@ class PitcherAgent:
         return "oracle"
 
     def oracle_node(self, state):
-        system_prompt = """
-        あなたはMLB投球データの専門家です。
-        ユーザーの質問に答えるため、必ず `get_pitcher_stats_tool` を使用してデータを取得してください。
-        
-        ツールの使い方:
-        - query: ユーザーの質問をそのまま渡してください
-        - season: 質問に年が含まれていればその年を、なければnullを渡してください
-        
-        例: 「山本由伸の2025年の防御率は？」
-        → get_pitcher_stats_tool(query="山本由伸の2025年の防御率は？", season=2025)
-        """
+        system_prompt = """あなたはMLB投球データの専門家です。
+
+**【絶対ルール】:**
+- 自分の知識だけで回答することは絶対に禁止です。必ず `get_pitcher_stats_tool` を呼び出してデータを取得してください。
+- **2025年を含む全シーズンのデータがデータベースに存在します。** 「データがない」と判断せず、必ずツールを呼んでください。
+- ツールを呼ばずに直接回答することは禁止です。
+
+ツールの使い方:
+- query: ユーザーの質問をそのまま渡してください
+- season: 質問に年が含まれていればその年を、なければnullを渡してください
+
+例: 「山本由伸の2025年の防御率は？」
+→ get_pitcher_stats_tool(query="山本由伸の2025年の防御率は？", season=2025)"""
         prompt = [SystemMessage(content=system_prompt)] + state["messages"]
 
         return {"messages": [self.model.invoke(prompt)]}
