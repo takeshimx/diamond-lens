@@ -1,14 +1,14 @@
 import { useState, useMemo } from 'react';
-import { Trophy, Medal, Award, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
+import Icon from './layout/Icon.jsx';
 
 const BATTING_METRICS = {
   'avg': 'BA', 'hr': 'HR', 'rbi': 'RBI', 'r': 'Run', 'h': 'H',
   'ops': 'OPS', 'obp': 'OBP', 'slg': 'SLG', 'woba': 'wOBA', 'war': 'WAR',
   'wrcplus': 'wRC+', 'bb': 'BB', 'so': 'SO', 'babip': 'BABIP', 'iso': 'ISO',
   'hardhitpct': 'HH%', 'barrelspct': 'Barrel%', 'pa': 'PA', 'ab': 'AB', 'g': 'G',
-  'batting_average_at_risp': 'RISP時打率',
-  'slugging_percentage_at_risp': 'RISP時長打率',
-  'home_runs_at_risp': 'RISP時HR',
+  'batting_average_at_risp': 'RISP打率',
+  'slugging_percentage_at_risp': 'RISP長打率',
+  'home_runs_at_risp': 'RISP HR',
 };
 
 const PITCHING_METRICS = {
@@ -24,11 +24,11 @@ const getMetricDisplayName = (metric, isPitching = false) => {
   return BATTING_METRICS[metric] || metric.toUpperCase();
 };
 
-const getRankIcon = (rank) => {
-  if (rank === 1) return <Trophy className="w-5 h-5 text-yellow-500" />;
-  if (rank === 2) return <Medal className="w-5 h-5 text-gray-400" />;
-  if (rank === 3) return <Award className="w-5 h-5 text-amber-600" />;
-  return <span className="w-5 h-5 flex items-center justify-center text-sm font-bold text-gray-600">{rank}</span>;
+const getRankBadge = (rank) => {
+  if (rank === 1) return <span className="t-mono" style={{ color: "var(--amber)", fontWeight: 700, fontSize: 13 }}>①</span>;
+  if (rank === 2) return <span className="t-mono" style={{ color: "var(--ink-2)", fontWeight: 700, fontSize: 12 }}>②</span>;
+  if (rank === 3) return <span className="t-mono" style={{ color: "var(--amber-dim)", fontWeight: 700, fontSize: 12 }}>③</span>;
+  return <span className="t-mono" style={{ color: "var(--ink-4)", fontSize: 11 }}>{rank}</span>;
 };
 
 const formatValue = (value, metric) => {
@@ -57,7 +57,6 @@ const LeaderboardTable = ({ data, category, metricOrder, isLoading, error }) => 
     ? ['ip', 'era', 'whip', 'so', 'w', 'l', 'fip', 'k_9', 'k_bb', 'war']
     : ['avg', 'hr', 'rbi', 'r', 'obp', 'slg', 'ops', 'war', 'wrcplus', 'batting_average_at_risp', 'slugging_percentage_at_risp', 'home_runs_at_risp'];
 
-  // ===== フック類はすべてここに集約（アーリーリターンより前）=====
   const [sortKey, setSortKey] = useState(metricOrder);
   const [sortDir, setSortDir] = useState('desc');
 
@@ -69,7 +68,6 @@ const LeaderboardTable = ({ data, category, metricOrder, isLoading, error }) => 
       return sortDir === 'desc' ? bv - av : av - bv;
     });
   }, [data, sortKey, sortDir]);
-  // ==============================================================
 
   const handleSort = (column) => {
     if (sortKey === column) {
@@ -82,103 +80,121 @@ const LeaderboardTable = ({ data, category, metricOrder, isLoading, error }) => 
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-        <span className="ml-3 text-gray-600 dark:text-gray-400">リーダーボードを読み込み中...</span>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "48px 0", gap: 8 }}>
+        <span className="think-dot"/>
+        <span className="think-dot" style={{ animationDelay: ".2s" }}/>
+        <span className="think-dot" style={{ animationDelay: ".4s" }}/>
+        <span className="t-mono" style={{ fontSize: 11, color: "var(--ink-3)", marginLeft: 6 }}>リーダーボードを読み込み中...</span>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="text-center py-12">
-        <div className="text-red-500 mb-2">エラーが発生しました</div>
-        <div className="text-sm text-gray-600 dark:text-gray-400">{error}</div>
+      <div style={{ textAlign: "center", padding: "48px 0" }}>
+        <div style={{ color: "var(--neg)", marginBottom: 6, fontSize: 13 }}>エラーが発生しました</div>
+        <div className="t-mono" style={{ fontSize: 11, color: "var(--ink-4)" }}>{error}</div>
       </div>
     );
   }
 
   if (!data || data.length === 0) {
     return (
-      <div className="text-center py-12">
-        <div className="text-gray-500 dark:text-gray-400">データが見つかりませんでした</div>
+      <div style={{ textAlign: "center", padding: "48px 0", color: "var(--ink-4)", fontSize: 13 }}>
+        データが見つかりませんでした
       </div>
     );
   }
 
   const SortIcon = ({ column }) => {
-    if (sortKey !== column) return <ChevronsUpDown className="w-3 h-3 opacity-40" />;
+    if (sortKey !== column) return <Icon name="chevD" size={10} style={{ opacity: 0.3 }}/>;
     return sortDir === 'desc'
-      ? <ChevronDown className="w-3 h-3 text-blue-400" />
-      : <ChevronUp className="w-3 h-3 text-blue-400" />;
+      ? <Icon name="chevD" size={10} style={{ color: "var(--amber)" }}/>
+      : <Icon name="chevD" size={10} style={{ color: "var(--amber)", transform: "rotate(180deg)" }}/>;
+  };
+
+  const thBase = {
+    padding: "7px 10px",
+    fontSize: 10,
+    fontFamily: "var(--ff-mono)",
+    fontWeight: 600,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    borderBottom: "1px solid var(--rule)",
+    whiteSpace: "nowrap",
   };
 
   return (
-    <div className="space-y-4">
-      <div className="text-center">
-        <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {/* Header */}
+      <div style={{ textAlign: "center", paddingBottom: 8, borderBottom: "1px solid var(--rule)" }}>
+        <span className="h-display" style={{ fontSize: 15 }}>
           {isPitching ? '投手' : '打者'}リーダーボード
-        </h3>
-        <p className="text-sm text-gray-600 dark:text-gray-400">
+        </span>
+        <span className="t-mono" style={{ display: "block", fontSize: 10, color: "var(--ink-4)", marginTop: 4 }}>
           {getMetricDisplayName(sortKey, isPitching)} でソート済み
-        </p>
+        </span>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full bg-white dark:bg-gray-800 rounded-lg shadow">
-          <thead className="bg-gray-50 dark:bg-gray-700">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                順位
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                選手名
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                チーム
-              </th>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr style={{ background: "var(--bg-2)" }}>
+              <th style={{ ...thBase, textAlign: "left", color: "var(--ink-3)" }}>順位</th>
+              <th style={{ ...thBase, textAlign: "left", color: "var(--ink-3)" }}>選手名</th>
+              <th style={{ ...thBase, textAlign: "left", color: "var(--ink-3)" }}>チーム</th>
               {keyColumns.map((column) => (
                 <th
                   key={column}
                   onClick={() => handleSort(column)}
-                  className={`px-4 py-3 text-center text-xs font-medium uppercase tracking-wider cursor-pointer select-none transition-colors hover:bg-gray-200 dark:hover:bg-gray-600 ${
-                    sortKey === column
-                      ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
-                      : 'text-gray-500 dark:text-gray-300'
-                  }`}
+                  style={{
+                    ...thBase,
+                    textAlign: "center",
+                    cursor: "pointer",
+                    color: sortKey === column ? "var(--amber)" : "var(--ink-3)",
+                    background: sortKey === column ? "oklch(0.80 0.165 80 / 0.08)" : "var(--bg-2)",
+                    userSelect: "none",
+                  }}
                 >
-                  <div className="flex items-center justify-center gap-1">
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 3 }}>
                     {getMetricDisplayName(column, isPitching)}
-                    <SortIcon column={column} />
+                    <SortIcon column={column}/>
                   </div>
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+          <tbody>
             {sortedData.slice(0, 30).map((player, index) => (
-              <tr key={`${player.player_name || player.name}-${index}`} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                <td className="px-4 py-4 whitespace-nowrap">
-                  <div className="flex items-center">
-                    {getRankIcon(index + 1)}
-                  </div>
+              <tr
+                key={`${player.player_name || player.name}-${index}`}
+                style={{ borderBottom: "1px solid var(--rule-dim)" }}
+                onMouseEnter={e => e.currentTarget.style.background = "var(--bg-2)"}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+              >
+                <td style={{ padding: "8px 10px", whiteSpace: "nowrap" }}>
+                  {getRankBadge(index + 1)}
                 </td>
-                <td className="px-4 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900 dark:text-white">
-                    {player.player_name || player.name}
-                  </div>
+                <td style={{ padding: "8px 10px", whiteSpace: "nowrap", color: "var(--ink-0)", fontWeight: 600 }}>
+                  {player.player_name || player.name}
                 </td>
-                <td className="px-4 py-4 whitespace-nowrap">
-                  <div className="text-sm text-gray-900 dark:text-white">
-                    {player.team}
-                  </div>
+                <td className="t-mono" style={{ padding: "8px 10px", whiteSpace: "nowrap", color: "var(--ink-3)", fontSize: 10 }}>
+                  {player.team}
                 </td>
                 {keyColumns.map((column) => (
                   <td
                     key={column}
-                    className={`px-4 py-4 whitespace-nowrap text-center text-sm text-gray-900 dark:text-white ${
-                      sortKey === column ? 'bg-blue-50 dark:bg-blue-900/20 font-semibold' : ''
-                    }`}
+                    className="t-mono"
+                    style={{
+                      padding: "8px 10px",
+                      whiteSpace: "nowrap",
+                      textAlign: "center",
+                      fontSize: 12,
+                      color: "var(--ink-1)",
+                      fontWeight: sortKey === column ? 700 : 400,
+                      color: sortKey === column ? "var(--amber)" : "var(--ink-1)",
+                      background: sortKey === column ? "oklch(0.80 0.165 80 / 0.05)" : "transparent",
+                    }}
                   >
                     {formatValue(player[column], column)}
                   </td>
@@ -189,7 +205,7 @@ const LeaderboardTable = ({ data, category, metricOrder, isLoading, error }) => 
         </table>
       </div>
 
-      <div className="text-center text-xs text-gray-500 dark:text-gray-400">
+      <div className="t-mono" style={{ textAlign: "center", fontSize: 10, color: "var(--ink-4)" }}>
         トップ{Math.min(30, sortedData.length)}人を表示 ({sortedData.length}人中)
       </div>
     </div>

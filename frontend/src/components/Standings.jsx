@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { RefreshCw, TrendingUp } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import Icon from './layout/Icon.jsx';
 
 const getBackendUrl = () => {
   if (window.location.hostname.includes('run.app')) {
@@ -15,88 +15,97 @@ const getBackendUrl = () => {
 
 const BACKEND_URL = getBackendUrl();
 
-// AL/NL の leagueId
 const AL_ID = 103;
 const NL_ID = 104;
 
-// 勝率の色分け
 const pctColor = (pct) => {
   const v = parseFloat(pct);
-  if (isNaN(v)) return 'text-gray-400';
-  if (v >= 0.600) return 'text-green-400 font-bold';
-  if (v >= 0.500) return 'text-gray-200';
-  return 'text-red-400';
+  if (isNaN(v)) return 'var(--ink-3)';
+  if (v >= 0.600) return 'var(--pos)';
+  if (v >= 0.500) return 'var(--ink-1)';
+  return 'var(--neg)';
 };
 
-// 連勝/連敗のバッジ色
 const streakColor = (code) => {
-  if (!code || code === '-') return 'text-gray-500';
-  if (code.startsWith('W')) return 'text-green-400';
-  return 'text-red-400';
+  if (!code || code === '-') return 'var(--ink-3)';
+  if (code.startsWith('W')) return 'var(--pos)';
+  return 'var(--neg)';
 };
+
+const TH_COLS = ["TEAM", "W", "L", "PCT", "GB", "HOME", "AWAY", "L10", "STREAK"];
 
 const DivisionTable = ({ division }) => (
-  <div className="mb-6">
-    {/* ディビジョン名ヘッダー */}
-    <div className="px-3 py-1.5 bg-gray-800 rounded-t-lg border-b border-gray-600">
-      <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+  <div style={{ marginBottom: 20 }}>
+    <div className="rule-b" style={{ padding: "5px 12px", background: "var(--bg-1)" }}>
+      <span className="h-label" style={{ fontSize: 10, color: "var(--ink-2)" }}>
         {division.division_name}
       </span>
     </div>
-
-    {/* テーブル */}
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+    <div style={{ overflowX: "auto" }}>
+      <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
         <thead>
-          <tr className="bg-gray-800/60 text-gray-500 uppercase">
-            <th className="text-left px-3 py-2 font-medium w-32">チーム</th>
-            <th className="text-center px-2 py-2 font-medium">W</th>
-            <th className="text-center px-2 py-2 font-medium">L</th>
-            <th className="text-center px-2 py-2 font-medium">PCT</th>
-            <th className="text-center px-2 py-2 font-medium">GB</th>
-            <th className="text-center px-2 py-2 font-medium hidden sm:table-cell">Home</th>
-            <th className="text-center px-2 py-2 font-medium hidden sm:table-cell">Away</th>
-            <th className="text-center px-2 py-2 font-medium">L10</th>
-            <th className="text-center px-2 py-2 font-medium">Streak</th>
+          <tr style={{ background: "var(--bg-1)" }}>
+            {TH_COLS.map(h => (
+              <th key={h} style={{
+                padding: "6px 8px",
+                fontFamily: "var(--ff-mono)",
+                fontWeight: 600,
+                fontSize: 10,
+                letterSpacing: "0.08em",
+                color: "var(--ink-3)",
+                textAlign: h === "TEAM" ? "left" : "center",
+                borderBottom: "1px solid var(--rule)",
+                whiteSpace: "nowrap",
+              }}>{h}</th>
+            ))}
           </tr>
         </thead>
         <tbody>
           {division.teams.map((team, idx) => (
             <tr
               key={team.team_id}
-              className={`border-b border-gray-700/50 transition-colors hover:bg-gray-700/30 ${
-                idx === 0 ? 'bg-gray-800/20' : ''
-              }`}
+              style={{
+                borderBottom: "1px solid var(--rule-dim)",
+                background: idx === 0 ? "oklch(from var(--bg-1) l c h / 0.5)" : "transparent",
+              }}
             >
-              {/* チーム名 */}
-              <td className="px-3 py-2.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-gray-500 w-4 text-right text-[10px]">{idx + 1}</span>
-                  <span className={`font-semibold ${idx === 0 ? 'text-white' : 'text-gray-300'}`}>
+              <td style={{ padding: "7px 12px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className="t-mono" style={{ fontSize: 9, color: "var(--ink-4)", width: 14, textAlign: "right" }}>
+                    {idx + 1}
+                  </span>
+                  <span style={{
+                    fontWeight: idx === 0 ? 600 : 400,
+                    color: idx === 0 ? "var(--ink-0)" : "var(--ink-1)",
+                  }}>
                     {team.team_abbrev || team.team_name}
                   </span>
                 </div>
               </td>
-              <td className="text-center px-2 py-2.5 text-gray-200">{team.wins}</td>
-              <td className="text-center px-2 py-2.5 text-gray-200">{team.losses}</td>
-              <td className={`text-center px-2 py-2.5 ${pctColor(team.win_pct)}`}>
-                {team.win_pct}
+              <td className="t-mono" style={{ textAlign: "center", padding: "7px 8px", color: "var(--ink-1)" }}>{team.wins}</td>
+              <td className="t-mono" style={{ textAlign: "center", padding: "7px 8px", color: "var(--ink-1)" }}>{team.losses}</td>
+              <td className="t-mono" style={{
+                textAlign: "center", padding: "7px 8px",
+                color: pctColor(team.win_pct),
+                fontWeight: parseFloat(team.win_pct) >= 0.600 ? 600 : 400,
+              }}>{team.win_pct}</td>
+              <td className="t-mono" style={{ textAlign: "center", padding: "7px 8px", color: "var(--ink-3)" }}>
+                {team.games_back === '-' ? <span style={{ color: "var(--amber)" }}>—</span> : team.games_back}
               </td>
-              <td className="text-center px-2 py-2.5 text-gray-400">
-                {team.games_back === '-' ? <span className="text-yellow-400">—</span> : team.games_back}
-              </td>
-              <td className="text-center px-2 py-2.5 text-gray-400 hidden sm:table-cell">
+              <td className="t-mono" style={{ textAlign: "center", padding: "7px 8px", color: "var(--ink-3)" }}>
                 {team.home_wins}-{team.home_losses}
               </td>
-              <td className="text-center px-2 py-2.5 text-gray-400 hidden sm:table-cell">
+              <td className="t-mono" style={{ textAlign: "center", padding: "7px 8px", color: "var(--ink-3)" }}>
                 {team.away_wins}-{team.away_losses}
               </td>
-              <td className="text-center px-2 py-2.5 text-gray-300">
+              <td className="t-mono" style={{ textAlign: "center", padding: "7px 8px", color: "var(--ink-1)" }}>
                 {team.last_ten_wins}-{team.last_ten_losses}
               </td>
-              <td className={`text-center px-2 py-2.5 font-medium ${streakColor(team.streak)}`}>
-                {team.streak || '-'}
-              </td>
+              <td className="t-mono" style={{
+                textAlign: "center", padding: "7px 8px",
+                color: streakColor(team.streak),
+                fontWeight: 600,
+              }}>{team.streak || '-'}</td>
             </tr>
           ))}
         </tbody>
@@ -106,10 +115,10 @@ const DivisionTable = ({ division }) => (
 );
 
 const LeagueSection = ({ leagueName, divisions }) => (
-  <div className="mb-8">
-    <h2 className="text-sm font-bold text-blue-400 uppercase tracking-widest mb-3 px-1">
-      {leagueName}
-    </h2>
+  <div style={{ marginBottom: 28 }}>
+    <div style={{ paddingBottom: 8, borderBottom: "1px solid var(--amber-dim)", marginBottom: 12 }}>
+      <span className="h-label" style={{ color: "var(--amber)", fontSize: 11 }}>{leagueName}</span>
+    </div>
     {divisions.map((div) => (
       <DivisionTable key={div.division_name} division={div} />
     ))}
@@ -122,7 +131,7 @@ export default function Standings() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [viewMode, setViewMode] = useState('division'); // 'division' | 'league'
+  const [viewMode, setViewMode] = useState('division');
   const [activeLeague, setActiveLeague] = useState('AL');
   const [updatedAt, setUpdatedAt] = useState(null);
 
@@ -151,11 +160,9 @@ export default function Standings() {
     fetchStandings();
   }, [fetchStandings]);
 
-  // Division view: AL/NL 別に仕分け
   const alDivisions = data?.standings?.filter((d) => d.league_id === AL_ID) ?? [];
   const nlDivisions = data?.standings?.filter((d) => d.league_id === NL_ID) ?? [];
 
-  // League view: リーグ内全チームを勝率順に並べる
   const buildLeagueRanking = (divisions) =>
     divisions
       .flatMap((d) => d.teams)
@@ -169,22 +176,36 @@ export default function Standings() {
     teams: activeLeague === 'AL' ? alTeams : nlTeams,
   };
 
+  const tabBtn = (active) => ({
+    padding: "5px 16px",
+    fontSize: 11,
+    fontFamily: "var(--ff-mono)",
+    letterSpacing: "0.06em",
+    fontWeight: active ? 600 : 400,
+    background: active ? "var(--amber)" : "transparent",
+    color: active ? "var(--bg-0)" : "var(--ink-3)",
+    border: `1px solid ${active ? "var(--amber)" : "var(--rule)"}`,
+    transition: "all .12s",
+  });
+
   return (
-    <div className="w-full max-w-3xl mx-auto">
-      {/* ヘッダー */}
-      <div className="flex items-center justify-between mb-5">
-        <div className="flex items-center gap-3">
-          <TrendingUp className="w-5 h-5 text-blue-400" />
-          <h1 className="text-lg font-bold text-white">
+    <div style={{ width: "100%", maxWidth: 780, margin: "0 auto" }}>
+      {/* Header */}
+      <div className="rule-b" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: 12, marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Icon name="chart" size={16} style={{ color: "var(--amber)" }}/>
+          <span className="h-display" style={{ fontSize: 16 }}>
             Standings
-            {data?.season && (
-              <span className="ml-2 text-sm font-normal text-gray-500">{data.season}</span>
-            )}
-          </h1>
+          </span>
+          {data?.season && (
+            <span className="t-mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>
+              {data.season}
+            </span>
+          )}
         </div>
-        <div className="flex items-center gap-3">
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           {updatedAt && (
-            <span className="text-[11px] text-gray-500">
+            <span className="t-mono" style={{ fontSize: 10, color: "var(--ink-4)" }}>
               更新: {updatedAt.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' })}{' '}
               {updatedAt.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </span>
@@ -192,63 +213,55 @@ export default function Standings() {
           <button
             onClick={fetchStandings}
             disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-400 hover:text-white bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors disabled:opacity-50"
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "5px 12px", fontSize: 11,
+              border: "1px solid var(--rule)", color: "var(--ink-2)",
+              opacity: loading ? 0.5 : 1,
+              fontFamily: "var(--ff-mono)",
+            }}
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <Icon name="refresh" size={12} className={loading ? "dl-spin" : ""}/>
             更新
           </button>
         </div>
       </div>
 
-      {/* League / Division タブ */}
-      <div className="flex gap-1 mb-4 bg-gray-800 p-1 rounded-lg w-fit">
+      {/* View mode tabs */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
         {['division', 'league'].map((mode) => (
-          <button
-            key={mode}
-            onClick={() => setViewMode(mode)}
-            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
-              viewMode === mode
-                ? 'bg-blue-600 text-white'
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            {mode === 'division' ? 'Division' : 'League'}
+          <button key={mode} onClick={() => setViewMode(mode)} style={tabBtn(viewMode === mode)}>
+            {mode === 'division' ? 'DIVISION' : 'LEAGUE'}
           </button>
         ))}
       </div>
 
-      {/* League ビュー時の AL/NL 切替 */}
+      {/* League view AL/NL toggle */}
       {viewMode === 'league' && (
-        <div className="flex gap-1 mb-4 bg-gray-800 p-1 rounded-lg w-fit">
+        <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
           {['AL', 'NL'].map((lg) => (
-            <button
-              key={lg}
-              onClick={() => setActiveLeague(lg)}
-              className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                activeLeague === lg
-                  ? 'bg-gray-600 text-white'
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
+            <button key={lg} onClick={() => setActiveLeague(lg)} style={tabBtn(activeLeague === lg)}>
               {lg}
             </button>
           ))}
         </div>
       )}
 
-      {/* コンテンツ */}
+      {/* Content */}
       {loading ? (
-        <div className="flex items-center justify-center py-24 text-gray-400">
-          <RefreshCw className="w-5 h-5 animate-spin mr-2" />
-          <span>データ取得中...</span>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "80px 0", gap: 8 }}>
+          <span className="think-dot"/>
+          <span className="think-dot" style={{ animationDelay: ".2s" }}/>
+          <span className="think-dot" style={{ animationDelay: ".4s" }}/>
+          <span className="t-mono" style={{ fontSize: 11, color: "var(--ink-3)", marginLeft: 6 }}>取得中...</span>
         </div>
       ) : error ? (
-        <div className="flex flex-col items-center justify-center py-24 text-gray-500">
-          <p className="text-red-400 mb-3">データを取得できませんでした</p>
-          <p className="text-xs text-gray-600">{error}</p>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 0", gap: 10 }}>
+          <span style={{ color: "var(--neg)", fontSize: 13 }}>データを取得できませんでした</span>
+          <span className="t-mono" style={{ fontSize: 10, color: "var(--ink-4)" }}>{error}</span>
           <button
             onClick={fetchStandings}
-            className="mt-4 px-4 py-2 text-sm bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+            style={{ marginTop: 8, padding: "6px 16px", fontSize: 12, border: "1px solid var(--rule)", color: "var(--ink-2)" }}
           >
             再試行
           </button>
@@ -262,13 +275,13 @@ export default function Standings() {
         <DivisionTable division={leagueDivision} />
       )}
 
-      {/* 凡例 */}
+      {/* Legend */}
       {!loading && !error && (
-        <div className="mt-4 flex flex-wrap gap-3 text-[10px] text-gray-600 px-1">
-          <span>GB = Games Behind</span>
-          <span>L10 = Last 10 Games</span>
-          <span className="text-green-600">W = Winning Streak</span>
-          <span className="text-red-600">L = Losing Streak</span>
+        <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 12 }}>
+          <span className="t-mono" style={{ fontSize: 10, color: "var(--ink-4)" }}>GB = Games Behind</span>
+          <span className="t-mono" style={{ fontSize: 10, color: "var(--ink-4)" }}>L10 = Last 10 Games</span>
+          <span className="t-mono" style={{ fontSize: 10, color: "var(--pos)" }}>W = Winning Streak</span>
+          <span className="t-mono" style={{ fontSize: 10, color: "var(--neg)" }}>L = Losing Streak</span>
         </div>
       )}
     </div>

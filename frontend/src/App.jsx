@@ -1,10 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import QuickQuestions from './components/QuickQuestions.jsx';
-import CustomQueryBuilder from './components/CustomQueryBuilder.jsx';
 import StatisticalAnalysis from './components/StatisticalAnalysis.jsx';
 import PlayerSegmentation from './components/PlayerSegmentation.jsx';
-import PitcherFatigue from './components/PitcherFatigue.jsx';
-import PitcherWhiffPredictor from './components/PitcherWhiffPredictor.jsx';
 import StuffPlus from './components/StuffPlus.jsx';
 import AdvancedStats from './components/AdvancedStats.jsx';
 import LiveScoreboard from './components/LiveScoreboard.jsx';
@@ -13,7 +10,6 @@ import Standings from './components/Standings.jsx';
 import Leaderboard from './components/Leaderboard.jsx';
 import HotSlumpDashboard from './components/HotSlumpDashboard.jsx';
 import PlayerProfile from './components/PlayerProfile.jsx';
-import VoiceInput from './components/VoiceInput.jsx';
 import { useAuth } from './hooks/useAuth';
 import { useSession } from './hooks/useSession.js';
 import { useBackendAPI } from './hooks/useBackendAPI.js';
@@ -25,25 +21,32 @@ import { useCustomQuery } from './hooks/useCustomQuery.js';
 import { useStreamChat } from './hooks/useStreamChat.js';
 import LoginScreen from './components/layout/LoginScreen.jsx';
 import AppSidebar from './components/layout/AppSidebar.jsx';
-import ChatTopBar from './components/layout/ChatTopBar.jsx';
-import ChatInputArea from './components/layout/ChatInputArea.jsx';
-import ChatMessageList from './components/layout/ChatMessageList.jsx';
+import Topbar from './components/layout/ChatTopBar.jsx';
+import Ticker from './components/layout/Ticker.jsx';
+import ChatScreen from './components/layout/ChatScreen.jsx';
+import { DLMark } from './components/layout/Icon.jsx';
 
-// Force dark mode on app load
-const initializeDarkMode = () => {
-  document.documentElement.classList.add('dark');
-};
+// ============================================================
+// Placeholder — 未実装画面のフォールバック
+// ============================================================
+const Placeholder = ({ label }) => (
+  <div style={{
+    flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
+    flexDirection: "column", gap: 14, color: "var(--ink-3)",
+  }}>
+    <DLMark size={48}/>
+    <div className="h-display" style={{ fontSize: 22, color: "var(--ink-1)" }}>{label}</div>
+    <div className="t-mono" style={{ fontSize: 11, color: "var(--ink-4)", letterSpacing: "0.1em" }}>
+      MODULE · 準備中
+    </div>
+  </div>
+);
 
-
-
-
+// ============================================================
+// Main app
+// ============================================================
 const MLBChatApp = () => {
-  // Initialize dark mode on component mount
-  useEffect(() => {
-    initializeDarkMode();
-  }, []);
-
-  // ===== STATE管理 =====
+  // ===== STATE =====
   const {
     messages, setMessages,
     inputMessage, setInputMessage,
@@ -51,214 +54,190 @@ const MLBChatApp = () => {
     messagesEndRef,
     resetMessages,
     formatTime,
-    handleVoiceTranscript,
   } = useMessages();
 
-  // Firebase認証（Googleログイン）
   const { user, loading: authLoading, error: authError, loginWithGoogle, logout, getIdToken } = useAuth();
   const [isCheckingAuth, setIsCheckingAuth] = useState(false);
 
-  // UIモード管理のstate
-  const [uiMode, setUiMode] = useState('chat'); // 'chat', 'quick', 'custom', 'statistics', 'segmentation', 'fatigue', 'pitcher-whiff'
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // mode: "chat" | "quick" | "stats" | "segment" | "stuff" | "advanced"
+  //       "hot"  | "leader"| "live"  | "monitor" | "standings" | "profile"
+  const [mode, setMode] = useState(() => localStorage.getItem("dl-mode") || "chat");
+  const [collapsed, setCollapsed] = useState(false);
 
+  useEffect(() => { localStorage.setItem("dl-mode", mode); }, [mode]);
 
-  // エージェントモード（推論ループ）のON/OFF
   const [isAgentMode, setIsAgentMode] = useState(false);
 
-  // ★ 会話履歴用のセッションID管理 ★
   const { sessionId, setSessionId, clearSession } = useSession();
 
-  // ===== API フック =====
-  // getBackendURL / getAuthHeaders / callBackendAPI / searchPlayers
+  // ===== API hooks =====
   const { getBackendURL, getAuthHeaders, callBackendAPI, searchPlayers } = useBackendAPI({
-    getIdToken,
-    sessionId,
-    setSessionId,
-    isAgentMode,
+    getIdToken, sessionId, setSessionId, isAgentMode,
   });
 
   const { callFixedQueryAPI } = useFixedQueryAPI({ getBackendURL, getAuthHeaders });
 
-  // ===== クイック質問 =====
   const { quickResult, setQuickResult, handleQuickQuestion } = useQuickQuery({ callFixedQueryAPI, setIsLoading });
 
-  // ===== カスタムクエリ =====
-  const { customResult, setCustomResult, handleCustomQuery } = useCustomQuery({ callFixedQueryAPI, getBackendURL, getAuthHeaders, setIsLoading });
+  const { setCustomResult } = useCustomQuery({
+    callFixedQueryAPI, getBackendURL, getAuthHeaders, setIsLoading,
+  });
 
-  // ===== フィードバック =====
   const {
-    feedbackState,
-    activeFeedbackForm,
-    setActiveFeedbackForm,
-    feedbackFormData,
-    setFeedbackFormData,
-    handleFeedback,
+    feedbackState, activeFeedbackForm, setActiveFeedbackForm,
+    feedbackFormData, setFeedbackFormData, handleFeedback,
   } = useFeedback({ getBackendURL, getAuthHeaders, sessionId });
 
-  // ===== チャット送信・履歴クリア =====
-  const { handleClearHistory, handleSendMessage, handleSendMessageStream, handleKeyDown } = useStreamChat({
+  const { handleClearHistory, handleSendMessageStream, handleKeyDown } = useStreamChat({
     inputMessage, isLoading, sessionId,
     setMessages, setInputMessage, setIsLoading, setSessionId, resetMessages, clearSession,
     getBackendURL, getAuthHeaders, callBackendAPI,
   });
 
-  // Googleログイン処理
+  // Clear sub-results when switching modes
+  const handleSetMode = (newMode) => {
+    setMode(newMode);
+    setQuickResult(null);
+    setCustomResult(null);
+  };
+
   const handleGoogleLogin = async () => {
     setIsCheckingAuth(true);
     try {
       await loginWithGoogle();
-    } catch (err) {
-      // エラーは useAuth 内で処理済み
     } finally {
       setIsCheckingAuth(false);
     }
   };
 
+  // ===== Screen routing =====
+  const renderScreen = () => {
+    switch (mode) {
+      case "chat":
+        return (
+          <ChatScreen
+            messages={messages}
+            feedbackState={feedbackState}
+            activeFeedbackForm={activeFeedbackForm}
+            feedbackFormData={feedbackFormData}
+            setFeedbackFormData={setFeedbackFormData}
+            setActiveFeedbackForm={setActiveFeedbackForm}
+            handleFeedback={handleFeedback}
+            messagesEndRef={messagesEndRef}
+            formatTime={formatTime}
+            user={user}
+            inputMessage={inputMessage}
+            setInputMessage={setInputMessage}
+            handleKeyDown={handleKeyDown}
+            isLoading={isLoading}
+            handleSendMessageStream={handleSendMessageStream}
+            isAgentMode={isAgentMode}
+            setIsAgentMode={setIsAgentMode}
+            sessionId={sessionId}
+            handleClearHistory={handleClearHistory}
+          />
+        );
+      case "quick":
+        return (
+          <div style={{ padding: "24px 32px", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <QuickQuestions
+              onQuestionClick={handleQuickQuestion}
+              isLoading={isLoading}
+              quickResult={quickResult}
+              onClearResult={() => setQuickResult(null)}
+            />
+          </div>
+        );
+      case "stats":
+        return <div style={{ padding: "24px 32px", height: "100%" }}><StatisticalAnalysis/></div>;
+      case "segment":
+        return <div style={{ padding: "24px 32px", height: "100%" }}><PlayerSegmentation/></div>;
+      case "stuff":
+        return <div style={{ padding: "24px 32px", height: "100%" }}><StuffPlus/></div>;
+      case "advanced":
+        return <div style={{ padding: "24px 32px", height: "100%" }}><AdvancedStats/></div>;
+      case "hot":
+        return <div style={{ height: "100%", overflowY: "auto" }}><HotSlumpDashboard/></div>;
+      case "leader":
+        return <div style={{ padding: "24px 32px", height: "100%" }}><Leaderboard/></div>;
+      case "live":
+        return <div style={{ padding: "24px 32px", height: "100%", width: "100%" }}><LiveScoreboard/></div>;
+      case "monitor":
+        return <div style={{ padding: "24px 32px", height: "100%", width: "100%" }}><LiveMonitorBoard/></div>;
+      case "standings":
+        return <div style={{ padding: "24px 32px", height: "100%", width: "100%" }}><Standings/></div>;
+      case "profile":
+        return (
+          <div style={{ padding: "24px 32px", height: "100%", width: "100%" }}>
+            <PlayerProfile
+              onSearchPlayers={searchPlayers}
+              getAuthHeaders={getAuthHeaders}
+              getBackendURL={getBackendURL}
+            />
+          </div>
+        );
+      default:
+        return <Placeholder label={mode.toUpperCase()}/>;
+    }
+  };
 
-  // ===== メインUIレンダリング =====
+  // ===== Render =====
   return (
-    <div className="flex flex-col h-screen w-full bg-white dark:bg-gray-900 transition-colors duration-200" data-theme-test>
+    <div style={{ height: "100%", display: "flex", background: "var(--bg-0)", color: "var(--ink-1)" }}>
       {authLoading ? (
-        <div className="flex items-center justify-center h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-black">
-          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+        <div style={{
+          flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
+          background: "var(--bg-0)",
+        }}>
+          <div style={{
+            width: 32, height: 32,
+            border: "2px solid var(--bg-3)",
+            borderTop: "2px solid var(--amber)",
+            borderRadius: "50%",
+            animation: "spin 0.8s linear infinite",
+          }}/>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
       ) : !user ? (
-        <LoginScreen
-          authError={authError}
-          isCheckingAuth={isCheckingAuth}
-          handleGoogleLogin={handleGoogleLogin}
-        />
+        <div style={{ flex: 1 }}>
+          <LoginScreen
+            authError={authError}
+            isCheckingAuth={isCheckingAuth}
+            handleGoogleLogin={handleGoogleLogin}
+          />
+        </div>
       ) : (
-        <div className="flex flex-row flex-1 min-h-0 overflow-hidden">
-          {/* モバイルオーバーレイ */}
-          {sidebarOpen && (
-            <div className="fixed inset-0 z-20 bg-black/60 md:hidden" onClick={() => setSidebarOpen(false)} />
-          )}
+        <>
           <AppSidebar
-            sidebarOpen={sidebarOpen}
-            setSidebarOpen={setSidebarOpen}
-            uiMode={uiMode}
-            setUiMode={setUiMode}
-            setQuickResult={setQuickResult}
-            setCustomResult={setCustomResult}
+            mode={mode}
+            setMode={handleSetMode}
+            collapsed={collapsed}
+            setCollapsed={setCollapsed}
+            user={user}
             logout={logout}
           />
-          <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-            <ChatTopBar
-              sidebarOpen={sidebarOpen}
-              setSidebarOpen={setSidebarOpen}
-              uiMode={uiMode}
+
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+            <Ticker/>
+            <Topbar
+              mode={mode}
+              collapsed={collapsed}
+              onToggleSidebar={() => setCollapsed(c => !c)}
               sessionId={sessionId}
-              handleClearHistory={handleClearHistory}
+              onClearHistory={handleClearHistory}
             />
-            <div className="flex-1 overflow-y-auto">
-              {uiMode === 'chat' ? (
-                <ChatMessageList
-                  messages={messages}
-                  feedbackState={feedbackState}
-                  activeFeedbackForm={activeFeedbackForm}
-                  feedbackFormData={feedbackFormData}
-                  setFeedbackFormData={setFeedbackFormData}
-                  setActiveFeedbackForm={setActiveFeedbackForm}
-                  handleFeedback={handleFeedback}
-                  messagesEndRef={messagesEndRef}
-                  formatTime={formatTime}
-                />
-              ) : uiMode === 'quick' ? (
-                <div className="px-4 sm:px-6 py-6 sm:py-8 h-full flex items-center justify-center">
-                  <QuickQuestions
-                    onQuestionClick={handleQuickQuestion}
-                    isLoading={isLoading}
-                    quickResult={quickResult}
-                    onClearResult={() => setQuickResult(null)}
-                  />
-                </div>
-              ) : uiMode === 'statistics' ? (
-                <div className="px-4 sm:px-6 py-6 sm:py-8 h-full">
-                  <StatisticalAnalysis />
-                </div>
-              ) : uiMode === 'segmentation' ? (
-                <div className="px-4 sm:px-6 py-6 sm:py-8 h-full">
-                  <PlayerSegmentation />
-                </div>
-              ) : uiMode === 'stuff-plus' ? (
-                <div className="px-4 sm:px-6 py-6 sm:py-8 h-full">
-                  <StuffPlus />
-                </div>
-              ) : uiMode === 'advanced-stats' ? (
-                <div className="px-4 sm:px-6 py-6 sm:py-8 h-full">
-                  <AdvancedStats />
-                </div>
-              ) : uiMode === 'fatigue' ? (
-                <div className="px-4 sm:px-6 py-6 sm:py-8 h-full">
-                  <PitcherFatigue />
-                </div>
-              ) : uiMode === 'pitcher-whiff' ? (
-                <div className="px-4 sm:px-6 py-6 sm:py-8 h-full">
-                  <PitcherWhiffPredictor />
-                </div>
-              ) : uiMode === 'hot-slump' ? (
-                <div className="h-full overflow-y-auto">
-                  <HotSlumpDashboard />
-                </div>
-              ) : uiMode === 'leaderboard' ? (
-                <div className="px-4 sm:px-6 py-6 sm:py-8 h-full">
-                  <Leaderboard />
-                </div>
-              ) : uiMode === 'live' ? (
-                <div className="px-4 sm:px-6 py-6 sm:py-8 h-full w-full">
-                  <LiveScoreboard />
-                </div>
-              ) : uiMode === 'monitor' ? (
-                <div className="px-4 sm:px-6 py-6 sm:py-8 h-full w-full">
-                  <LiveMonitorBoard />
-                </div>
-              ) : uiMode === 'standings' ? (
-                <div className="px-4 sm:px-6 py-6 sm:py-8 h-full w-full">
-                  <Standings />
-                </div>
-              ) : uiMode === 'player-profile' ? (
-                <div className="px-4 sm:px-6 py-6 sm:py-8 h-full w-full">
-                  <PlayerProfile
-                    onSearchPlayers={searchPlayers}
-                    getAuthHeaders={getAuthHeaders}
-                    getBackendURL={getBackendURL}
-                  />
-                </div>
-              ) : (
-                <div className="px-4 sm:px-6 py-6 sm:py-8 h-full">
-                  <CustomQueryBuilder
-                    isLoading={isLoading}
-                    onExecuteQuery={handleCustomQuery}
-                    customResult={customResult}
-                    onClearResult={() => setCustomResult(null)}
-                    onSearchPlayers={searchPlayers}
-                  />
-                </div>
-              )}
+
+            {/* Screen content */}
+            <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflowY: mode === "chat" ? "hidden" : "auto" }}>
+              {renderScreen()}
             </div>
-            {uiMode === 'chat' && (
-              <ChatInputArea
-                inputMessage={inputMessage}
-                setInputMessage={setInputMessage}
-                handleKeyDown={handleKeyDown}
-                isLoading={isLoading}
-                handleSendMessageStream={handleSendMessageStream}
-                isAgentMode={isAgentMode}
-                setIsAgentMode={setIsAgentMode}
-              />
-            )}
           </div>
-        </div>
+        </>
       )}
     </div>
   );
 };
 
-// メインアプリケーション（ダークモード固定）
-const App = () => {
-  return <MLBChatApp />;
-};
+const App = () => <MLBChatApp/>;
 
 export default App;

@@ -1,4 +1,14 @@
-import { Send, Brain } from 'lucide-react';
+import React from 'react';
+import Icon from './Icon.jsx';
+
+const QUICK_PROMPTS = [
+  { k: "HR",  label: "本塁打数ランキング" },
+  { k: "BA",  label: "打率 .300 以上" },
+  { k: "K9",  label: "K/9 トップ15 投手" },
+  { k: "WAR", label: "fWAR 年間推移" },
+  { k: "OPS", label: "OPS リーダーボード" },
+  { k: "STF", label: "球種別 Stuff+" },
+];
 
 const ChatInputArea = ({
   inputMessage,
@@ -9,51 +19,126 @@ const ChatInputArea = ({
   isAgentMode,
   setIsAgentMode,
 }) => (
-  <div className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 px-4 sm:px-6 py-4 transition-colors duration-200">
-    <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
-      {/* エージェントモード切替トグル */}
-      <div className="flex items-center gap-2 mb-2 sm:mb-0">
+  <div className="rule-t" style={{
+    background: "var(--bg-0)", padding: "12px 28px 16px", flexShrink: 0,
+  }}>
+    {/* Quick prompts */}
+    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+      <span className="h-label" style={{ fontSize: 9, color: "var(--ink-3)", marginRight: 4 }}>QUICK</span>
+      {QUICK_PROMPTS.map(q => (
         <button
-          onClick={() => setIsAgentMode(!isAgentMode)}
-          title={isAgentMode ? 'エージェントモード：ON' : 'エージェントモード：OFF'}
-          className={`p-3 rounded-lg transition-all duration-200 flex items-center gap-2 ${isAgentMode
-            ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30'
-            : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-            }`}
+          key={q.k}
+          onClick={() => setInputMessage(`${q.label}を見せて`)}
+          disabled={isLoading}
+          style={{
+            fontSize: 10.5, padding: "3px 8px",
+            border: "1px solid var(--rule)", color: "var(--ink-2)",
+            letterSpacing: "0.01em", display: "inline-flex", gap: 6,
+            transition: "border-color .1s, color .1s",
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.borderColor = "var(--amber-dim)";
+            e.currentTarget.style.color = "var(--ink-0)";
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.borderColor = "var(--rule)";
+            e.currentTarget.style.color = "var(--ink-2)";
+          }}
         >
-          <Brain className={`w-5 h-5 ${isAgentMode ? 'animate-pulse' : ''}`} />
-          <span className="text-xs font-bold sm:hidden">エージェント</span>
+          <span className="t-mono" style={{ color: "var(--amber)" }}>{q.k}</span>
+          <span>{q.label}</span>
         </button>
-      </div>
+      ))}
+    </div>
 
-      {/* テキストエリア */}
-      <div className="flex-1">
+    {/* Composer box */}
+    <div style={{ border: "1px solid var(--rule-hi)", background: "var(--bg-1)" }}>
+      {/* Textarea */}
+      <div style={{ padding: "10px 14px" }}>
         <textarea
           value={inputMessage}
-          onChange={(e) => setInputMessage(e.target.value)}
+          onChange={e => setInputMessage(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="例: 大谷翔平の2024年の打率は？"
-          className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg resize-none focus:ring-2 focus:ring-blue-600 focus:border-transparent text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 bg-white dark:bg-gray-700 transition-colors duration-200"
-          rows="2"
+          placeholder="例: 大谷翔平の2024年打率は？Skenes の Stuff+ を月別で。"
+          rows={2}
           disabled={isLoading}
+          style={{
+            width: "100%", fontSize: 13.5, lineHeight: 1.5,
+            color: "var(--ink-0)", resize: "none",
+            fontFamily: "var(--ff-text)",
+          }}
         />
       </div>
 
-      {/* 送信ボタン */}
-      <button
-        onClick={handleSendMessageStream}
-        disabled={!inputMessage.trim() || isLoading}
-        className="px-4 sm:px-6 py-3 bg-blue-600 dark:bg-blue-500 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-medium transition-colors duration-200 w-full sm:w-auto"
-      >
-        <Send className="w-4 h-4" />
-        🌊 送信
-      </button>
+      {/* Action row */}
+      <div className="rule-t" style={{ padding: "6px 10px 6px 14px", display: "flex", alignItems: "center", gap: 8 }}>
+        {/* Agent mode toggle */}
+        <button
+          onClick={() => setIsAgentMode(!isAgentMode)}
+          title={isAgentMode ? 'エージェントモード: ON' : 'エージェントモード: OFF'}
+          style={{
+            fontSize: 10.5, padding: "3px 8px",
+            border: `1px solid ${isAgentMode ? "var(--purp)" : "var(--rule-hi)"}`,
+            color: isAgentMode ? "var(--purp)" : "var(--ink-2)",
+            display: "inline-flex", alignItems: "center", gap: 5,
+            background: isAgentMode ? "oklch(from var(--purp) l c h / 0.12)" : "transparent",
+            letterSpacing: "0.04em",
+            transition: "all .12s",
+          }}
+        >
+          <Icon name="sparkle" size={11}/> AGENT {isAgentMode ? "ON" : "OFF"}
+        </button>
+
+        <button
+          style={{
+            fontSize: 10.5, padding: "3px 8px",
+            border: "1px solid var(--rule-hi)", color: "var(--ink-2)",
+            display: "inline-flex", alignItems: "center", gap: 5,
+          }}
+        >
+          <Icon name="grid" size={11}/> STATCAST
+        </button>
+
+        <div style={{ flex: 1 }}/>
+
+        <span className="t-mono" style={{ fontSize: 10, color: "var(--ink-4)" }}>
+          {inputMessage.length} CHARS
+        </span>
+
+        <button style={{ padding: 5, color: "var(--ink-3)", display: "flex" }} title="音声入力">
+          <Icon name="mic" size={14}/>
+        </button>
+
+        <button
+          onClick={handleSendMessageStream}
+          disabled={!inputMessage.trim() || isLoading}
+          style={{
+            padding: "5px 14px",
+            background: inputMessage.trim() && !isLoading ? "var(--amber)" : "var(--bg-3)",
+            color: inputMessage.trim() && !isLoading ? "var(--bg-0)" : "var(--ink-4)",
+            display: "inline-flex", alignItems: "center", gap: 6,
+            fontWeight: 600, fontSize: 11.5, letterSpacing: "0.08em",
+            fontFamily: "var(--ff-mono)", transition: "all .12s",
+          }}
+        >
+          {isLoading ? (
+            <>
+              <span className="think-dot"/>
+              <span className="think-dot" style={{ animationDelay: ".2s" }}/>
+              <span className="think-dot" style={{ animationDelay: ".4s" }}/>
+            </>
+          ) : (
+            <>EXECUTE <Icon name="send" size={12}/></>
+          )}
+        </button>
+      </div>
     </div>
 
-    <div className="mt-3 text-center">
-      <p className="text-xs text-gray-500 dark:text-gray-400 transition-colors duration-200">
-        サンプル質問: 「大谷翔平 打率」「ヤンキース 勝率」「2024年のホームラン王トップ10を表で」
-      </p>
+    {/* Hint row */}
+    <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 8 }}>
+      <span className="t-mono" style={{ fontSize: 9.5, color: "var(--ink-4)" }}>
+        ⏎ 送信 · ⇧⏎ 改行
+      </span>
     </div>
   </div>
 );
