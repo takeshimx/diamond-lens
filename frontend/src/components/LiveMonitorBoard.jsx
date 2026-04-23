@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { RefreshCw, X, AlertTriangle, Flame, Clock, TrendingUp, CircleDot, Zap } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import Icon from './layout/Icon.jsx';
 
 const POLL_INTERVAL_MS = 40000;
 
@@ -22,56 +22,21 @@ const detectAnomalies = (game) => {
   const alerts = [];
   const scoreDiff = Math.abs((game.away_score ?? 0) - (game.home_score ?? 0));
 
-  // 投手100球超え
   if (game.pitcher_stats?.pitches >= 100) {
-    alerts.push({
-      key: 'pitches',
-      type: 'warning',
-      icon: AlertTriangle,
-      label: `${game.pitcher_stats.pitches}球超`,
-    });
+    alerts.push({ key: 'pitches', type: 'warning', iconName: 'alert', label: `${game.pitcher_stats.pitches}球超` });
   }
-
-  // 延長戦
   if (game.inning > 9) {
-    alerts.push({
-      key: 'extra',
-      type: 'purple',
-      icon: Clock,
-      label: `延長${game.inning}回`,
-    });
+    alerts.push({ key: 'extra', type: 'purple', iconName: 'clock', label: `延長${game.inning}回` });
   }
-
-  // 接戦（7回以降・1点差以内）
   if (game.inning >= 7 && scoreDiff <= 1) {
-    alerts.push({
-      key: 'close',
-      type: 'hot',
-      icon: Flame,
-      label: scoreDiff === 0 ? '同点' : '1点差',
-    });
+    alerts.push({ key: 'close', type: 'hot', iconName: 'fire', label: scoreDiff === 0 ? '同点' : '1点差' });
   }
-
-  // 大差（5点差以上）
   if (scoreDiff >= 5) {
-    alerts.push({
-      key: 'blowout',
-      type: 'neutral',
-      icon: TrendingUp,
-      label: `${scoreDiff}点差`,
-    });
+    alerts.push({ key: 'blowout', type: 'neutral', iconName: 'chart', label: `${scoreDiff}点差` });
   }
-
-  // 満塁
   if (game.runners?.first && game.runners?.second && game.runners?.third) {
-    alerts.push({
-      key: 'bases_loaded',
-      type: 'hot',
-      icon: CircleDot,
-      label: '満塁',
-    });
+    alerts.push({ key: 'bases_loaded', type: 'hot', iconName: 'target', label: '満塁' });
   }
-
   return alerts;
 };
 
@@ -80,14 +45,12 @@ const computeFatigueAlert = (game, pitcherBaselines) => {
   const log = game.pitcher_pitch_log;
   if (!log || log.length === 0 || !pitcherBaselines) return null;
 
-  // 終了済みイニングのみ対象（現在進行中のイニングは除く）
   const completedInning = game.outs >= 3 ? game.inning : game.inning - 1;
   if (completedInning < 1) return null;
 
   const lastInningPitches = log.filter(p => p.inning === completedInning);
-  if (lastInningPitches.length < 3) return null; // サンプル少なすぎは無視
+  if (lastInningPitches.length < 3) return null;
 
-  // 球種毎に平均速度・スピンレートを集計
   const byType = {};
   lastInningPitches.forEach(p => {
     if (!byType[p.pitch_type]) byType[p.pitch_type] = { speeds: [], spins: [] };
@@ -109,7 +72,6 @@ const computeFatigueAlert = (game, pitcherBaselines) => {
     const spinDrop = spins.length > 0 && baseline.spin
       ? baseline.spin - spins.reduce((a, b) => a + b, 0) / spins.length
       : 0;
-    // speedとspinの複合スコア（speed 1mph ≈ spin 50rpm で正規化）
     const score = speedDrop + spinDrop / 50;
     if (score > maxScore) {
       maxScore = score;
@@ -130,20 +92,20 @@ const computeFatigueAlert = (game, pitcherBaselines) => {
   const detail = [speedStr, spinStr].filter(Boolean).join(' ');
 
   if (maxScore >= 2.5) {
-    return { key: 'fatigue', type: 'warning', icon: Zap, label: `疲労 ${shortType} ${detail}` };
+    return { key: 'fatigue', type: 'warning', iconName: 'bolt', label: `疲労 ${shortType} ${detail}` };
   }
   if (maxScore >= 1.5) {
-    return { key: 'fatigue', type: 'caution', icon: Zap, label: `要注意 ${shortType} ${detail}` };
+    return { key: 'fatigue', type: 'caution', iconName: 'bolt', label: `要注意 ${shortType} ${detail}` };
   }
   return null;
 };
 
 const ALERT_STYLES = {
-  warning: 'bg-orange-900/60 border-orange-600/50 text-orange-300',
-  caution: 'bg-yellow-900/60 border-yellow-600/50 text-yellow-300',
-  purple:  'bg-purple-900/60 border-purple-600/50 text-purple-300',
-  hot:     'bg-red-900/60 border-red-500/50 text-red-300',
-  neutral: 'bg-gray-700/60 border-gray-500/50 text-gray-300',
+  warning: { background: "oklch(0.32 0.10 45 / 0.6)", border: "1px solid oklch(0.50 0.14 45 / 0.5)", color: "oklch(0.82 0.14 55)" },
+  caution: { background: "oklch(0.34 0.12 72 / 0.6)", border: "1px solid oklch(0.55 0.15 72 / 0.5)", color: "var(--amber)" },
+  purple:  { background: "oklch(0.26 0.10 310 / 0.6)", border: "1px solid oklch(0.50 0.12 310 / 0.5)", color: "var(--purp)" },
+  hot:     { background: "oklch(0.26 0.10 28 / 0.6)",  border: "1px solid oklch(0.50 0.14 28 / 0.5)",  color: "var(--neg)" },
+  neutral: { background: "var(--bg-2)",                 border: "1px solid var(--rule)",                color: "var(--ink-2)" },
 };
 
 // ===== ボックススコアモーダル =====
@@ -178,93 +140,123 @@ const BoxscoreModal = ({ game, onClose, getIdToken }) => {
   const awayWin = game.away_score > game.home_score;
   const homeWin = game.home_score > game.away_score;
 
+  const thStyle = (isName) => ({
+    padding: "6px 8px",
+    fontFamily: "var(--ff-mono)",
+    fontWeight: 600,
+    fontSize: 10,
+    letterSpacing: "0.08em",
+    color: "var(--ink-3)",
+    textAlign: isName ? "left" : "right",
+    borderBottom: "1px solid var(--rule)",
+    whiteSpace: "nowrap",
+  });
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70" onClick={onClose}>
+    <div
+      style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, background: "oklch(0 0 0 / 0.75)" }}
+      onClick={onClose}
+    >
       <div
-        className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden"
+        style={{ background: "var(--bg-0)", border: "1px solid var(--rule-hi)", width: "100%", maxWidth: 680, maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden" }}
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700 flex-shrink-0">
-          <div className="flex items-center gap-3 text-white font-bold text-base">
-            <span className={awayWin ? 'text-white' : 'text-gray-500'}>{game.away_team}</span>
-            <span className={`text-xl ${awayWin ? 'text-yellow-400' : 'text-gray-500'}`}>{game.away_score}</span>
-            <span className="text-gray-600 text-sm font-normal">-</span>
-            <span className={`text-xl ${homeWin ? 'text-yellow-400' : 'text-gray-500'}`}>{game.home_score}</span>
-            <span className={homeWin ? 'text-white' : 'text-gray-500'}>{game.home_team}</span>
+        {/* Header */}
+        <div className="rule-b" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "var(--ff-mono)", fontWeight: 700, fontSize: 14 }}>
+            <span style={{ color: awayWin ? "var(--ink-0)" : "var(--ink-4)" }}>{game.away_team}</span>
+            <span style={{ fontSize: 18, color: awayWin ? "var(--amber)" : "var(--ink-4)" }}>{game.away_score}</span>
+            <span style={{ color: "var(--ink-4)", fontSize: 12, fontWeight: 400 }}>-</span>
+            <span style={{ fontSize: 18, color: homeWin ? "var(--amber)" : "var(--ink-4)" }}>{game.home_score}</span>
+            <span style={{ color: homeWin ? "var(--ink-0)" : "var(--ink-4)" }}>{game.home_team}</span>
+            <span className="t-mono" style={{ fontSize: 10, color: "var(--ink-3)", fontWeight: 400, marginLeft: 4 }}>Final</span>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
-            <X className="w-5 h-5" />
+          <button onClick={onClose} style={{ color: "var(--ink-3)", display: "flex", padding: 4 }}>
+            <Icon name="close" size={16}/>
           </button>
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center py-16 text-gray-400">
-            <RefreshCw className="w-5 h-5 animate-spin mr-2" />
-            <span>取得中...</span>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "48px 0", gap: 8 }}>
+            <span className="think-dot"/>
+            <span className="think-dot" style={{ animationDelay: ".2s" }}/>
+            <span className="think-dot" style={{ animationDelay: ".4s" }}/>
+            <span className="t-mono" style={{ fontSize: 11, color: "var(--ink-3)", marginLeft: 4 }}>取得中...</span>
           </div>
         ) : !boxscore ? (
-          <div className="p-8 text-center text-gray-500">データを取得できませんでした</div>
+          <div style={{ padding: 32, textAlign: "center", color: "var(--ink-3)", fontSize: 13 }}>
+            データを取得できませんでした
+          </div>
         ) : (
           <>
-            <div className="flex border-b border-gray-700 flex-shrink-0">
+            {/* Team tabs */}
+            <div className="rule-b" style={{ display: "flex", flexShrink: 0 }}>
               {['away', 'home'].map(side => (
                 <button
                   key={side}
                   onClick={() => setActiveTab(side)}
-                  className={`flex-1 py-2.5 text-sm font-medium transition-colors ${activeTab === side
-                    ? 'text-white border-b-2 border-blue-500'
-                    : 'text-gray-500 hover:text-gray-300'
-                  }`}
+                  style={{
+                    flex: 1, padding: "10px 0", fontSize: 12,
+                    fontFamily: "var(--ff-mono)", fontWeight: 600,
+                    color: activeTab === side ? "var(--amber)" : "var(--ink-3)",
+                    borderBottom: activeTab === side ? "2px solid var(--amber)" : "2px solid transparent",
+                    transition: "all .12s",
+                  }}
                 >
                   {boxscore[side]?.team}
                 </button>
               ))}
             </div>
-            <div className="overflow-y-auto flex-1 px-4 py-3">
-              <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-2">Pitchers</p>
-              <div className="overflow-x-auto mb-5">
-                <table className="w-full text-xs">
+
+            {/* Content */}
+            <div style={{ overflowY: "auto", flex: 1, padding: "12px 16px" }}>
+              {/* Pitchers */}
+              <div className="h-label" style={{ fontSize: 9, color: "var(--ink-3)", marginBottom: 8 }}>PITCHERS</div>
+              <div style={{ overflowX: "auto", marginBottom: 20 }}>
+                <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
                   <thead>
-                    <tr className="text-gray-500 border-b border-gray-700">
+                    <tr>
                       {['PITCHER','ERA','IP','H','R','ER','HR','K','BB','PT'].map(h => (
-                        <th key={h} className={`py-1.5 px-2 font-medium ${h === 'PITCHER' ? 'text-left min-w-[120px]' : 'text-right'}`}>{h}</th>
+                        <th key={h} style={thStyle(h === 'PITCHER')}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {boxscore[activeTab]?.pitchers.map((p, i) => (
-                      <tr key={i} className="border-b border-gray-800 text-gray-300">
-                        <td className="py-2 pr-3">
-                          <div className="font-medium text-white">{p.name}</div>
-                          {p.note && <div className="text-gray-500 text-xs">{p.note}</div>}
+                      <tr key={i} style={{ borderBottom: "1px solid var(--rule-dim)" }}>
+                        <td style={{ padding: "7px 8px" }}>
+                          <div style={{ fontWeight: 600, color: "var(--ink-0)" }}>{p.name}</div>
+                          {p.note && <div className="t-mono" style={{ fontSize: 10, color: "var(--ink-4)" }}>{p.note}</div>}
                         </td>
                         {[p.era, p.ip, p.h, p.r, p.er, p.hr, p.k, p.bb, p.pitches].map((v, j) => (
-                          <td key={j} className="text-right px-2">{v}</td>
+                          <td key={j} className="t-mono" style={{ textAlign: "right", padding: "7px 8px", color: "var(--ink-2)" }}>{v}</td>
                         ))}
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-2">Batters</p>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
+
+              {/* Batters */}
+              <div className="h-label" style={{ fontSize: 9, color: "var(--ink-3)", marginBottom: 8 }}>BATTERS</div>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
                   <thead>
-                    <tr className="text-gray-500 border-b border-gray-700">
+                    <tr>
                       {['BATTER','AVG','AB','H','R','RBI','HR','BB','K','OBP','SLG','OPS'].map(h => (
-                        <th key={h} className={`py-1.5 px-2 font-medium ${h === 'BATTER' ? 'text-left min-w-[120px]' : 'text-right'}`}>{h}</th>
+                        <th key={h} style={thStyle(h === 'BATTER')}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {boxscore[activeTab]?.batters.map((b, i) => (
-                      <tr key={i} className="border-b border-gray-800 text-gray-300">
-                        <td className="py-2 pr-3">
-                          <div className="font-medium text-white">{b.name}</div>
-                          <div className="text-gray-500">{b.position}</div>
+                      <tr key={i} style={{ borderBottom: "1px solid var(--rule-dim)" }}>
+                        <td style={{ padding: "7px 8px" }}>
+                          <div style={{ fontWeight: 600, color: "var(--ink-0)" }}>{b.name}</div>
+                          <div className="t-mono" style={{ fontSize: 10, color: "var(--ink-4)" }}>{b.position}</div>
                         </td>
                         {[b.avg, b.ab, b.h, b.r, b.rbi, b.hr, b.bb, b.k, b.obp, b.slg, b.ops].map((v, j) => (
-                          <td key={j} className="text-right px-2">{v}</td>
+                          <td key={j} className="t-mono" style={{ textAlign: "right", padding: "7px 8px", color: "var(--ink-2)" }}>{v}</td>
                         ))}
                       </tr>
                     ))}
@@ -288,87 +280,93 @@ const MonitorCard = ({ game, status, onClick, pitcherBaselines }) => {
   const awayLeading = scoreDiff > 0;
   const homeLeading = scoreDiff < 0;
 
+  const statusBadge = () => {
+    if (status === 'live') return (
+      <span className="t-mono" style={{ fontSize: 10, color: "var(--pos)", border: "1px solid var(--pos-dim)", padding: "2px 6px", whiteSpace: "nowrap", flexShrink: 0 }}>
+        {game.inning}回{game.inning_half === 'Top' ? '表' : '裏'}
+      </span>
+    );
+    if (status === 'final') return (
+      <span className="t-mono" style={{ fontSize: 10, color: "var(--ink-4)", border: "1px solid var(--rule)", padding: "2px 6px", flexShrink: 0 }}>Final</span>
+    );
+    if (status === 'preview') return (
+      <span className="t-mono" style={{ fontSize: 10, color: "var(--info)", border: "1px solid var(--info)", padding: "2px 6px", flexShrink: 0, opacity: 0.7 }}>
+        {game.game_time ?? '予定'}
+      </span>
+    );
+    return null;
+  };
+
   return (
     <button
       onClick={() => onClick(game)}
-      className={`
-        w-full text-left rounded-xl border p-3 flex flex-col gap-2 transition-all duration-200
-        hover:border-gray-500 hover:bg-gray-750 active:scale-[0.98]
-        ${alerts.length > 0
-          ? 'bg-gray-800 border-gray-600 ring-1 ring-orange-500/30'
-          : 'bg-gray-800 border-gray-700'
-        }
-      `}
+      style={{
+        width: "100%", textAlign: "left",
+        border: alerts.length > 0 ? "1px solid var(--amber-dim)" : "1px solid var(--rule)",
+        background: "var(--bg-1)",
+        padding: 12,
+        display: "flex", flexDirection: "column", gap: 8,
+        transition: "all .15s",
+        boxShadow: alerts.length > 0 ? "inset 0 0 0 1px oklch(from var(--amber) l c h / 0.2)" : "none",
+      }}
+      onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-2)"; e.currentTarget.style.borderColor = "var(--rule-hi)"; }}
+      onMouseLeave={e => { e.currentTarget.style.background = "var(--bg-1)"; e.currentTarget.style.borderColor = alerts.length > 0 ? "var(--amber-dim)" : "var(--rule)"; }}
     >
-      {/* スコア行 */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <span className={`text-sm font-bold truncate ${awayLeading ? 'text-white' : 'text-gray-400'}`}>
+      {/* Score row */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, flex: 1 }}>
+          <span className="h-display" style={{ fontSize: 11, color: awayLeading ? "var(--ink-0)" : "var(--ink-4)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {game.away_team}
           </span>
-          <span className={`text-lg font-black tabular-nums ${awayLeading ? 'text-yellow-400' : 'text-gray-300'}`}>
+          <span className="t-mono" style={{ fontSize: 16, fontWeight: 700, color: awayLeading ? "var(--amber)" : "var(--ink-2)" }}>
             {game.away_score ?? '-'}
           </span>
-          <span className="text-gray-600 text-xs">:</span>
-          <span className={`text-lg font-black tabular-nums ${homeLeading ? 'text-yellow-400' : 'text-gray-300'}`}>
+          <span style={{ color: "var(--ink-4)", fontSize: 10 }}>:</span>
+          <span className="t-mono" style={{ fontSize: 16, fontWeight: 700, color: homeLeading ? "var(--amber)" : "var(--ink-2)" }}>
             {game.home_score ?? '-'}
           </span>
-          <span className={`text-sm font-bold truncate ${homeLeading ? 'text-white' : 'text-gray-400'}`}>
+          <span className="h-display" style={{ fontSize: 11, color: homeLeading ? "var(--ink-0)" : "var(--ink-4)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {game.home_team}
           </span>
         </div>
-
-        {/* ステータスバッジ */}
-        {status === 'live' && (
-          <span className="text-xs text-green-400 bg-green-900/40 px-1.5 py-0.5 rounded-full whitespace-nowrap flex-shrink-0">
-            {game.inning}回{game.inning_half === 'Top' ? '表' : '裏'}
-          </span>
-        )}
-        {status === 'final' && (
-          <span className="text-xs text-gray-500 bg-gray-700/50 px-1.5 py-0.5 rounded-full flex-shrink-0">
-            Final
-          </span>
-        )}
-        {status === 'preview' && (
-          <span className="text-xs text-blue-400 bg-blue-900/30 px-1.5 py-0.5 rounded-full flex-shrink-0">
-            {game.game_time ?? '予定'}
-          </span>
-        )}
+        {statusBadge()}
       </div>
 
-      {/* 投手情報（ライブのみ） */}
+      {/* Pitcher info (live only) */}
       {status === 'live' && game.pitcher && (
-        <div className="flex items-center justify-between text-xs text-gray-400">
-          <span className="truncate">
-            <span className="text-gray-500">P: </span>
-            <span className="text-gray-200">{game.pitcher}</span>
+        <div className="t-mono" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 10, color: "var(--ink-3)" }}>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <span>P: </span>
+            <span style={{ color: "var(--ink-1)" }}>{game.pitcher}</span>
             {game.pitcher_stats?.pitches > 0 && (
-              <span className={`ml-1 tabular-nums ${game.pitcher_stats.pitches >= 100 ? 'text-orange-400 font-semibold' : ''}`}>
+              <span style={{ marginLeft: 4, color: game.pitcher_stats.pitches >= 100 ? "var(--amber)" : "var(--ink-3)", fontWeight: game.pitcher_stats.pitches >= 100 ? 600 : 400 }}>
                 {game.pitcher_stats.pitches}球
               </span>
             )}
           </span>
-          <span className="font-mono text-gray-500 ml-2 flex-shrink-0">
+          <span style={{ marginLeft: 8, flexShrink: 0, color: "var(--ink-4)" }}>
             {game.balls}-{game.strikes} {game.outs}out
           </span>
         </div>
       )}
 
-      {/* 異常検知バッジ */}
+      {/* Alert badges */}
       {alerts.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {alerts.map(alert => {
-            const Icon = alert.icon;
-            return (
-              <span
-                key={alert.key}
-                className={`inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded border ${ALERT_STYLES[alert.type]}`}
-              >
-                <Icon className="w-3 h-3" />
-                {alert.label}
-              </span>
-            );
-          })}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+          {alerts.map(alert => (
+            <span
+              key={alert.key}
+              style={{
+                ...ALERT_STYLES[alert.type],
+                display: "inline-flex", alignItems: "center", gap: 4,
+                fontSize: 10, padding: "2px 6px",
+                fontFamily: "var(--ff-mono)",
+              }}
+            >
+              <Icon name={alert.iconName} size={10}/>
+              {alert.label}
+            </span>
+          ))}
         </div>
       )}
     </button>
@@ -450,8 +448,15 @@ const LiveMonitorBoard = () => {
   const formatTime = (date) =>
     date ? date.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--:--';
 
+  const SectionHeader = ({ dotColor, label }) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+      <span style={{ width: 7, height: 7, background: dotColor, display: "inline-block" }}/>
+      <span className="h-label" style={{ fontSize: 10, color: dotColor }}>{label}</span>
+    </div>
+  );
+
   return (
-    <div className="w-full">
+    <div style={{ width: "100%" }}>
       {selectedGame && (
         <BoxscoreModal
           game={selectedGame}
@@ -460,58 +465,64 @@ const LiveMonitorBoard = () => {
         />
       )}
 
-      {/* ヘッダー */}
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <div className="flex items-center gap-3 flex-wrap">
-          <h2 className="text-xl font-bold text-white">全試合モニターボード</h2>
-          <div className="flex items-center gap-2 text-sm">
-            <span className="bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full">
+      {/* Header */}
+      <div className="rule-b" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: 12, marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span className="h-display" style={{ fontSize: 16 }}>全試合モニターボード</span>
+          <div style={{ display: "flex", gap: 6 }}>
+            <span className="t-mono" style={{ fontSize: 10, color: "var(--ink-3)", border: "1px solid var(--rule)", padding: "2px 8px" }}>
               {totalGames} games
             </span>
             {anomalyCount > 0 && (
-              <span className="bg-orange-900/60 border border-orange-600/50 text-orange-300 px-2 py-0.5 rounded-full flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" />
+              <span style={{
+                ...ALERT_STYLES.warning,
+                display: "inline-flex", alignItems: "center", gap: 4,
+                fontSize: 10, padding: "2px 8px", fontFamily: "var(--ff-mono)",
+              }}>
+                <Icon name="alert" size={10}/>
                 {anomalyCount} alerts
               </span>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-500">
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span className="t-mono" style={{ fontSize: 10, color: "var(--ink-4)" }}>
             更新: {formatTime(lastUpdated)}
           </span>
           <button
             onClick={fetchGames}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-400 hover:text-white bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "5px 12px", fontSize: 11,
+              border: "1px solid var(--rule)", color: "var(--ink-2)",
+              fontFamily: "var(--ff-mono)",
+            }}
           >
-            <RefreshCw className="w-3.5 h-3.5" />
+            <Icon name="refresh" size={12}/>
             更新
           </button>
         </div>
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-20 text-gray-400">
-          <RefreshCw className="w-5 h-5 animate-spin mr-2" />
-          <span>取得中...</span>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "80px 0", gap: 8 }}>
+          <span className="think-dot"/>
+          <span className="think-dot" style={{ animationDelay: ".2s" }}/>
+          <span className="think-dot" style={{ animationDelay: ".4s" }}/>
+          <span className="t-mono" style={{ fontSize: 11, color: "var(--ink-3)", marginLeft: 6 }}>取得中...</span>
         </div>
       ) : error ? (
-        <div className="text-center py-12 text-red-400">{error}</div>
+        <div style={{ textAlign: "center", padding: "48px 0", color: "var(--neg)", fontSize: 13 }}>{error}</div>
       ) : totalGames === 0 ? (
-        <div className="text-center py-12 text-gray-500">本日の試合データがありません</div>
+        <div style={{ textAlign: "center", padding: "48px 0", color: "var(--ink-4)", fontSize: 13 }}>本日の試合データがありません</div>
       ) : (
-        <div className="flex flex-col gap-6">
+        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
 
-          {/* ===== LIVE ===== */}
+          {/* LIVE */}
           {liveGames.length > 0 && (
             <section>
-              <div className="flex items-center gap-2 mb-3">
-                <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-                <h3 className="text-sm font-semibold text-green-400 uppercase tracking-wider">
-                  Live — {liveGames.length}試合
-                </h3>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              <SectionHeader dotColor="var(--pos)" label={`LIVE — ${liveGames.length}試合`}/>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
                 {liveGames.map(game => (
                   <MonitorCard
                     key={game.gamePk}
@@ -525,16 +536,11 @@ const LiveMonitorBoard = () => {
             </section>
           )}
 
-          {/* ===== FINAL ===== */}
+          {/* FINAL */}
           {finalGames.length > 0 && (
             <section>
-              <div className="flex items-center gap-2 mb-3">
-                <span className="w-2 h-2 bg-gray-500 rounded-full" />
-                <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
-                  Final — {finalGames.length}試合
-                </h3>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              <SectionHeader dotColor="var(--ink-4)" label={`FINAL — ${finalGames.length}試合`}/>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
                 {finalGames.map(game => (
                   <MonitorCard
                     key={game.gamePk}
@@ -547,16 +553,11 @@ const LiveMonitorBoard = () => {
             </section>
           )}
 
-          {/* ===== PREVIEW ===== */}
+          {/* PREVIEW */}
           {previewGames.length > 0 && (
             <section>
-              <div className="flex items-center gap-2 mb-3">
-                <span className="w-2 h-2 bg-blue-400 rounded-full" />
-                <h3 className="text-sm font-semibold text-blue-400 uppercase tracking-wider">
-                  Upcoming — {previewGames.length}試合
-                </h3>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              <SectionHeader dotColor="var(--info)" label={`UPCOMING — ${previewGames.length}試合`}/>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
                 {previewGames.map(game => (
                   <MonitorCard
                     key={game.gamePk}

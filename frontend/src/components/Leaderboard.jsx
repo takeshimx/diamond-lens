@@ -5,7 +5,6 @@ import LeaderboardTable from './LeaderboardTable';
 
 const SEASONS = [2026, 2025, 2024, 2023, 2022, 2021];
 
-// シーズン序盤は閾値を低めに設定
 const getMinPa = (yr) => yr === new Date().getFullYear() ? 10 : 350;
 const getMinIp = (yr) => yr === new Date().getFullYear() ? 6 : 100;
 
@@ -62,24 +61,36 @@ const Leaderboard = () => {
   };
   const metricOrder = tab === 'batting' ? 'ops' : 'era';
 
+  const tabBtn = (active) => ({
+    padding: "5px 20px", fontSize: 11,
+    fontFamily: "var(--ff-mono)", letterSpacing: "0.06em",
+    background: active ? "var(--amber)" : "transparent",
+    color: active ? "var(--bg-0)" : "var(--ink-3)",
+    border: `1px solid ${active ? "var(--amber)" : "var(--rule)"}`,
+    fontWeight: active ? 600 : 400,
+    transition: "all .12s",
+  });
+
+  const smTabBtn = (active) => ({
+    padding: "4px 12px", fontSize: 10,
+    fontFamily: "var(--ff-mono)", letterSpacing: "0.06em",
+    background: active ? "var(--bg-3)" : "transparent",
+    color: active ? "var(--ink-0)" : "var(--ink-4)",
+    border: `1px solid ${active ? "var(--rule-hi)" : "var(--rule)"}`,
+    fontWeight: active ? 600 : 400,
+    transition: "all .12s",
+  });
+
   return (
-    <div className="space-y-4">
-      {/* 1行目: 打者/投手 + シーズン */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex gap-2">
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {/* Row 1: 打者 / 投手 + season */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 4 }}>
           {[
             { id: 'batting', label: '打者' },
             { id: 'pitching', label: '投手' },
           ].map(({ id, label }) => (
-            <button
-              key={id}
-              onClick={() => setTab(id)}
-              className={`px-5 py-2 rounded-lg text-sm font-medium transition-colors ${
-                tab === id
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-              }`}
-            >
+            <button key={id} onClick={() => setTab(id)} style={tabBtn(tab === id)}>
               {label}
             </button>
           ))}
@@ -88,7 +99,11 @@ const Leaderboard = () => {
         <select
           value={season}
           onChange={(e) => setSeason(Number(e.target.value))}
-          className="px-3 py-2 rounded-lg text-sm bg-gray-700 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          style={{
+            background: "var(--bg-1)", color: "var(--ink-1)",
+            border: "1px solid var(--rule)", fontSize: 11,
+            padding: "5px 10px", fontFamily: "var(--ff-mono)",
+          }}
         >
           {SEASONS.map((yr) => (
             <option key={yr} value={yr}>{yr}年</option>
@@ -96,24 +111,16 @@ const Leaderboard = () => {
         </select>
       </div>
 
-      {/* 2行目: MLB / NL / AL */}
-      <div className="flex gap-2">
+      {/* Row 2: MLB / NL / AL */}
+      <div style={{ display: "flex", gap: 4 }}>
         {['MLB', 'NL', 'AL'].map((lg) => (
-          <button
-            key={lg}
-            onClick={() => setLeague(lg)}
-            className={`px-4 py-1.5 rounded-md text-xs font-semibold transition-colors ${
-              league === lg
-                ? 'bg-gray-200 dark:bg-gray-500 text-gray-900 dark:text-white'
-                : 'text-gray-400 hover:text-white hover:bg-gray-700'
-            }`}
-          >
+          <button key={lg} onClick={() => setLeague(lg)} style={smTabBtn(league === lg)}>
             {lg}
           </button>
         ))}
       </div>
 
-      {/* テーブル */}
+      {/* Table */}
       <LeaderboardTable
         data={data}
         category={category}
