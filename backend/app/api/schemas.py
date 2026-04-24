@@ -681,6 +681,8 @@ class PlayerPitchingKPI(BaseModel):
     bb_9_rank: Optional[int] = None
     war_rank: Optional[int] = None
     so_rank: Optional[int] = None
+    ip_rank: Optional[int] = None
+    bb_rank: Optional[int] = None
     hardhitpct_rank: Optional[int] = None
     barrelpct_rank: Optional[int] = None
     swstrpct_rank: Optional[int] = None

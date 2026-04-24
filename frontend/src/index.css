@@ -156,7 +156,7 @@ html, body {
   0%   { transform: translateX(0); }
   100% { transform: translateX(-50%); }
 }
-.ticker-track { animation: tick-marq 90s linear infinite; }
+.ticker-track { animation: tick-marq 180s linear infinite; }
 
 /* Spin (refresh / loading icons) */
 @keyframes dl-spin {

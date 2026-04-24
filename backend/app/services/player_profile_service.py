@@ -50,9 +50,11 @@ from .base import (
     BATTER_COUNT_STATE_WOBA_TABLE_ID,
     BATTER_XWOBA_ZONE_TABLE_ID,
     MART_BATTER_CLUTCH_TABLE_ID,
+    MART_BATTER_SEASON_STATS_TABLE_ID,
     PITCHER_RISP_PERFORMANCE_TABLE_ID,
     PITCHER_TTO_VELO_SPIN_TABLE_ID,
     MART_PITCHER_ERA_BY_INNING_TABLE_ID,
+    MART_PITCHER_SEASON_STATS_TABLE_ID,
 )
 
 
@@ -95,6 +97,45 @@ def _bat_rank_cols(p: str = "") -> str:
     """
 
 
+def _bat_rank_cols_mart(p: str = "") -> str:
+    """mart_batter_season_stats 用 RANK カラム（wrcplus / war は算出不可のため NULL）"""
+    return f"""
+        RANK() OVER (ORDER BY {p}avg        DESC) AS avg_rank,
+        RANK() OVER (ORDER BY {p}obp        DESC) AS obp_rank,
+        RANK() OVER (ORDER BY {p}slg        DESC) AS slg_rank,
+        RANK() OVER (ORDER BY {p}ops        DESC) AS ops_rank,
+        RANK() OVER (ORDER BY {p}hr         DESC) AS hr_rank,
+        RANK() OVER (ORDER BY {p}rbi        DESC) AS rbi_rank,
+        RANK() OVER (ORDER BY {p}bb         DESC) AS bb_rank,
+        RANK() OVER (ORDER BY {p}so         ASC)  AS so_rank,
+        RANK() OVER (ORDER BY {p}woba       DESC) AS woba_rank,
+        CAST(NULL AS INT64)                        AS wrcplus_rank,
+        CAST(NULL AS INT64)                        AS war_rank,
+        CAST(NULL AS INT64)                        AS sb_rank,
+        RANK() OVER (ORDER BY {p}hardhitpct DESC) AS hardhitpct_rank,
+        RANK() OVER (ORDER BY {p}barrelpct  DESC) AS barrelpct_rank,
+        RANK() OVER (ORDER BY {p}swstrpct   ASC)  AS swstrpct_rank
+    """
+
+
+def _pit_rank_cols_mart(p: str = "") -> str:
+    """mart_pitcher_season_stats 用 RANK カラム（WAR は算出不可のため NULL）"""
+    return f"""
+        RANK() OVER (ORDER BY {p}era        ASC)  AS era_rank,
+        RANK() OVER (ORDER BY {p}whip       ASC)  AS whip_rank,
+        RANK() OVER (ORDER BY {p}fip        ASC)  AS fip_rank,
+        RANK() OVER (ORDER BY {p}k_9        DESC) AS k_9_rank,
+        RANK() OVER (ORDER BY {p}bb_9       ASC)  AS bb_9_rank,
+        CAST(NULL AS INT64)                        AS war_rank,
+        RANK() OVER (ORDER BY {p}so         DESC) AS so_rank,
+        RANK() OVER (ORDER BY {p}ip         DESC) AS ip_rank,
+        RANK() OVER (ORDER BY {p}bb         ASC)  AS bb_rank,
+        RANK() OVER (ORDER BY {p}hardhitpct ASC)  AS hardhitpct_rank,
+        RANK() OVER (ORDER BY {p}barrelpct  ASC)  AS barrelpct_rank,
+        RANK() OVER (ORDER BY {p}swstrpct   DESC) AS swstrpct_rank
+    """
+
+
 def _pit_rank_cols(p: str = "") -> str:
     return f"""
         RANK() OVER (ORDER BY {p}era        ASC)  AS era_rank,
@@ -104,6 +145,8 @@ def _pit_rank_cols(p: str = "") -> str:
         RANK() OVER (ORDER BY {p}bb_9       ASC)  AS bb_9_rank,
         RANK() OVER (ORDER BY {p}war        DESC) AS war_rank,
         RANK() OVER (ORDER BY {p}so         DESC) AS so_rank,
+        RANK() OVER (ORDER BY {p}ip         DESC) AS ip_rank,
+        RANK() OVER (ORDER BY {p}bb         ASC)  AS bb_rank,
         RANK() OVER (ORDER BY {p}hardhitpct ASC)  AS hardhitpct_rank,
         RANK() OVER (ORDER BY {p}barrelpct  ASC)  AS barrelpct_rank,
         RANK() OVER (ORDER BY {p}swstrpct   DESC) AS swstrpct_rank
@@ -161,20 +204,89 @@ def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[Pla
     bio_data.pop("mlbid", None)
     bio = PlayerBio(**bio_data)
 
-    _BAT_TABLE = f"`{PROJECT_ID}.{DATASET_ID}.{BATTING_STATS_TABLE_ID}`"
-    _PIT_TABLE = f"`{PROJECT_ID}.{DATASET_ID}.{PITCHING_STATS_TABLE_ID}`"
+    _BAT_TABLE      = f"`{PROJECT_ID}.{DATASET_ID}.{BATTING_STATS_TABLE_ID}`"
+    _PIT_TABLE      = f"`{PROJECT_ID}.{DATASET_ID}.{PITCHING_STATS_TABLE_ID}`"
+    _MART_BAT_TABLE = f"`{PROJECT_ID}.{DATASET_ID}.{MART_BATTER_SEASON_STATS_TABLE_ID}`"
+    _MART_PIT_TABLE = f"`{PROJECT_ID}.{DATASET_ID}.{MART_PITCHER_SEASON_STATS_TABLE_ID}`"
 
     # ── Phase 2 ヘルパー関数 ──────────────────────────────────────────────────
 
     def _fetch_batting_kpi():
+        # 2026年以降: Statcast ベースの mart テーブルを使用（mlbid キー）
+        # 2025年以前: Fangraphs ベースの既存テーブルを使用（idfg キー）
+        use_mart = (season is not None and season >= 2026) or (season is None)
+
+        if use_mart:
+            # -- mart_batter_season_stats（2026年以降）--
+            min_pa = 10
+            if season is not None:
+                mart_params = [
+                    bigquery.ScalarQueryParameter("mlbid",  "INT64", mlbid),
+                    bigquery.ScalarQueryParameter("season", "INT64", season),
+                    bigquery.ScalarQueryParameter("min_pa", "INT64", min_pa),
+                ]
+                mart_query = f"""
+                    WITH ranked AS (
+                        SELECT
+                            batter,
+                            season, team,
+                            g, pa, hr, rbi, bb, so,
+                            avg, obp, slg, ops, woba,
+                            hardhitpct, barrelpct, swstrpct,
+                            CAST(NULL AS FLOAT64) AS war,
+                            CAST(NULL AS INT64)   AS wrcplus,
+                            {_bat_rank_cols_mart()}
+                        FROM {_MART_BAT_TABLE}
+                        WHERE season = @season AND pa >= @min_pa
+                    )
+                    SELECT * EXCEPT(batter) FROM ranked WHERE batter = @mlbid LIMIT 1
+                """
+            else:
+                # season 未指定: mart の最新シーズンを動的に取得
+                mart_params = [
+                    bigquery.ScalarQueryParameter("mlbid",  "INT64", mlbid),
+                    bigquery.ScalarQueryParameter("min_pa", "INT64", min_pa),
+                ]
+                mart_query = f"""
+                    WITH latest AS (
+                        SELECT MAX(season) AS s
+                        FROM {_MART_BAT_TABLE}
+                        WHERE batter = @mlbid AND pa >= @min_pa
+                    ),
+                    ranked AS (
+                        SELECT
+                            m.batter,
+                            m.season, m.team,
+                            m.g, m.pa, m.hr, m.rbi, m.bb, m.so,
+                            m.avg, m.obp, m.slg, m.ops, m.woba,
+                            m.hardhitpct, m.barrelpct, m.swstrpct,
+                            CAST(NULL AS FLOAT64) AS war,
+                            CAST(NULL AS INT64)   AS wrcplus,
+                            {_bat_rank_cols_mart("m.")}
+                        FROM {_MART_BAT_TABLE} m
+                        CROSS JOIN latest l
+                        WHERE m.season = l.s AND m.pa >= @min_pa
+                    )
+                    SELECT * EXCEPT(batter) FROM ranked WHERE batter = @mlbid LIMIT 1
+                """
+            mart_job_config = bigquery.QueryJobConfig(query_parameters=mart_params)
+            try:
+                mart_df = client.query(mart_query, job_config=mart_job_config).to_dataframe()
+                data = _clean_row(mart_df)
+                kpi = PlayerBattingKPI(**data) if data else None
+                return {"kpi": kpi, "data": data}
+            except Exception as e:
+                logger.warning(f"batting_kpi (mart) query failed for mlbid={mlbid}: {e}")
+                return {"kpi": None, "data": {}}
+
+        # -- fact_batting_stats_with_risp（2025年以前）--
         if not (idfg and idfg > 0):
             return {"kpi": None, "data": {}}
         if season:
-            min_pa = 350 if season <= 2025 else 30
             batting_params = [
                 bigquery.ScalarQueryParameter("idfg",   "INT64", idfg),
                 bigquery.ScalarQueryParameter("season", "INT64", season),
-                bigquery.ScalarQueryParameter("min_pa", "INT64", min_pa),
+                bigquery.ScalarQueryParameter("min_pa", "INT64", 350),
             ]
             batting_query = f"""
                 WITH ranked AS (
@@ -202,8 +314,7 @@ def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[Pla
                         {_bat_rank_cols("b.")}
                     FROM {_BAT_TABLE} b
                     CROSS JOIN latest l
-                    WHERE b.season = l.s
-                      AND b.pa >= CASE WHEN l.s <= 2025 THEN 350 ELSE 30 END
+                    WHERE b.season = l.s AND b.pa >= 350
                 )
                 SELECT * FROM ranked WHERE idfg = @idfg LIMIT 1
             """
@@ -218,6 +329,93 @@ def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[Pla
             return {"kpi": None, "data": {}}
 
     def _fetch_pitching_kpi():
+        # 2026年以降: Statcast ベースの mart テーブルを使用（mlbid キー）
+        # 2025年以前: Fangraphs ベースの既存テーブルを使用（idfg キー）
+        use_mart = (season is not None and season >= 2026) or (season is None)
+
+        if use_mart:
+            min_ip  = 6.0
+            min_gs  = 3   # ランク計算は SP（gs >= 3）のみ対象
+            if season is not None:
+                mart_params = [
+                    bigquery.ScalarQueryParameter("mlbid",  "INT64",   mlbid),
+                    bigquery.ScalarQueryParameter("season", "INT64",   season),
+                    bigquery.ScalarQueryParameter("min_ip", "FLOAT64", min_ip),
+                    bigquery.ScalarQueryParameter("min_gs", "INT64",   min_gs),
+                ]
+                mart_query = f"""
+                    WITH pool AS (
+                        -- ランク計算プール: SP のみ（gs >= @min_gs）
+                        SELECT pitcher, {_pit_rank_cols_mart()}
+                        FROM {_MART_PIT_TABLE}
+                        WHERE season = @season AND ip >= @min_ip AND gs >= @min_gs
+                    ),
+                    target AS (
+                        SELECT
+                            pitcher, season, team, g, gs, ip,
+                            so, bb, hbp, hr,
+                            era, fip, whip, k_9, bb_9,
+                            hardhitpct, barrelpct, swstrpct,
+                            CAST(NULL AS FLOAT64) AS war,
+                            CAST(NULL AS INT64)   AS w,
+                            CAST(NULL AS INT64)   AS l,
+                            CAST(NULL AS INT64)   AS sv
+                        FROM {_MART_PIT_TABLE}
+                        WHERE season = @season AND pitcher = @mlbid
+                        LIMIT 1
+                    )
+                    SELECT t.* EXCEPT(pitcher), p.* EXCEPT(pitcher)
+                    FROM target t
+                    LEFT JOIN pool p ON t.pitcher = p.pitcher
+                """
+            else:
+                mart_params = [
+                    bigquery.ScalarQueryParameter("mlbid",  "INT64",   mlbid),
+                    bigquery.ScalarQueryParameter("min_ip", "FLOAT64", min_ip),
+                    bigquery.ScalarQueryParameter("min_gs", "INT64",   min_gs),
+                ]
+                mart_query = f"""
+                    WITH latest AS (
+                        SELECT MAX(season) AS s
+                        FROM {_MART_PIT_TABLE}
+                        WHERE pitcher = @mlbid
+                    ),
+                    pool AS (
+                        -- ランク計算プール: SP のみ（gs >= @min_gs）
+                        SELECT m.pitcher, {_pit_rank_cols_mart("m.")}
+                        FROM {_MART_PIT_TABLE} m
+                        CROSS JOIN latest l
+                        WHERE m.season = l.s AND m.ip >= @min_ip AND m.gs >= @min_gs
+                    ),
+                    target AS (
+                        SELECT
+                            m.pitcher, m.season, m.team, m.g, m.gs, m.ip,
+                            m.so, m.bb, m.hbp, m.hr,
+                            m.era, m.fip, m.whip, m.k_9, m.bb_9,
+                            m.hardhitpct, m.barrelpct, m.swstrpct,
+                            CAST(NULL AS FLOAT64) AS war,
+                            CAST(NULL AS INT64)   AS w,
+                            CAST(NULL AS INT64)   AS l,
+                            CAST(NULL AS INT64)   AS sv
+                        FROM {_MART_PIT_TABLE} m
+                        CROSS JOIN latest l
+                        WHERE m.season = l.s AND m.pitcher = @mlbid
+                        LIMIT 1
+                    )
+                    SELECT t.* EXCEPT(pitcher), p.* EXCEPT(pitcher)
+                    FROM target t
+                    LEFT JOIN pool p ON t.pitcher = p.pitcher
+                """
+            mart_job_config = bigquery.QueryJobConfig(query_parameters=mart_params)
+            try:
+                mart_df = client.query(mart_query, job_config=mart_job_config).to_dataframe()
+                data = _clean_row(mart_df)
+                kpi = PlayerPitchingKPI(**data) if data else None
+                return {"kpi": kpi, "data": data}
+            except Exception as e:
+                logger.warning(f"pitching_kpi (mart) query failed for mlbid={mlbid}: {e}")
+                return {"kpi": None, "data": {}}
+
         if not (idfg and idfg > 0):
             return {"kpi": None, "data": {}}
         if season:
