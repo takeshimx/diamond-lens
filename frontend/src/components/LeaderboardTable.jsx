@@ -55,7 +55,7 @@ const LeaderboardTable = ({ data, category, metricOrder, isLoading, error }) => 
   const isPitching = category?.id === 'pitching_leaderboard';
   const keyColumns = isPitching
     ? ['ip', 'era', 'whip', 'so', 'w', 'l', 'fip', 'k_9', 'k_bb', 'war']
-    : ['avg', 'hr', 'rbi', 'r', 'obp', 'slg', 'ops', 'war', 'wrcplus', 'batting_average_at_risp', 'slugging_percentage_at_risp', 'home_runs_at_risp'];
+    : ['pa', 'avg', 'hr', 'rbi', 'r', 'obp', 'slg', 'ops', 'war', 'wrcplus', 'batting_average_at_risp', 'slugging_percentage_at_risp', 'home_runs_at_risp'];
 
   const [sortKey, setSortKey] = useState(metricOrder);
   const [sortDir, setSortDir] = useState('desc');

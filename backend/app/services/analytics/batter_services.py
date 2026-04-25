@@ -100,7 +100,13 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
     season_hint = f"\n    - **コンテキスト情報**: 会話履歴から、対象シーズンは {season} 年と推測されます。質問に年の記載がない場合でも、このシーズンを使用してください。" if season else ""
 
     # プレースホルダーを置換
-    prompt = prompt_template.format(season_hint=season_hint, query=query)
+    current_year = datetime.now().year
+    prompt = prompt_template.format(
+        season_hint=season_hint,
+        query=query,
+        current_year=current_year,
+        prev_year=current_year - 1
+    )
 
     GEMINI_API_URL=f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
     headers = {"Content-Type": "application/json"}
@@ -133,9 +139,10 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
 
 
 def get_ai_response_for_batter_stats(
-        query: str, 
+        query: str,
         season: Optional[int] = None,
-        session_id: Optional[str] = None # Id from frontend to track user session
+        session_id: Optional[str] = None,
+        output_format: Optional[str] = None  # 呼び出し元から明示的に指定された場合にLLM解析結果を上書き
     ) -> Optional[Dict[str, Any]]:
     """
     【打撃リーダーボード特化版】
@@ -180,6 +187,10 @@ def get_ai_response_for_batter_stats(
         return error_response
     
     logger.info(f"Parsed query parameters: {query_params}")
+
+    # 呼び出し元から output_format が明示指定されていれば LLM 解析結果を上書き
+    if output_format:
+        query_params["output_format"] = output_format
 
     # Step 1.5: セキュリティ検証（SQLインジェクション対策）
     if not BaseEngine.validate_query_params(query_params):

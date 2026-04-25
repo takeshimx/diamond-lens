@@ -109,17 +109,22 @@ class GeminiClient:
     def _build_query_parsing_prompt(self, query: str) -> str:
         """
         クエリパース用のプロンプトを構築
-        
+
         Note: 元のai_service.pyの巨大なプロンプトをここに移動
               将来的にはプロンプトテンプレートファイルに外部化することも検討
         """
+        from datetime import datetime
+        current_year = datetime.now().year  # 動的に現在年を取得
+
         return f"""
         あなたはMLBのデータアナリストです。ユーザーからの"打撃成績のランキング"、"投手成績のランキング"、または"選手成績"に関する以下の質問を解析し、
         データベースで検索するためのパラメータをJSON形式で抽出してください。
 
+        # 重要：現在は{current_year}年です。年が明示されていない場合は{current_year}年を基準にしてください。
+
         # 指示
         - 選手名は英語表記（フルネーム）に正規化してください。例：「大谷さん」 -> "Shohei Ohtani"
-        - `season`は、ユーザーの質問から年を抽出してください。`season`が指定されていない場合、または「キャリア」や「通算」などの表現があれば、`season`はnullにしてください。
+        - `season`は、ユーザーの質問から年を抽出してください。`season`が指定されていない場合、または「キャリア」や「通算」などの表現があれば、`season`はnullにしてください。年が明示されていない「今シーズン」「最新」などの表現は{current_year}として扱ってください。
         - `query_type`は "season_batting"、"season_pitching"、 "batting_splits"、または "career_batting" のいずれかを選択してください。
         - `metrics`には、ユーザーが知りたい指標をリスト形式で格納してください。例えば、ホームラン数を知りたい場合は ["homerun"] とします。打率の場合は ["batting_average"] とし、単語と単語の間にアンダースコアを使用してください。
         - `split_type`は、「得点圏（RISP）」「満塁」「ランナー1類」「イニング別」「投手が左投げか右投げか」「球種別」「ゲームスコア状況別」などの特定の状況を示します。該当しない場合はnullにしてください。
@@ -152,33 +157,33 @@ class GeminiClient:
         }}
 
         # 質問の例
-        質問: 「2023年のホームラン王は誰？」
-        JSON: {{ "query_type": "season_batting", "season": 2023, "metrics": ["homerun"],  "order_by": "homerun", "limit": 1 }}
+        質問: 「{current_year - 1}年のホームラン王は誰？」
+        JSON: {{ "query_type": "season_batting", "season": {current_year - 1}, "metrics": ["homerun"],  "order_by": "homerun", "limit": 1 }}
 
-        質問: 「大谷さんの2024年のRISP時の主要スタッツは？」
-        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["main_stats"], "split_type": "risp", "order_by": null, "limit": 1 }}
+        質問: 「大谷さんの{current_year}年のRISP時の主要スタッツは？」
+        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": {current_year},  "metrics": ["main_stats"], "split_type": "risp", "order_by": null, "limit": 1 }}
 
-        質問: 「大谷さんのの2024年の1イニング目のホームラン数とOPSを教えて」
-        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["homerun", "on_base_plus_slugging"], "split_type": "inning", "inning": 1, "order_by": null, "limit": 1 }}
+        質問: 「大谷さんの{current_year}年の1イニング目のホームラン数とOPSを教えて」
+        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": {current_year},  "metrics": ["homerun", "on_base_plus_slugging"], "split_type": "inning", "inning": 1, "order_by": null, "limit": 1 }}
 
-        質問: 「大谷さんの2024年の左投手に対する主要スタッツを一覧で教えて？」
-        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["main_stats"], "split_type": "pitcher_throws", "pitcher_throws": "LHP", "order_by": null, "limit": 1, "output_format": "table" }}
+        質問: 「大谷さんの{current_year}年の左投手に対する主要スタッツを一覧で教えて？」
+        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": {current_year},  "metrics": ["main_stats"], "split_type": "pitcher_throws", "pitcher_throws": "LHP", "order_by": null, "limit": 1, "output_format": "table" }}
 
-        質問: 「大谷さんの2024年のスライダーに対する主要スタッツは？」
-        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["main_stats"], "split_type": "pitch_type", "pitch_type": "Slider", "order_by": null }}
+        質問: 「大谷さんの{current_year}年のスライダーに対する主要スタッツは？」
+        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": {current_year},  "metrics": ["main_stats"], "split_type": "pitch_type", "pitch_type": "Slider", "order_by": null }}
 
         質問: 「大谷さんのキャリア主要打撃成績を一覧で教えて」
         JSON: {{ "query_type": "career_batting", "name": "Shohei Ohtani", "metrics": ["main_stats"], "order_by": null, "limit": 1, "output_format": "table" }}
 
-        質問: 「大谷さんの2024年の、1点ビハインドでの主要スタッツは？」
-        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["main_stats"], "split_type": "game_score_situation", "game_score": "one_run_trail", "order_by": null, "limit": 1 }}
+        質問: 「大谷さんの{current_year}年の、1点ビハインドでの主要スタッツは？」
+        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": {current_year},  "metrics": ["main_stats"], "split_type": "game_score_situation", "game_score": "one_run_trail", "order_by": null, "limit": 1 }}
 
-        質問: 「大谷さんの2024年の打率を月毎の推移をチャートで教えて」
-        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["batting_average"], "split_type": "monthly", "order_by": null }}
+        質問: 「大谷さんの{current_year}年の打率を月毎の推移をチャートで教えて」
+        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": {current_year},  "metrics": ["batting_average"], "split_type": "monthly", "order_by": null }}
 
         # 複合質問の例
-        質問: 「大谷さんの2024年の7イニング目以降、フルカウントでの、RISP時の主要スタッツは？」
-        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["main_stats"], "split_type": "risp", "inning": [7, 8, 9], "strikes": 2, "balls": 3, "order_by": null, "limit": 1 }}
+        質問: 「大谷さんの{current_year}年の7イニング目以降、フルカウントでの、RISP時の主要スタッツは？」
+        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": {current_year},  "metrics": ["main_stats"], "split_type": "risp", "inning": [7, 8, 9], "strikes": 2, "balls": 3, "order_by": null, "limit": 1 }}
 
         # 本番
         質問: 「{query}」

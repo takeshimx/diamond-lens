@@ -580,6 +580,9 @@ class BaseEngine:
                 order_by_clause = f"ORDER BY {order_by_col} {order_direction}"
         elif split_type == "monthly" and month_column:
             order_by_clause = f"ORDER BY {month_column} ASC"
+        elif not params.get("season") and year_column and query_type in ("season_batting", "season_pitching"):
+            # 全シーズン表示時は年降順（最新→古い順）
+            order_by_clause = f"ORDER BY {year_column} DESC"
 
         # LIMIT clause - パラメータ化
         limit_clause = ""

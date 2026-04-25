@@ -98,7 +98,7 @@ def _bat_rank_cols(p: str = "") -> str:
 
 
 def _bat_rank_cols_mart(p: str = "") -> str:
-    """mart_batter_season_stats 用 RANK カラム（wrcplus / war は算出不可のため NULL）"""
+    """mart_batter_season_stats 用 RANK カラム（war / sb は算出不可のため NULL）"""
     return f"""
         RANK() OVER (ORDER BY {p}avg        DESC) AS avg_rank,
         RANK() OVER (ORDER BY {p}obp        DESC) AS obp_rank,
@@ -109,7 +109,7 @@ def _bat_rank_cols_mart(p: str = "") -> str:
         RANK() OVER (ORDER BY {p}bb         DESC) AS bb_rank,
         RANK() OVER (ORDER BY {p}so         ASC)  AS so_rank,
         RANK() OVER (ORDER BY {p}woba       DESC) AS woba_rank,
-        CAST(NULL AS INT64)                        AS wrcplus_rank,
+        RANK() OVER (ORDER BY {p}wrc_plus   DESC) AS wrcplus_rank,
         CAST(NULL AS INT64)                        AS war_rank,
         CAST(NULL AS INT64)                        AS sb_rank,
         RANK() OVER (ORDER BY {p}hardhitpct DESC) AS hardhitpct_rank,
@@ -233,8 +233,8 @@ def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[Pla
                             g, pa, hr, rbi, bb, so,
                             avg, obp, slg, ops, woba,
                             hardhitpct, barrelpct, swstrpct,
-                            CAST(NULL AS FLOAT64) AS war,
-                            CAST(NULL AS INT64)   AS wrcplus,
+                            CAST(NULL AS FLOAT64)           AS war,
+                            CAST(wrc_plus AS INT64)        AS wrcplus,
                             {_bat_rank_cols_mart()}
                         FROM {_MART_BAT_TABLE}
                         WHERE season = @season AND pa >= @min_pa
@@ -260,8 +260,8 @@ def get_player_profile(mlbid: int, season: Optional[int] = None) -> Optional[Pla
                             m.g, m.pa, m.hr, m.rbi, m.bb, m.so,
                             m.avg, m.obp, m.slg, m.ops, m.woba,
                             m.hardhitpct, m.barrelpct, m.swstrpct,
-                            CAST(NULL AS FLOAT64) AS war,
-                            CAST(NULL AS INT64)   AS wrcplus,
+                            CAST(NULL AS FLOAT64)           AS war,
+                            CAST(m.wrc_plus AS INT64)      AS wrcplus,
                             {_bat_rank_cols_mart("m.")}
                         FROM {_MART_BAT_TABLE} m
                         CROSS JOIN latest l

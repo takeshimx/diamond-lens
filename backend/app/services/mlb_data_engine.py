@@ -46,13 +46,17 @@ class MLBDataEngine:
             logger.error("GEMINI_API_KEY_V2 is not set.")
             return None
         
+        current_year = datetime.now().year
+
         prompt = f"""
         あなたはMLBのデータアナリストです。ユーザーからの"打撃成績のランキング"、"投手成績のランキング"、または"選手成績"に関する以下の質問を解析し、
         データベースで検索するためのパラメータをJSON形式で抽出してください。
 
+        # 重要：現在は{current_year}年です。年が明示されていない場合は{current_year}年を基準にしてください。
+
         # 指示
         - 選手名は英語表記（フルネーム）に正規化してください。例：「大谷さん」 -> "Shohei Ohtani"
-        - `season`は、ユーザーの質問から年を抽出してください。`season`が指定されていない場合、または「キャリア」や「通算」などの表現があれば、`season`はnullにしてください。
+        - `season`は、ユーザーの質問から年を抽出してください。`season`が指定されていない場合、または「キャリア」「通算」「全シーズン」「シーズンスタッツ（年指定なし）」などの表現があれば、`season`はnullにしてください。年が明示されていない「今シーズン」「最新」などの表現は{current_year}として扱ってください。
         - `query_type`は "season_batting"、"season_pitching"、 "batting_splits"、"pitching_splits"、または "career_batting" のいずれかを選択してください。
         - **重要：特定の状況（得点圏、イニング、左右、月別など）が指定されていない通常のシーズン統計の質問には、絶対に `batting_splits` を使わず、 `season_batting` または `season_pitching` を使用してください。**
         - `metrics`には、ユーザーが知りたい指標をリスト形式で格納してください。例えば、ホームラン数を知りたい場合は ["homerun"] とします。打率の場合は ["batting_average"] とし、単語と単語の間にアンダースコアを使用してください。
@@ -86,33 +90,36 @@ class MLBDataEngine:
         }}
 
         # 質問の例
-        質問: 「2023年のホームラン王は誰？」
-        JSON: {{ "query_type": "season_batting", "season": 2023, "metrics": ["homerun"],  "order_by": "homerun", "limit": 1 }}
+        質問: 「{current_year - 1}年のホームラン王は誰？」
+        JSON: {{ "query_type": "season_batting", "season": {current_year - 1}, "metrics": ["homerun"], "order_by": "homerun", "limit": 1 }}
 
-        質問: 「大谷さんの2024年のRISP時の主要スタッツは？」
-        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["main_stats"], "split_type": "risp", "order_by": null, "limit": 1 }}
+        質問: 「大谷さんのシーズン打撃スタッツを見せて」
+        JSON: {{ "query_type": "season_batting", "name": "Shohei Ohtani", "season": null, "metrics": ["main_stats"], "order_by": null, "output_format": "table" }}
 
-        質問: 「大谷さんのの2024年の1イニング目のホームラン数とOPSを教えて」
-        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["homerun", "on_base_plus_slugging"], "split_type": "inning", "inning": 1, "order_by": null, "limit": 1 }}
+        質問: 「大谷さんの{current_year}年のRISP時の主要スタッツは？」
+        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": {current_year}, "metrics": ["main_stats"], "split_type": "risp", "order_by": null, "limit": 1 }}
 
-        質問: 「大谷さんの2024年の左投手に対する主要スタッツを一覧で教えて？」
-        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["main_stats"], "split_type": "pitcher_throws", "pitcher_throws": "LHP", "order_by": null, "limit": 1, "output_format": "table" }}
+        質問: 「大谷さんの{current_year}年の1イニング目のホームラン数とOPSを教えて」
+        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": {current_year}, "metrics": ["homerun", "on_base_plus_slugging"], "split_type": "inning", "inning": 1, "order_by": null, "limit": 1 }}
 
-        質問: 「大谷さんの2024年のスライダーに対する主要スタッツは？」
-        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["main_stats"], "split_type": "pitch_type", "pitch_type": "Slider", "order_by": null }}
+        質問: 「大谷さんの{current_year}年の左投手に対する主要スタッツを一覧で教えて？」
+        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": {current_year}, "metrics": ["main_stats"], "split_type": "pitcher_throws", "pitcher_throws": "LHP", "order_by": null, "limit": 1, "output_format": "table" }}
+
+        質問: 「大谷さんの{current_year}年のスライダーに対する主要スタッツは？」
+        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": {current_year}, "metrics": ["main_stats"], "split_type": "pitch_type", "pitch_type": "Slider", "order_by": null }}
 
         質問: 「大谷さんのキャリア主要打撃成績を一覧で教えて」
         JSON: {{ "query_type": "career_batting", "name": "Shohei Ohtani", "metrics": ["main_stats"], "order_by": null, "limit": 1, "output_format": "table" }}
 
-        質問: 「大谷さんの2024年の、1点ビハインドでの主要スタッツは？」
-        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["main_stats"], "split_type": "game_score_situation", "game_score": "one_run_trail", "order_by": null, "limit": 1 }}
+        質問: 「大谷さんの{current_year}年の、1点ビハインドでの主要スタッツは？」
+        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": {current_year}, "metrics": ["main_stats"], "split_type": "game_score_situation", "game_score": "one_run_trail", "order_by": null, "limit": 1 }}
 
-        質問: 「大谷さんの2024年の打率を月毎の推移をチャートで教えて」
-        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["batting_average"], "split_type": "monthly", "order_by": null }}
+        質問: 「大谷さんの{current_year}年の打率を月毎の推移をチャートで教えて」
+        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": {current_year}, "metrics": ["batting_average"], "split_type": "monthly", "order_by": null }}
 
         # 複合質問の例
-        質問: 「大谷さんの2024年の7イニング目以降、フルカウントでの、RISP時の主要スタッツは？」
-        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": 2024,  "metrics": ["main_stats"], "split_type": "risp", "inning": [7, 8, 9], "strikes": 2, "balls": 3, "order_by": null, "limit": 1 }}
+        質問: 「大谷さんの{current_year}年の7イニング目以降、フルカウントでの、RISP時の主要スタッツは？」
+        JSON: {{ "query_type": "batting_splits", "name": "Shohei Ohtani", "season": {current_year}, "metrics": ["main_stats"], "split_type": "risp", "inning": [7, 8, 9], "strikes": 2, "balls": 3, "order_by": null, "limit": 1 }}
 
         # 本番
         質問: 「{query}」
@@ -689,13 +696,14 @@ class MLBDataEngine:
         # ORDER BY clause - ホワイトリスト方式（パラメータ化不可）
         order_by_clause = ""
         if params.get("order_by"):
-            # METRIC_MAPに存在する場合のみ使用（_validate_query_paramsで検証済み）
             order_by_col = METRIC_MAP.get(params["order_by"], {}).get(metric_map_key_base)
             if order_by_col:
                 order_direction = "ASC" if order_by_col in ("era", "whip", "fip") else "DESC"
                 order_by_clause = f"ORDER BY {order_by_col} {order_direction}"
         elif split_type == "monthly" and month_column:
             order_by_clause = f"ORDER BY {month_column} ASC"
+        elif query_type in ("season_batting", "season_pitching") and not params.get("season") and year_column:
+            order_by_clause = f"ORDER BY {year_column} DESC"
 
         # LIMIT clause - パラメータ化
         limit_clause = ""

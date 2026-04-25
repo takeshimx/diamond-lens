@@ -88,7 +88,7 @@ const MLBChatApp = () => {
     feedbackFormData, setFeedbackFormData, handleFeedback,
   } = useFeedback({ getBackendURL, getAuthHeaders, sessionId });
 
-  const { handleClearHistory, handleSendMessageStream, handleKeyDown } = useStreamChat({
+  const { handleClearHistory, handleSendMessageStream, handleFormatSelect, handleKeyDown } = useStreamChat({
     inputMessage, isLoading, sessionId,
     setMessages, setInputMessage, setIsLoading, setSessionId, resetMessages, clearSession,
     getBackendURL, getAuthHeaders, callBackendAPI,
@@ -131,6 +131,7 @@ const MLBChatApp = () => {
             handleKeyDown={handleKeyDown}
             isLoading={isLoading}
             handleSendMessageStream={handleSendMessageStream}
+            handleFormatSelect={handleFormatSelect}
             isAgentMode={isAgentMode}
             setIsAgentMode={setIsAgentMode}
             sessionId={sessionId}

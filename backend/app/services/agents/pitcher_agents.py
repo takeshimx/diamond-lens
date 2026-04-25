@@ -255,6 +255,15 @@ class PitcherAgent:
             raise AgentReasoningError("自己修正プロセス中にエラーが発生しました", original_error=e) from e
 
     def synthesizer_node(self, state):
+        # テーブル/チャートデータがあればLLM生成をスキップ
+        ui_metadata = self._extract_ui_metadata(state)
+        if ui_metadata.get("isTable") or ui_metadata.get("isChart"):
+            return {
+                "final_answer": "",
+                **ui_metadata,
+                "messages": []
+            }
+
         system_prompt = """
         あなたはMLB公式シニア・投球アナリストです。
         取得したデータは**実際の記録された成績**です。予測や推測ではありません。
@@ -263,8 +272,6 @@ class PitcherAgent:
         prompt = [SystemMessage(content=system_prompt)] + state["messages"]
         response = self.raw_model.invoke(prompt)
 
-        # UIメタデータの抽出（MatchupAgentと同様のロジック）
-        ui_metadata = self._extract_ui_metadata(state)
         return {
             "final_answer": response.content.strip(),
             **ui_metadata,
@@ -283,7 +290,8 @@ class PitcherAgent:
                             "isTable": True,
                             "tableData": res.get("tableData"),
                             "columns": res.get("columns"),
-                            "isTransposed": res.get("isTransposed")
+                            "isTransposed": res.get("isTransposed"),
+                            "decimalColumns": res.get("decimalColumns", [])
                         }
                     # チャート対応もここに入れる
                     if res.get("isChart"):

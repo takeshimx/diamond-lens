@@ -133,12 +133,20 @@ class BatterAgent:
         result_count = -1
         error_message = ""
 
+        # 元のクエリにテーブル指定があれば output_format を強制注入
+        original_query = state["messages"][0].content if state["messages"] else ""
+        TABLE_KEYWORDS = ["表で", "一覧で", "テーブルで", "まとめて", "table"]
+        force_table = any(kw in original_query for kw in TABLE_KEYWORDS)
+
         for tool_call in last_message.tool_calls:
             tool_name = tool_call["name"]
             logger.info(f"Calling tool: {tool_name}")
 
             from ..ai_agent_service import get_batter_stats_tool
-            result = get_batter_stats_tool.invoke(tool_call["args"])
+            args = dict(tool_call["args"])
+            if force_table and tool_name == "get_batter_stats_tool":
+                args["output_format"] = "table"
+            result = get_batter_stats_tool.invoke(args)
 
             # ===== エラー/空結果の検出 =====
             logger.info(f"Tool result type: {type(result).__name__}, preview: {str(result)[:200]}")
@@ -249,6 +257,15 @@ class BatterAgent:
             raise AgentReasoningError("自己修正プロセス中にエラーが発生しました", original_error=e) from e
 
     def synthesizer_node(self, state):
+        # テーブル/チャートデータがあればLLM生成をスキップ
+        ui_metadata = self._extract_ui_metadata(state)
+        if ui_metadata.get("isTable") or ui_metadata.get("isChart"):
+            return {
+                "final_answer": "",
+                **ui_metadata,
+                "messages": []
+            }
+
         system_prompt = """あなたはMLB公式シニア・打撃アナリストです。
 
 **【絶対ルール】**
@@ -261,8 +278,6 @@ class BatterAgent:
         prompt = [SystemMessage(content=system_prompt)] + state["messages"]
         response = self.raw_model.invoke(prompt)
 
-        # UIメタデータの抽出（MatchupAgentと同様のロジック）
-        ui_metadata = self._extract_ui_metadata(state)
         return {
             "final_answer": response.content.strip(),
             **ui_metadata,
@@ -281,7 +296,8 @@ class BatterAgent:
                             "isTable": True,
                             "tableData": res.get("tableData"),
                             "columns": res.get("columns"),
-                            "isTransposed": res.get("isTransposed")
+                            "isTransposed": res.get("isTransposed"),
+                            "decimalColumns": res.get("decimalColumns", [])
                         }
                     # チャート対応もここに入れる
                     if res.get("isChart"):

@@ -134,10 +134,10 @@ def mlb_stats_tool(query: str, season: int = None):
 
 
 @tool
-def get_batter_stats_tool(query: str, season: int = None):
-    """打撃成績（打率、本塁打、ランキング、状況別スタッツ等）を取得する専門ツール"""
+def get_batter_stats_tool(query: str, season: int = None, output_format: str = "sentence"):
+    """打撃成績（打率、本塁打、ランキング、状況別スタッツ等）を取得する専門ツール。output_formatに'table'を指定するとテーブル形式で返す"""
     from .analytics.batter_services import get_ai_response_for_batter_stats
-    return get_ai_response_for_batter_stats(query, season)
+    return get_ai_response_for_batter_stats(query, season, output_format=output_format)
 
 
 @tool
@@ -401,7 +401,7 @@ class MLBStatsAgent:
 
         **【絶対ルール】:**
         - 自分の知識だけで回答することは絶対に禁止です。必ずツールを呼び出してデータを取得してください。
-        - **2025年を含む全シーズンのデータがデータベースに存在します。** 「データがない」「まだシーズンが始まっていない」などと判断せず、必ずツールを呼んでください。
+        - **2026年を含む全シーズンのデータがデータベースに存在します。** 「データがない」「まだシーズンが始まっていない」などと判断せず、必ずツールを呼んでください。
         - ツールを呼ばずに直接回答することは禁止です。
 
         **重要な行動指針:**
@@ -509,7 +509,49 @@ class MLBStatsAgent:
     # Synthesizer node (分析と応答)
     def synthesizer_node(self, state: AgentState):
         logger.info("Synthesizer node started", node="synthesizer", status="analyzing")
-        
+
+        # 0. ツール結果を先に確認し、構造化データ（テーブル/チャート）があれば即返す
+        last_tool_res = None
+        for msg in reversed(state["messages"]):
+            if isinstance(msg, ToolMessage):
+                try:
+                    last_tool_res = json.loads(msg.content)
+                    break
+                except Exception as e:
+                    raise DataStructureError("JSON解析エラーが発生しました。", original_error=e) from e
+
+        if last_tool_res and last_tool_res.get("isTable") is True:
+            logger.info("Tool returned structured table data — skipping LLM narrative")
+            return {
+                "final_answer": last_tool_res.get("answer", ""),
+                "isTable": True,
+                "isChart": False,
+                "tableData": last_tool_res.get("tableData"),
+                "columns": last_tool_res.get("columns"),
+                "isTransposed": last_tool_res.get("isTransposed", False),
+                "chartData": None,
+                "chartType": "",
+                "chartConfig": None,
+                "isMatchupCard": False,
+                "matchupData": {}
+            }
+
+        if last_tool_res and last_tool_res.get("isChart") is True:
+            logger.info("Tool returned structured chart data — skipping LLM narrative")
+            return {
+                "final_answer": last_tool_res.get("answer", "📈"),
+                "isTable": False,
+                "isChart": True,
+                "tableData": None,
+                "columns": None,
+                "isTransposed": False,
+                "chartData": last_tool_res.get("chartData"),
+                "chartType": last_tool_res.get("chartType", ""),
+                "chartConfig": last_tool_res.get("chartConfig"),
+                "isMatchupCard": False,
+                "matchupData": {}
+            }
+
         # 1. AIへの指示
         system_prompt = """あなたはMLB公式シニア・アナリストです。
         提供されたデータを基に、一目でポイントがわかるプロフェッショナルな分析レポートを作成してください。
@@ -872,7 +914,8 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
     
     # astream_events は async なので、ループで await する
     current_node = ""
-    accumulated_answer = ""  # トークンを蓄積するための変数
+    accumulated_answer = ""  # synthesizerトークンを蓄積するための変数
+    synthesizer_final_state = {}  # synthesizerノードの出力（isTable/tableData等）
     llm_start_time = None
     accumulated_llm_ms = 0.0  # LLM推論時間の累計（ミリ秒）
 
@@ -1002,7 +1045,7 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
                 accumulated_llm_ms += (time.time() - llm_start_time) * 1000
                 llm_start_time = None
 
-        # LLMトークンストリーミング
+        # LLMトークンストリーミング（synthesizerノードのみ蓄積）
         elif event_type == "on_chat_model_stream":
             chunk = event.get("data", {}).get("chunk", {})
             raw_content = getattr(chunk, "content", "")
@@ -1015,18 +1058,30 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
             else:
                 content = raw_content or ""
             if content:
-                accumulated_answer += content  # トークンを蓄積
+                if current_node == "synthesizer":
+                    accumulated_answer += content  # synthesizerトークンのみ蓄積
                 yield {
                     "type": "token",
                     "content": content,
                     "node": current_node
                 }
-        
+
         # ノード終了イベント
         elif event_type == "on_chain_end":
             node_name = event.get("name", "")
             if node_name in ["oracle", "executor", "synthesizer", "reflection",
                              "planner", "parallel_executor", "aggregator", "strategist"]:
+                # synthesizerの出力を捕捉（isTable/tableDataを含む）
+                if node_name == "synthesizer":
+                    # v2イベントは output または data 直下に入る場合がある
+                    node_output = (
+                        event.get("data", {}).get("output") or
+                        event.get("output") or
+                        {}
+                    )
+                    if isinstance(node_output, dict) and node_output:
+                        synthesizer_final_state.update(node_output)
+                        stream_logger.info(f"Captured synthesizer state: isTable={node_output.get('isTable')}, decimalColumns={node_output.get('decimalColumns')}")
                 yield {
                     "type": "state_update",
                     "node": node_name,
@@ -1035,12 +1090,30 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
                     "timestamp": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
                     "step_type": "node_end"
                 }
-    
-    # 最終状態を取得 (ストリーミング終了後)
-    # ストリーミング中に蓄積した答えを使用
-    if accumulated_answer:
-        # トークンが蓄積されている場合は、すぐに final_answer を送信
-        stream_logger.info("Accumulated answer available, sending final_answer immediately")
+
+    # 最終状態を取得: synthesizerの出力を優先
+    if synthesizer_final_state:
+        stream_logger.info("Using synthesizer final state for final_answer")
+        yield {
+            "type": "final_answer",
+            "answer": synthesizer_final_state.get("final_answer", accumulated_answer),
+            "isTable": synthesizer_final_state.get("isTable", False),
+            "tableData": synthesizer_final_state.get("tableData"),
+            "columns": synthesizer_final_state.get("columns"),
+            "isTransposed": synthesizer_final_state.get("isTransposed", False),
+            "decimalColumns": synthesizer_final_state.get("decimalColumns", []),
+            "isChart": synthesizer_final_state.get("isChart", False),
+            "chartType": synthesizer_final_state.get("chartType"),
+            "chartData": synthesizer_final_state.get("chartData"),
+            "chartConfig": synthesizer_final_state.get("chartConfig"),
+            "isMatchupCard": synthesizer_final_state.get("isMatchupCard", False),
+            "matchupData": synthesizer_final_state.get("matchupData"),
+            "isStrategyReport": agent_type == "strategy",
+            "strategyData": synthesizer_final_state.get("strategyData"),
+            "llm_latency_ms": accumulated_llm_ms,
+        }
+    elif accumulated_answer:
+        stream_logger.info("Accumulated answer available, sending final_answer")
         yield {
             "type": "final_answer",
             "answer": accumulated_answer,
@@ -1059,7 +1132,6 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
             "llm_latency_ms": accumulated_llm_ms,
         }
     else:
-        # 蓄積された答えがない場合は agent.run() を実行
         stream_logger.info("No accumulated answer, running agent.run() to get final result")
         final_result = agent.run(query)
         yield {

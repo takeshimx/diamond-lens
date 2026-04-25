@@ -5,6 +5,7 @@ from typing import Optional, List, Dict, Any
 from google.cloud import bigquery
 from google.cloud.exceptions import GoogleCloudError
 from functools import lru_cache
+import pandas as pd
 from backend.app.api.schemas import * # For Development, add backend. path
 from .base import (
     get_bq_client, client, logger,
@@ -13,7 +14,9 @@ from .base import (
     PITCHING_STATS_TABLE_ID,
     BATTER_SPLIT_STATS_TABLE_ID,
     TEAM_BATTING_STATS_TABLE_ID,
-    TEAM_PITCHING_STATS_TABLE_ID
+    TEAM_PITCHING_STATS_TABLE_ID,
+    MART_BATTER_SEASON_STATS_TABLE_ID,
+    MART_PITCHER_SEASON_STATS_TABLE_ID,
 )
 
 
@@ -21,17 +24,115 @@ from .base import (
 def get_batting_leaderboard(season: int, league: str, min_pa: int, metric_order: str) -> Optional[List[PlayerBattingSeasonStats]]:
     """
     指定されたシーズン、リーグ、および最小打席数に基づいて、打撃リーダーボードを取得します。
+    2026年以降: mart_batter_season_stats を使用
+    2025年以前: fact_batting_stats_with_risp を使用
     """
-
-    # 2025年の場合は最小PAを280に調整するロジックをサービス層で持つ (As of Jul 8, 2025)
     adjusted_min_pa = 280 if season == 2025 else min_pa
-    
+
     processed_league = league.lower()
     if processed_league == 'mlb':
-        league_filtered_clause = "AND league IN ('al', 'nl')" # If MLB is selected, filter by AL and NL
-    elif processed_league == 'al' or processed_league == 'nl':
-        league_filtered_clause = "AND league = @league" # If AL or NL is selected, filter by that league
+        league_filtered_clause = "AND league IN ('al', 'nl')"
+    else:
+        league_filtered_clause = "AND league = @league"
 
+    league_params = (
+        [] if processed_league == 'mlb'
+        else [bigquery.ScalarQueryParameter("league", "STRING", processed_league)]
+    )
+
+    # ── 2026年以降: mart テーブル ──────────────────────────────────────────────
+    if season >= 2026:
+        _MART = f"`{PROJECT_ID}.{DATASET_ID}.{MART_BATTER_SEASON_STATS_TABLE_ID}`"
+        _TEAMS = f"`{PROJECT_ID}.{DATASET_ID}.dim_teams`"
+
+        # mart はリーグ列を持たないため dim_teams と JOIN してフィルタ
+        # dim_teams.league はフルネーム ("American League" / "National League")
+        if processed_league == 'mlb':
+            mart_league_clause = "AND LOWER(t.league) IN ('american league', 'national league')"
+        elif processed_league == 'al':
+            mart_league_clause = "AND LOWER(t.league) = 'american league'"
+        else:  # nl
+            mart_league_clause = "AND LOWER(t.league) = 'national league'"
+
+        mart_query = f"""
+            SELECT
+                m.batter                         AS mlbid,
+                CAST(NULL AS INT64)              AS idfg,
+                m.season,
+                m.player_name                    AS name,
+                m.team,
+                CAST(NULL AS STRING)             AS league,
+                m.g,
+                m.ab,
+                m.pa,
+                m.runs                           AS r,
+                m.h,
+                m.hr,
+                m.rbi,
+                CAST(NULL AS INT64)              AS sb,
+                m.bb,
+                m.so,
+                m.avg,
+                m.obp,
+                m.slg,
+                m.ops,
+                CAST(NULL AS FLOAT64)            AS iso,
+                CAST(m.wrc_plus AS INT64)        AS wrcplus,
+                m.woba,
+                CAST(NULL AS FLOAT64)            AS war,
+                m.hardhitpct,
+                m.barrelpct,
+                m.risp_avg                       AS batting_average_at_risp,
+                CAST(NULL AS FLOAT64)            AS slugging_percentage_at_risp,
+                CAST(NULL AS INT64)              AS home_runs_at_risp
+            FROM {_MART} m
+            LEFT JOIN {_TEAMS} t ON m.team = t.abbreviation
+            WHERE m.season = @season
+              AND m.pa >= @min_pa
+              {mart_league_clause}
+            ORDER BY
+                CASE @metric_order
+                    WHEN 'avg'                        THEN m.avg
+                    WHEN 'obp'                        THEN m.obp
+                    WHEN 'slg'                        THEN m.slg
+                    WHEN 'ops'                        THEN m.ops
+                    WHEN 'wrcplus'                    THEN m.wrc_plus
+                    WHEN 'woba'                       THEN m.woba
+                    WHEN 'hr'                         THEN m.hr
+                    WHEN 'rbi'                        THEN m.rbi
+                    WHEN 'h'                          THEN m.h
+                    WHEN 'r'                          THEN m.runs
+                    WHEN 'bb'                         THEN m.bb
+                    WHEN 'so'                         THEN m.so
+                    WHEN 'hardhitpct'                 THEN m.hardhitpct
+                    WHEN 'barrelpct'                  THEN m.barrelpct
+                    WHEN 'batting_average_at_risp'    THEN m.risp_avg
+                    ELSE m.ops
+                END DESC
+        """
+        mart_params = [
+            bigquery.ScalarQueryParameter("season",       "INT64", season),
+            bigquery.ScalarQueryParameter("min_pa",       "INT64", adjusted_min_pa),
+            bigquery.ScalarQueryParameter("metric_order", "STRING", metric_order),
+        ]
+        mart_job_config = bigquery.QueryJobConfig(query_parameters=mart_params)
+        try:
+            df = client.query(mart_query, job_config=mart_job_config).to_dataframe()
+            if df.empty:
+                return []
+            results: List[PlayerBattingSeasonStats] = []
+            for _, row in df.iterrows():
+                row_dict = {k: (None if pd.isna(v) else v) for k, v in row.to_dict().items()}
+                results.append(PlayerBattingSeasonStats(**row_dict))
+            return results
+        except GoogleCloudError as e:
+            print(f"ERROR: mart batting leaderboard query failed for season {season}: {e}")
+            return None
+        except Exception as e:
+            print(f"ERROR: mart batting leaderboard unexpected error for season {season}: {e}")
+            return None
+
+    # ── 2025年以前: fact テーブル ─────────────────────────────────────────────
     query = f"""
         SELECT
             idfg,
@@ -70,62 +171,47 @@ def get_batting_leaderboard(season: int, league: str, min_pa: int, metric_order:
             AND pa >= @min_pa
             {league_filtered_clause}
         ORDER BY
-            CASE @metric_order -- Dynamic ORDER BY
-                WHEN 'avg' THEN avg
-                WHEN 'obp' THEN obp
-                WHEN 'slg' THEN slg
-                WHEN 'ops' THEN ops
-                WHEN 'wrcplus' THEN wrcplus
-                WHEN 'woba' THEN woba
-                WHEN 'war' THEN war
-                WHEN 'hr' THEN hr
-                WHEN 'rbi' THEN rbi
-                WHEN 'h' THEN h
-                WHEN 'r' THEN r
-                WHEN 'iso' THEN iso
-                WHEN 'sb' THEN sb
-                WHEN 'bb' THEN bb
-                WHEN 'so' THEN so
-                WHEN 'hardhitpct' THEN hardhitpct
-                WHEN 'barrelpct' THEN barrelpct
-                WHEN 'batting_average_at_risp' THEN batting_average_at_risp
+            CASE @metric_order
+                WHEN 'avg'                        THEN avg
+                WHEN 'obp'                        THEN obp
+                WHEN 'slg'                        THEN slg
+                WHEN 'ops'                        THEN ops
+                WHEN 'wrcplus'                    THEN wrcplus
+                WHEN 'woba'                       THEN woba
+                WHEN 'war'                        THEN war
+                WHEN 'hr'                         THEN hr
+                WHEN 'rbi'                        THEN rbi
+                WHEN 'h'                          THEN h
+                WHEN 'r'                          THEN r
+                WHEN 'iso'                        THEN iso
+                WHEN 'sb'                         THEN sb
+                WHEN 'bb'                         THEN bb
+                WHEN 'so'                         THEN so
+                WHEN 'hardhitpct'                 THEN hardhitpct
+                WHEN 'barrelpct'                  THEN barrelpct
+                WHEN 'batting_average_at_risp'    THEN batting_average_at_risp
                 WHEN 'slugging_percentage_at_risp' THEN slugging_percentage_at_risp
-                WHEN 'home_runs_at_risp' THEN home_runs_at_risp
-                ELSE ops -- sort by OPS as default
+                WHEN 'home_runs_at_risp'          THEN home_runs_at_risp
+                ELSE ops
             END DESC
     """
     job_config = bigquery.QueryJobConfig(
         query_parameters=[
-            bigquery.ScalarQueryParameter("season", "INT64", season),
-            # bigquery.ScalarQueryParameter("league", "STRING", processed_league),
-            *([] if processed_league == 'mlb' else [bigquery.ScalarQueryParameter("league", "STRING", processed_league)]),
-            bigquery.ScalarQueryParameter("min_pa", "INT64", adjusted_min_pa),  # 最小打席数のパラメータ
-            bigquery.ScalarQueryParameter("metric_order", "STRING", metric_order)  # 動的なORDER BYのためのパラメータ
+            bigquery.ScalarQueryParameter("season",       "INT64", season),
+            *league_params,
+            bigquery.ScalarQueryParameter("min_pa",       "INT64", adjusted_min_pa),
+            bigquery.ScalarQueryParameter("metric_order", "STRING", metric_order),
         ]
     )
 
-    # # ★★★ デバッグログの追加 ★★★
-    # logger.debug(f"Executing BigQuery query for batting leaderboard:")
-    # logger.debug(f"Query: {query}")
-    # logger.debug(f"Parameters: {job_config.query_parameters}")
-    # # ★★★ デバッグログの追加ここまで ★★★
-
     try:
         df = client.query(query, job_config=job_config).to_dataframe()
-
-        # # ★★★ デバッグログの追加: データフレームの内容を確認 ★★★
-        # logger.debug(f"DataFrame fetched. Shape: {df.shape}")
-        # if not df.empty:
-        #     logger.debug(f"DataFrame head:\n{df.head().to_string()}")
-        # # ★★★ デバッグログの追加ここまで ★★★
-
         if df.empty:
             print(f"DEBUG: No batting leaderboard data found for season {season}, league {processed_league}, min_pa {adjusted_min_pa}")
             return []
-        
-        results: List[PlayerBattingSeasonStats] = [] # PlayerBattingSeasonStatsのリストとして初期化
+        results: List[PlayerBattingSeasonStats] = []
         for _, row in df.iterrows():
-            row_dict = {k: (None if (isinstance(v, float) and v != v) else v) for k, v in row.to_dict().items()}
+            row_dict = {k: (None if pd.isna(v) else v) for k, v in row.to_dict().items()}
             results.append(PlayerBattingSeasonStats(**row_dict))
         return results
 
@@ -248,15 +334,100 @@ def get_batting_leaderboard(season: int, league: str, min_pa: int, metric_order:
 def get_pitching_leaderboard(season: int, league: str, min_ip: int, metric_order: str) -> Optional[List[PlayerPitchingSeasonStats]]:
     """
     指定されたシーズン、リーグ、および最小投球回数に基づいて、投球リーダーボードを取得します。
+    2026年以降: mart_pitcher_season_stats を使用
+    2025年以前: fact_pitching_stats_master を使用
     """
-    # 2025年の場合は最小IPを75に調整するロジックをサービス層で持つ (As of Jul 8, 2025)
     adjusted_min_ip = 75 if season == 2025 else min_ip
-    
+
     processed_league = league.lower()
     if processed_league == 'mlb':
-        league_filtered_clause = "AND league IN ('al', 'nl')" # If MLB is selected, filter by AL and NL
+        league_filtered_clause = "AND league IN ('al', 'nl')"
     elif processed_league == 'al' or processed_league == 'nl':
-        league_filtered_clause = "AND league = @league" # If AL or NL is selected, filter by that league
+        league_filtered_clause = "AND league = @league"
+
+    league_params = (
+        [] if processed_league == 'mlb'
+        else [bigquery.ScalarQueryParameter("league", "STRING", processed_league)]
+    )
+
+    # ── 2026年以降: mart テーブル ──────────────────────────────────────────────
+    # mart にはリーグ列がないため NL/AL フィルタは不可。MLB タブは全選手を返す。
+    if season >= 2026:
+        _MART = f"`{PROJECT_ID}.{DATASET_ID}.{MART_PITCHER_SEASON_STATS_TABLE_ID}`"
+
+        mart_query = f"""
+            SELECT
+                pitcher                          AS mlbid,
+                CAST(NULL AS INT64)              AS idfg,
+                season,
+                player_name                      AS name,
+                team,
+                CAST(NULL AS STRING)             AS league,
+                CAST(NULL AS INT64)              AS w,
+                CAST(NULL AS INT64)              AS l,
+                CAST(NULL AS INT64)              AS sv,
+                g,
+                gs,
+                h,
+                CAST(NULL AS INT64)              AS r,
+                CAST(NULL AS INT64)              AS er,
+                era,
+                so,
+                k_9,
+                fip,
+                CAST(NULL AS FLOAT64)            AS war,
+                whip,
+                ip,
+                bb,
+                bb_9,
+                CAST(NULL AS FLOAT64)            AS k_bb,
+                hr,
+                CAST(NULL AS FLOAT64)            AS hr_9,
+                CAST(NULL AS FLOAT64)            AS avg,
+                barrelpct,
+                hardhitpct
+            FROM {_MART}
+            WHERE season = @season
+              AND ip >= @min_ip
+            ORDER BY
+                CASE @metric_order
+                    WHEN 'era'        THEN -era
+                    WHEN 'whip'       THEN -whip
+                    WHEN 'fip'        THEN -fip
+                    WHEN 'bb_9'       THEN -bb_9
+                    WHEN 'barrelpct'  THEN -barrelpct
+                    WHEN 'hardhitpct' THEN -hardhitpct
+                    WHEN 'so'         THEN CAST(so AS FLOAT64)
+                    WHEN 'k_9'        THEN k_9
+                    WHEN 'ip'         THEN ip
+                    WHEN 'g'          THEN CAST(g  AS FLOAT64)
+                    WHEN 'gs'         THEN CAST(gs AS FLOAT64)
+                    ELSE -era
+                END DESC
+        """
+        mart_params = [
+            bigquery.ScalarQueryParameter("season",       "INT64",   season),
+            bigquery.ScalarQueryParameter("min_ip",       "FLOAT64", float(adjusted_min_ip)),
+            bigquery.ScalarQueryParameter("metric_order", "STRING",  metric_order),
+        ]
+        mart_job_config = bigquery.QueryJobConfig(query_parameters=mart_params)
+        try:
+            df = client.query(mart_query, job_config=mart_job_config).to_dataframe()
+            if df.empty:
+                return []
+            results: List[PlayerPitchingSeasonStats] = []
+            for _, row in df.iterrows():
+                row_dict = {k: (None if pd.isna(v) else v) for k, v in row.to_dict().items()}
+                results.append(PlayerPitchingSeasonStats(**row_dict))
+            return results
+        except GoogleCloudError as e:
+            logger.error(f"mart pitching leaderboard BQ error for season {season}: {e}", exc_info=True)
+            return None
+        except Exception as e:
+            logger.error(f"mart pitching leaderboard error for season {season}: {e}", exc_info=True)
+            return None
+
+    # ── 2025年以前: fact テーブル ─────────────────────────────────────────────
 
     query = f"""
         SELECT
@@ -330,11 +501,10 @@ def get_pitching_leaderboard(season: int, league: str, min_ip: int, metric_order
 
     job_config = bigquery.QueryJobConfig(
         query_parameters=[
-            bigquery.ScalarQueryParameter("season", "INT64", season),
-            # bigquery.ScalarQueryParameter("league", "STRING", processed_league),
-            *([] if processed_league == 'mlb' else [bigquery.ScalarQueryParameter("league", "STRING", processed_league)]),
-            bigquery.ScalarQueryParameter("min_ip", "INT64", adjusted_min_ip),
-            bigquery.ScalarQueryParameter("metric_order", "STRING", metric_order)  # 動的なORDER BYのためのパラメータ
+            bigquery.ScalarQueryParameter("season",       "INT64", season),
+            *league_params,
+            bigquery.ScalarQueryParameter("min_ip",       "INT64", adjusted_min_ip),
+            bigquery.ScalarQueryParameter("metric_order", "STRING", metric_order),
         ]
     )
 

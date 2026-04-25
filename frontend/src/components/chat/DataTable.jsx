@@ -1,6 +1,17 @@
 import React from 'react';
 
 // 構造化されたテーブルデータを表示
+const YEAR_COLUMNS = ['season', 'year', 'game_year', 'birth_year'];
+
+const formatCell = (value, columnKey, decimalColumns) => {
+  if (typeof value !== 'number') return value ?? '—';
+  if (YEAR_COLUMNS.includes(columnKey)) return String(value); // 年はカンマなし
+  if (decimalColumns.includes(columnKey)) {
+    return value.toFixed(3);
+  }
+  return value.toLocaleString('ja-JP');
+};
+
 const DataTable = ({ tableData, columns, isTransposed, decimalColumns = [], grouping = null }) => {
   if (!tableData || !columns) return null;
 
@@ -39,16 +50,7 @@ const DataTable = ({ tableData, columns, isTransposed, decimalColumns = [], grou
                               {column.label}
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-900 dark:text-white whitespace-nowrap transition-colors duration-200">
-                              {typeof row[column.key] === 'number'
-                                ? (() => {
-                                  const shouldShowDecimals = decimalColumns.includes(column.key);
-                                  return Number(row[column.key]).toLocaleString('ja-JP', {
-                                    minimumFractionDigits: shouldShowDecimals ? 3 : 0,
-                                    maximumFractionDigits: shouldShowDecimals ? 3 : 0
-                                  });
-                                })()
-                                : row[column.key]
-                              }
+                              {formatCell(row[column.key], column.key, decimalColumns)}
                             </td>
                           </tr>
                         ))}
@@ -86,16 +88,7 @@ const DataTable = ({ tableData, columns, isTransposed, decimalColumns = [], grou
                       {column.label}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white whitespace-nowrap transition-colors duration-200">
-                      {typeof row[column.key] === 'number'
-                        ? (() => {
-                          const shouldShowDecimals = decimalColumns.includes(column.key);
-                          return Number(row[column.key]).toLocaleString('ja-JP', {
-                            minimumFractionDigits: shouldShowDecimals ? 3 : 0,
-                            maximumFractionDigits: shouldShowDecimals ? 3 : 0
-                          });
-                        })()
-                        : row[column.key]
-                      }
+                      {formatCell(row[column.key], column.key, decimalColumns)}
                     </td>
                   </tr>
                 ))}
@@ -133,16 +126,7 @@ const DataTable = ({ tableData, columns, isTransposed, decimalColumns = [], grou
                       key={column.key}
                       className="px-4 py-3 text-sm text-gray-900 dark:text-white whitespace-nowrap transition-colors duration-200"
                     >
-                      {typeof row[column.key] === 'number'
-                        ? (() => {
-                          const shouldShowDecimals = decimalColumns.includes(column.key);
-                          return Number(row[column.key]).toLocaleString('ja-JP', {
-                            minimumFractionDigits: shouldShowDecimals ? 3 : 0,
-                            maximumFractionDigits: shouldShowDecimals ? 3 : 0
-                          });
-                        })()
-                        : row[column.key]
-                      }
+                      {formatCell(row[column.key], column.key, decimalColumns)}
                     </td>
                   ))}
                 </tr>

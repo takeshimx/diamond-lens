@@ -14,6 +14,20 @@
  * @param {Function} deps.getAuthHeaders
  * @param {Function} deps.callBackendAPI
  */
+
+// 表示形式の明示指定がないあいまいなクエリを検出するキーワード定義
+const FORMAT_TRIGGER_WORDS = ['スタッツ', '成績', '統計', 'データ'];
+const FORMAT_EXPLICIT_WORDS = [
+  '表で', 'テーブル', '一覧で', 'まとめて',
+  'テキスト', '文章で', '箇条書き', 'グラフ', 'チャート',
+];
+
+const needsClarification = (query) => {
+  const hasTrigger = FORMAT_TRIGGER_WORDS.some(w => query.includes(w));
+  const hasExplicit = FORMAT_EXPLICIT_WORDS.some(w => query.includes(w));
+  return hasTrigger && !hasExplicit;
+};
+
 export const useStreamChat = ({
   inputMessage,
   isLoading,
@@ -59,67 +73,8 @@ export const useStreamChat = ({
     }
   };
 
-  // ===== 非ストリーミング送信（予備） =====
-  const handleSendMessage = async () => {
-    if (!inputMessage.trim() || isLoading) return;
-
-    const userMessage = { id: Date.now(), type: 'user', content: inputMessage, timestamp: new Date() };
-    setMessages(prev => [...prev, userMessage]);
-    setInputMessage('');
-    setIsLoading(true);
-
-    try {
-      const response = await callBackendAPI(inputMessage);
-
-      const botMessage = {
-        id: Date.now() + 1,
-        type: 'bot',
-        content: response.answer,
-        requestId: response.requestId,
-        stats: response.stats,
-        isTable: response.isTable,
-        isTransposed: response.isTransposed,
-        tableData: response.tableData,
-        columns: response.columns,
-        decimalColumns: response.decimalColumns,
-        grouping: response.grouping,
-        isChart: response.isChart,
-        chartType: response.chartType,
-        chartData: response.chartData,
-        chartConfig: response.chartConfig,
-        isAgentic: response.isAgentic,
-        steps: response.steps,
-        isMatchupCard: response.isMatchupCard,
-        matchupData: response.matchupData,
-        isStrategyReport: response.isStrategyReport || false,
-        strategyData: response.strategyData || null,
-        qualityWarning: response.qualityWarning || null,
-        timestamp: new Date(),
-      };
-
-      setMessages(prev => [...prev, botMessage]);
-    } catch (error) {
-      console.error('❌ Chat API Error:', error);
-      setMessages(prev => [...prev, {
-        id: Date.now() + 1, type: 'bot',
-        content: 'エラーが発生しました。しばらく後でもう一度お試しください。',
-        timestamp: new Date(),
-      }]);
-    }
-
-    setIsLoading(false);
-  };
-
-  // ===== ストリーミング送信 =====
-  const handleSendMessageStream = async () => {
-    if (!inputMessage.trim() || isLoading) return;
-
-    const userMessage = { id: Date.now(), type: 'user', content: inputMessage, timestamp: new Date() };
-    setMessages(prev => [...prev, userMessage]);
-    const currentQuery = inputMessage;
-    setInputMessage('');
-    setIsLoading(true);
-
+  // ===== ストリーミング送信の共通ロジック =====
+  const _sendStream = async (query, outputFormat) => {
     const botMessageId = Date.now() + 1;
     setMessages(prev => [...prev, {
       id: botMessageId, type: 'bot', content: '',
@@ -131,10 +86,17 @@ export const useStreamChat = ({
       const endpoint = `${baseURL}/api/v1/qa/agentic-stats-stream`;
       const headers = await getAuthHeaders();
 
+      const requestBody = {
+        query,
+        season: new Date().getFullYear(),
+        session_id: sessionId,
+      };
+      if (outputFormat) requestBody.output_format = outputFormat;
+
       const response = await fetch(endpoint, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ query: currentQuery, season: new Date().getFullYear(), session_id: sessionId }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
@@ -241,6 +203,93 @@ export const useStreamChat = ({
     }
   };
 
+  // ===== ストリーミング送信（メイン） =====
+  const handleSendMessageStream = async () => {
+    if (!inputMessage.trim() || isLoading) return;
+
+    const currentQuery = inputMessage;
+    const userMessage = { id: Date.now(), type: 'user', content: currentQuery, timestamp: new Date() };
+    setMessages(prev => [...prev, userMessage]);
+    setInputMessage('');
+
+    // あいまいなクエリは表示形式を選択させる
+    if (needsClarification(currentQuery)) {
+      setMessages(prev => [...prev, {
+        id: Date.now() + 1,
+        type: 'clarification',
+        pendingQuery: currentQuery,
+        timestamp: new Date(),
+      }]);
+      return;
+    }
+
+    setIsLoading(true);
+    await _sendStream(currentQuery, null);
+  };
+
+  // ===== 表示形式選択後の送信 =====
+  const handleFormatSelect = async (clarificationId, pendingQuery, outputFormat) => {
+    // 選択済みとしてマーク
+    setMessages(prev => prev.map(msg =>
+      msg.id === clarificationId
+        ? { ...msg, resolved: true, selectedFormat: outputFormat }
+        : msg
+    ));
+    setIsLoading(true);
+    await _sendStream(pendingQuery, outputFormat);
+  };
+
+  // ===== 非ストリーミング送信（予備） =====
+  const handleSendMessage = async () => {
+    if (!inputMessage.trim() || isLoading) return;
+
+    const userMessage = { id: Date.now(), type: 'user', content: inputMessage, timestamp: new Date() };
+    setMessages(prev => [...prev, userMessage]);
+    setInputMessage('');
+    setIsLoading(true);
+
+    try {
+      const response = await callBackendAPI(inputMessage);
+
+      const botMessage = {
+        id: Date.now() + 1,
+        type: 'bot',
+        content: response.answer,
+        requestId: response.requestId,
+        stats: response.stats,
+        isTable: response.isTable,
+        isTransposed: response.isTransposed,
+        tableData: response.tableData,
+        columns: response.columns,
+        decimalColumns: response.decimalColumns,
+        grouping: response.grouping,
+        isChart: response.isChart,
+        chartType: response.chartType,
+        chartData: response.chartData,
+        chartConfig: response.chartConfig,
+        isAgentic: response.isAgentic,
+        steps: response.steps,
+        isMatchupCard: response.isMatchupCard,
+        matchupData: response.matchupData,
+        isStrategyReport: response.isStrategyReport || false,
+        strategyData: response.strategyData || null,
+        qualityWarning: response.qualityWarning || null,
+        timestamp: new Date(),
+      };
+
+      setMessages(prev => [...prev, botMessage]);
+    } catch (error) {
+      console.error('❌ Chat API Error:', error);
+      setMessages(prev => [...prev, {
+        id: Date.now() + 1, type: 'bot',
+        content: 'エラーが発生しました。しばらく後でもう一度お試しください。',
+        timestamp: new Date(),
+      }]);
+    }
+
+    setIsLoading(false);
+  };
+
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -248,5 +297,5 @@ export const useStreamChat = ({
     }
   };
 
-  return { handleClearHistory, handleSendMessage, handleSendMessageStream, handleKeyDown };
+  return { handleClearHistory, handleSendMessage, handleSendMessageStream, handleFormatSelect, handleKeyDown };
 };

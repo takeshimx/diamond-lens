@@ -489,7 +489,14 @@ async def get_agentic_stats_stream_endpoint(
             },
         )
 
-    logger.info(f"🌊 Stream Request: query='{body.query}', session_id={session_id}")
+    # output_format が指定されている場合はクエリにヒントを付与して LLM 判定を誘導する
+    resolved_query = body.query
+    if body.output_format == "table":
+        resolved_query = f"{body.query} 表で"
+    elif body.output_format == "text":
+        resolved_query = f"{body.query} テキストで"
+
+    logger.info(f"🌊 Stream Request: query='{resolved_query}', session_id={session_id}")
 
     # LLMログエントリを初期化
     llm_logger = get_llm_logger()
@@ -521,7 +528,7 @@ async def get_agentic_stats_stream_endpoint(
             # Execute LangGraph streaming
             from backend.app.services.ai_agent_service import run_mlb_agent_stream
 
-            async for event in run_mlb_agent_stream(body.query):
+            async for event in run_mlb_agent_stream(resolved_query):
                 if event.get("type") == "final_answer":
                     log_entry.response_answer = event.get("answer", "")
                     log_entry.response_has_table = event.get("isTable", False)

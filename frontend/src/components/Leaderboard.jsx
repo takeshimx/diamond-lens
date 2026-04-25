@@ -5,16 +5,25 @@ import LeaderboardTable from './LeaderboardTable';
 
 const SEASONS = [2026, 2025, 2024, 2023, 2022, 2021];
 
-const getMinPa = (yr) => yr === new Date().getFullYear() ? 10 : 350;
-const getMinIp = (yr) => yr === new Date().getFullYear() ? 6 : 100;
+const CURRENT_YEAR = new Date().getFullYear();
+const getDefaultMinPa = (yr) => yr === CURRENT_YEAR ? 10 : 350;
+const getDefaultMinIp = (yr) => yr === CURRENT_YEAR ? 6 : 100;
+const getPaRange = (yr) => yr === CURRENT_YEAR
+  ? { min: 10, max: 300, step: 10 }
+  : { min: 50, max: 600, step: 10 };
+const getIpRange = (yr) => yr === CURRENT_YEAR
+  ? { min: 1, max: 80, step: 1 }
+  : { min: 10, max: 200, step: 5 };
 
 const Leaderboard = () => {
   const { getIdToken } = useAuth();
   const BACKEND_URL = getBackendUrl();
 
   const [tab, setTab] = useState('batting');
-  const [season, setSeason] = useState(2025);
+  const [season, setSeason] = useState(2026);
   const [league, setLeague] = useState('MLB');
+  const [minPa, setMinPa] = useState(getDefaultMinPa(2026));
+  const [minIp, setMinIp] = useState(getDefaultMinIp(2026));
   const [data, setData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -28,7 +37,7 @@ const Leaderboard = () => {
     };
   };
 
-  const fetchLeaderboard = async (type, yr, lg) => {
+  const fetchLeaderboard = async (type, yr, lg, pa, ip) => {
     setIsLoading(true);
     setError(null);
     setData(null);
@@ -39,7 +48,7 @@ const Leaderboard = () => {
         season: yr,
         league: lg,
         metric_order: isBatting ? 'ops' : 'era',
-        ...(isBatting ? { min_pa: getMinPa(yr) } : { min_ip: getMinIp(yr) }),
+        ...(isBatting ? { min_pa: pa } : { min_ip: ip }),
       });
       const res = await fetch(`${BACKEND_URL}/api/v1/leaderboards/${type}?${params}`, { headers });
       if (!res.ok) throw new Error(`API error: ${res.status}`);
@@ -52,9 +61,15 @@ const Leaderboard = () => {
     }
   };
 
+  const handleSeasonChange = (yr) => {
+    setSeason(yr);
+    setMinPa(getDefaultMinPa(yr));
+    setMinIp(getDefaultMinIp(yr));
+  };
+
   useEffect(() => {
-    fetchLeaderboard(tab, season, league);
-  }, [tab, season, league]);
+    fetchLeaderboard(tab, season, league, minPa, minIp);
+  }, [tab, season, league, minPa, minIp]);
 
   const category = {
     id: tab === 'batting' ? 'batting_leaderboard' : 'pitching_leaderboard',
@@ -98,7 +113,7 @@ const Leaderboard = () => {
 
         <select
           value={season}
-          onChange={(e) => setSeason(Number(e.target.value))}
+          onChange={(e) => handleSeasonChange(Number(e.target.value))}
           style={{
             background: "var(--bg-1)", color: "var(--ink-1)",
             border: "1px solid var(--rule)", fontSize: 11,
@@ -119,6 +134,35 @@ const Leaderboard = () => {
           </button>
         ))}
       </div>
+
+      {/* Row 3: PA / IP slider */}
+      {tab === 'batting' ? (() => {
+        const { min, max, step } = getPaRange(season);
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 10, fontFamily: "var(--ff-mono)", color: "var(--ink-4)", whiteSpace: "nowrap" }}>Min PA</span>
+            <input
+              type="range" min={min} max={max} step={step} value={minPa}
+              onChange={(e) => setMinPa(Number(e.target.value))}
+              style={{ width: 140, accentColor: "var(--amber)", cursor: "pointer" }}
+            />
+            <span style={{ fontSize: 10, fontFamily: "var(--ff-mono)", color: "var(--ink-1)", minWidth: 28 }}>{minPa}</span>
+          </div>
+        );
+      })() : (() => {
+        const { min, max, step } = getIpRange(season);
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 10, fontFamily: "var(--ff-mono)", color: "var(--ink-4)", whiteSpace: "nowrap" }}>Min IP</span>
+            <input
+              type="range" min={min} max={max} step={step} value={minIp}
+              onChange={(e) => setMinIp(Number(e.target.value))}
+              style={{ width: 140, accentColor: "var(--amber)", cursor: "pointer" }}
+            />
+            <span style={{ fontSize: 10, fontFamily: "var(--ff-mono)", color: "var(--ink-1)", minWidth: 28 }}>{minIp}</span>
+          </div>
+        );
+      })()}
 
       {/* Table */}
       <LeaderboardTable

@@ -220,7 +220,7 @@ class PlayerPitchingSeasonStats(BaseModel):
     hbp: Optional[int] = Field(None, description="被死球数")  # Hit By Pitch
     whip: Optional[float] = Field(None, description="WHIP", ge=0.0)  # WHIPは0以上の値
     era: Optional[float] = Field(None, description="防御率", ge=0.0)  # 防御率も0以上の値
-    fip: Optional[float] = Field(None, description="FIP: 投手の守備力や運に依存しない、純粋な投手力（奪三振、与四死球、被本塁打など）を評価するための指標 ", ge=0.0)  # FIPも0以上の値
+    fip: Optional[float] = Field(None, description="FIP: 投手の守備力や運に依存しない、純粋な投手力（奪三振、与四死球、被本塁打など）を評価するための指標 ")
     k_9: Optional[float] = Field(None, description="9イニングあたりの三振数", ge=0.0)  # 9イニングあたりの三振数も0以上の値
     bb_9: Optional[float] = Field(None, description="9イニングあたりの与四球数", ge=0.0)  # 9イニングあたりの与四球数も0以上の値
     k_bb: Optional[float] = Field(None, description="三振と四球の比率", ge=0.0)  # 三振と四球の比率も0以上の値
@@ -593,6 +593,7 @@ class QnARequest(BaseModel):
     query: str
     season: Optional[int] = None
     session_id: Optional[str] = None  # 会話履歴用のセッションID
+    output_format: Optional[str] = None  # "table" | "text" | None（ユーザーが選択した表示形式）
 
 
 # ============================================================

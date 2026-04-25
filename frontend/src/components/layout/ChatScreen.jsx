@@ -108,6 +108,7 @@ const ChatScreen = ({
   // message list
   messages, feedbackState, activeFeedbackForm, feedbackFormData,
   setFeedbackFormData, setActiveFeedbackForm, handleFeedback,
+  handleFormatSelect,
   messagesEndRef, formatTime, user,
   // input
   inputMessage, setInputMessage, handleKeyDown, isLoading,
@@ -131,6 +132,7 @@ const ChatScreen = ({
           setFeedbackFormData={setFeedbackFormData}
           setActiveFeedbackForm={setActiveFeedbackForm}
           handleFeedback={handleFeedback}
+          handleFormatSelect={handleFormatSelect}
           messagesEndRef={messagesEndRef}
           formatTime={formatTime}
           user={user}

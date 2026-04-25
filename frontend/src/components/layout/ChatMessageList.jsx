@@ -141,6 +141,74 @@ const FeedbackRow = ({
 };
 
 // ============================================================
+// Clarification message (表示形式を選択させるボットメッセージ)
+// ============================================================
+const ClarificationMessage = ({ message, onSelect, formatTime }) => (
+  <div style={{ padding: "20px 28px", background: "var(--bg-0)" }} className="rule-b">
+    <div style={{ display: "flex", gap: 14 }}>
+      {/* Avatar */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 56, flexShrink: 0 }}>
+        <DLMark size={26}/>
+        <span className="h-label" style={{ fontSize: 8, color: "var(--amber)" }}>DL·AI</span>
+      </div>
+
+      {/* Content */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          <span style={{
+            fontSize: 12.5, color: "var(--ink-0)", fontWeight: 600,
+            fontFamily: "var(--ff-head)", letterSpacing: "0.04em",
+          }}>DIAMOND LENS</span>
+          <span className="t-mono" style={{ fontSize: 10, color: "var(--ink-4)" }}>
+            {formatTime(message.timestamp)}
+          </span>
+        </div>
+
+        {message.resolved ? (
+          <div className="t-mono" style={{ fontSize: 11.5, color: "var(--ink-3)" }}>
+            {message.selectedFormat === 'table' ? 'A. テーブル' : 'B. テキスト'} を選択しました
+          </div>
+        ) : (
+          <>
+            <div style={{ fontSize: 13.5, color: "var(--ink-1)", lineHeight: 1.65, marginBottom: 14 }}>
+              表示形式はどうしますか？
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={() => onSelect(message.id, message.pendingQuery, 'table')}
+                style={{
+                  fontSize: 11.5, padding: "6px 18px",
+                  border: "1px solid var(--amber)",
+                  color: "var(--amber)",
+                  fontFamily: "var(--ff-mono)",
+                  letterSpacing: "0.06em",
+                  transition: "background .12s",
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = "oklch(from var(--amber) l c h / 0.1)"}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+              >A. テーブル</button>
+              <button
+                onClick={() => onSelect(message.id, message.pendingQuery, 'text')}
+                style={{
+                  fontSize: 11.5, padding: "6px 18px",
+                  border: "1px solid var(--rule-hi)",
+                  color: "var(--ink-2)",
+                  fontFamily: "var(--ff-mono)",
+                  letterSpacing: "0.06em",
+                  transition: "background .12s",
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = "var(--bg-2)"}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+              >B. テキスト</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  </div>
+);
+
+// ============================================================
 // Bot message
 // ============================================================
 const BotMessage = ({
@@ -237,7 +305,7 @@ const BotMessage = ({
           )}
 
           {/* Main text */}
-          {!message.isStrategyReport && message.content && (
+          {!message.isStrategyReport && !message.isTable && !message.isChart && message.content && (
             <div style={{ fontSize: 13.5, color: "var(--ink-1)", lineHeight: 1.65, marginBottom: 14, whiteSpace: "pre-wrap" }}>
               {message.content}
             </div>
@@ -321,15 +389,27 @@ const ChatMessageList = ({
   setFeedbackFormData,
   setActiveFeedbackForm,
   handleFeedback,
+  handleFormatSelect,
   messagesEndRef,
   formatTime,
   user,
 }) => (
   <div style={{ paddingBottom: 8 }}>
-    {messages.map(message =>
-      message.type === 'user' ? (
-        <UserMessage key={message.id} message={message} formatTime={formatTime} user={user}/>
-      ) : (
+    {messages.map(message => {
+      if (message.type === 'user') {
+        return <UserMessage key={message.id} message={message} formatTime={formatTime} user={user}/>;
+      }
+      if (message.type === 'clarification') {
+        return (
+          <ClarificationMessage
+            key={message.id}
+            message={message}
+            onSelect={handleFormatSelect}
+            formatTime={formatTime}
+          />
+        );
+      }
+      return (
         <BotMessage
           key={message.id}
           message={message}
@@ -341,8 +421,8 @@ const ChatMessageList = ({
           handleFeedback={handleFeedback}
           formatTime={formatTime}
         />
-      )
-    )}
+      );
+    })}
     <div ref={messagesEndRef}/>
   </div>
 );
