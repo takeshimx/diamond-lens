@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ChevronDown, ChevronUp, Brain, Wrench, CheckCircle, Circle, Clock } from 'lucide-react';
 
 const AgentReasoningTracker = ({
@@ -7,6 +7,15 @@ const AgentReasoningTracker = ({
     isCollapsible = false
 }) => {
     const [isExpanded, setIsExpanded] = useState(true);
+    const wasStreamingRef = useRef(isStreaming);
+
+    // ストリーミング完了時に自動で折りたたむ
+    useEffect(() => {
+        if (wasStreamingRef.current && !isStreaming) {
+            setIsExpanded(false);
+        }
+        wasStreamingRef.current = isStreaming;
+    }, [isStreaming]);
 
     if (!steps || steps.length === 0) return null;
 

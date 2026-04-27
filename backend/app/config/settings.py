@@ -118,6 +118,22 @@ class Settings(BaseSettings):
     bigquery_max_results: int = 10000
 
     # ============================================================
+    # シャドー評価ハーネス設定
+    # ============================================================
+    # 全体ON/OFF。False の場合、いかなる shadow 実行も発火しない。
+    shadow_eval_enabled: bool = False
+    # サンプリング率（0.0〜1.0）。0.2 なら 20% のリクエストで shadow が走る。
+    shadow_eval_sample_rate: float = 0.2
+    # shadow 単独タイムアウト（秒）。暴走 shadow がリソースを食い潰すのを防ぐ。
+    shadow_eval_timeout_sec: float = 30.0
+    # ペア比較ログを保存する BigQuery テーブルID
+    bigquery_shadow_comparisons_table_id: str = "shadow_comparisons"
+    # query_type 別サンプリング率を JSON 文字列で指定する場合に使用
+    # 例: '{"batting": 0.3, "pitching": 0.1}'
+    # None の場合は shadow_eval_sample_rate が一律適用される
+    shadow_eval_per_type_rates: Optional[str] = None
+
+    # ============================================================
     # ML Monitoring 設定
     # ============================================================
     ml_drift_monitoring_table_id: str = "ml_drift_monitoring_logs"

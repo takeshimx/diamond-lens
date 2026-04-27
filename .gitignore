@@ -65,7 +65,7 @@ backend/app/services/rag_service.py
 backend/scripts/index_knowledge_base.py
 
 # SQL Drafts and Memos
-backend/sql_memo/
+backend/sql/
 
 # temporaliy hidden files
 backend/app/api/schemas_experimental
@@ -80,3 +80,5 @@ CLAUDE.md
 queries/
 
 design/
+
+analysis/rebuild_dim_players.ipynb

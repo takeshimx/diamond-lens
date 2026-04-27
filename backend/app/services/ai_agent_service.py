@@ -2,8 +2,10 @@ import os
 import json
 import logging
 import time
+import asyncio
+import random
 from datetime import datetime, timezone
-from typing import Annotated, TypedDict, List, Dict, Any, Union, Optional, AsyncGenerator
+from typing import Annotated, TypedDict, List, Dict, Any, Union, Optional, AsyncGenerator, Callable, Awaitable
 from operator import add
 import pandas as pd
 from .simple_chart_service import enhance_response_with_simple_chart
@@ -24,7 +26,244 @@ from .cache_service import StatsCache
 from backend.app.core.exceptions import PromptInjectionError
 from .security_guardrail import get_security_guardrail
 
+from backend.app.config.settings import get_settings
+from backend.app.config.prompt_registry import get_prompt_version, has_shadow
+from .shadow_logger_service import ShadowComparisonEntry, get_shadow_logger
+
 logger = get_logger("ai-agent")
+_shadow_settings = get_settings()
+
+
+# ============================================================
+# シャドー評価ハーネス
+# ============================================================
+# Active 版でユーザーに応答しつつ、確率的に Shadow 版を fire-and-forget で並走させ、
+# ペア比較ログを shadow_comparisons テーブルに記録する。
+#
+# 鉄則:
+#   - Shadow の例外・タイムアウトは絶対に本番フローに伝播させない
+#   - Shadow が遅くてもユーザー応答は active 完了時点で即返却
+#   - サンプリング率 0 / shadow 未設定 / 機能 OFF 時はオーバーヘッド最小
+# ============================================================
+
+
+def _should_run_shadow(prompt_name: str, query_type: Optional[str]) -> bool:
+    """
+    このリクエストでシャドー評価を発火するか判定する。
+
+    判定順:
+      1. グローバル ON/OFF (shadow_eval_enabled)
+      2. プロンプト固有の shadow バージョンが設定されているか
+      3. query_type 別レート（あれば）またはデフォルトレートでのサンプリング
+    """
+    if not _shadow_settings.shadow_eval_enabled:
+        return False
+    if not has_shadow(prompt_name):
+        return False
+
+    rate = _shadow_settings.shadow_eval_sample_rate
+    if _shadow_settings.shadow_eval_per_type_rates and query_type:
+        try:
+            per_type = json.loads(_shadow_settings.shadow_eval_per_type_rates)
+            rate = per_type.get(query_type, rate)
+        except (json.JSONDecodeError, TypeError):
+            # 設定不備でもメインフローは止めない
+            pass
+
+    return random.random() < rate
+
+
+def _compare_outputs(active: Any, shadow: Any) -> bool:
+    """
+    Phase 1: 単純な等価比較（JSON文字列正規化後の一致）。
+    Phase 3 以降で意味的一致（埋め込みコサイン類似度等）に拡張可能。
+    """
+    try:
+        return (
+            json.dumps(active, sort_keys=True, ensure_ascii=False, default=str)
+            == json.dumps(shadow, sort_keys=True, ensure_ascii=False, default=str)
+        )
+    except (TypeError, ValueError):
+        return active == shadow
+
+
+async def run_with_shadow(
+    *,
+    prompt_name: str,
+    user_query: str,
+    request_id: str,
+    query_type: Optional[str],
+    session_id: Optional[str],
+    user_id: Optional[str],
+    active_executor: Callable[[str], Awaitable[Any]],
+    shadow_executor: Callable[[str], Awaitable[Any]],
+) -> Any:
+    """
+    Active 版を実行してユーザーに返す結果を取得し、
+    確率的に Shadow 版を fire-and-forget で並走させる。
+
+    Args:
+        prompt_name: 評価対象のプロンプト名（"parse_query" 等）
+        user_query: ユーザー入力
+        request_id: llm_interaction_logs と紐付けるためのID
+        query_type: "batting" / "pitching" 等。サンプリング率分岐に使用（None 可）
+        session_id, user_id: ログ用メタ
+        active_executor: active 版で実行する非同期関数（version文字列を引数に取る）
+        shadow_executor: shadow 版で実行する非同期関数（同上）
+
+    Returns:
+        active_executor の戻り値（ユーザーに返す結果）
+
+    Note:
+        - active_executor の例外はそのまま呼び出し元に伝播する（本番フロー扱い）
+        - shadow_executor の例外は内部で握り潰し、ログのみ残す
+    """
+    active_version = get_prompt_version(prompt_name, role="active") or "unknown"
+
+    # 1. Active 実行（ユーザーに返す本流）
+    t0 = time.perf_counter()
+    active_result = await active_executor(active_version)
+    active_latency_ms = (time.perf_counter() - t0) * 1000.0
+
+    # 2. Shadow 実行を判定（確率的サンプリング）
+    if _should_run_shadow(prompt_name, query_type):
+        shadow_version = get_prompt_version(prompt_name, role="shadow") or "unknown"
+        # fire-and-forget: ユーザー応答は待たない
+        asyncio.create_task(
+            _run_shadow(
+                prompt_name=prompt_name,
+                user_query=user_query,
+                request_id=request_id,
+                session_id=session_id,
+                user_id=user_id,
+                query_type=query_type,
+                active_version=active_version,
+                active_result=active_result,
+                active_latency_ms=active_latency_ms,
+                shadow_version=shadow_version,
+                shadow_executor=shadow_executor,
+            )
+        )
+
+    return active_result
+
+
+async def _run_shadow(
+    *,
+    prompt_name: str,
+    user_query: str,
+    request_id: str,
+    session_id: Optional[str],
+    user_id: Optional[str],
+    query_type: Optional[str],
+    active_version: str,
+    active_result: Any,
+    active_latency_ms: float,
+    shadow_version: str,
+    shadow_executor: Callable[[str], Awaitable[Any]],
+) -> None:
+    """
+    Shadow 版を実行し、active 版とのペアを BQ に書き込む。
+    例外は内部で握り潰し、本番フローには絶対に伝播させない。
+    """
+    entry = ShadowComparisonEntry()
+    entry.request_id = request_id
+    entry.session_id = session_id
+    entry.user_id = user_id
+    entry.user_query = user_query
+    entry.query_type = query_type
+    entry.prompt_name = prompt_name
+    entry.active_version = active_version
+    entry.active_output = active_result
+    entry.active_latency_ms = active_latency_ms
+    entry.shadow_version = shadow_version
+
+    try:
+        t0 = time.perf_counter()
+        # タイムアウト保護: shadow が暴走しても本番リソースを食い潰さない
+        shadow_result = await asyncio.wait_for(
+            shadow_executor(shadow_version),
+            timeout=_shadow_settings.shadow_eval_timeout_sec,
+        )
+        entry.shadow_latency_ms = (time.perf_counter() - t0) * 1000.0
+        entry.shadow_output = shadow_result
+        entry.outputs_match = _compare_outputs(active_result, shadow_result)
+
+    except asyncio.TimeoutError:
+        entry.shadow_error = f"timeout after {_shadow_settings.shadow_eval_timeout_sec}s"
+        logger.warning(
+            f"Shadow execution timed out: prompt={prompt_name} request_id={request_id}"
+        )
+    except Exception as e:
+        entry.shadow_error = f"{type(e).__name__}: {str(e)}"
+        logger.warning(
+            f"Shadow execution failed: prompt={prompt_name} request_id={request_id} error={e}"
+        )
+
+    # 結果（成功/失敗いずれも）を BQ に記録
+    try:
+        get_shadow_logger().log(entry)
+    except Exception as e:
+        # ロギング自体が失敗しても本番フローに伝播させない
+        logger.error(f"Shadow logging failed (suppressed): {e}")
+
+
+async def _shadow_routing(
+    *,
+    query: str,
+    request_id: str,
+    session_id: Optional[str],
+    user_id: Optional[str],
+    active_result: str,
+    active_latency_ms: float,
+) -> None:
+    """
+    routing プロンプトのシャドー評価専用。fire-and-forget で起動される。
+    active 側の SupervisorAgent.route_query は呼び出し側で同期実行済みのため、
+    ここでは shadow 側のみを別スレッドで走らせて BQ に記録する。
+
+    本関数の例外は絶対に呼び出し元に伝播させない（fire-and-forget の鉄則）。
+    """
+    try:
+        from .agents.supervisor_agent import SupervisorAgent
+
+        active_version = get_prompt_version("routing", role="active") or "unknown"
+        shadow_version = get_prompt_version("routing", role="shadow") or "unknown"
+
+        entry = ShadowComparisonEntry()
+        entry.request_id = request_id
+        entry.session_id = session_id
+        entry.user_id = user_id
+        entry.user_query = query
+        entry.prompt_name = "routing"
+        entry.active_version = active_version
+        entry.active_output = active_result
+        entry.active_latency_ms = active_latency_ms
+        entry.shadow_version = shadow_version
+
+        try:
+            supervisor = SupervisorAgent()
+            t0 = time.perf_counter()
+            shadow_result = await asyncio.wait_for(
+                asyncio.to_thread(supervisor.route_query, query, "shadow"),
+                timeout=_shadow_settings.shadow_eval_timeout_sec,
+            )
+            entry.shadow_latency_ms = (time.perf_counter() - t0) * 1000.0
+            entry.shadow_output = shadow_result
+            entry.outputs_match = _compare_outputs(active_result, shadow_result)
+        except asyncio.TimeoutError:
+            entry.shadow_error = f"timeout after {_shadow_settings.shadow_eval_timeout_sec}s"
+        except Exception as e:
+            entry.shadow_error = f"{type(e).__name__}: {str(e)}"
+
+        try:
+            get_shadow_logger().log(entry)
+        except Exception as e:
+            logger.error(f"Shadow logging failed (suppressed): {e}")
+
+    except Exception as e:
+        # この関数の外側で起きた予期しない例外も握り潰す
+        logger.warning(f"Shadow routing task failed entirely (suppressed): {e}")
 
 # ---- 1. Agent State ----
 # LangGraphでは、この辞書が各ノード（工程）間を引き継がれます。
@@ -809,7 +1048,12 @@ def run_mlb_agent(query: str) -> dict:
     return result
 
 
-async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], None]:
+async def run_mlb_agent_stream(
+    query: str,
+    request_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+) -> AsyncGenerator[Dict[str, Any], None]:
     """
     MLB エージェントをストリーミングモードで実行します。
 
@@ -818,6 +1062,9 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
 
     Args:
         query: ユーザーからの質問
+        request_id: llm_interaction_logs と紐付けるID（シャドー評価ログ用）
+        session_id: セッションID（シャドー評価ログ用）
+        user_id: ユーザーID（シャドー評価ログ用）
 
     Yields:
         イベント辞書:
@@ -852,9 +1099,28 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
 
     # Step 2: Route query
     supervisor = SupervisorAgent()
+    _route_t0 = time.perf_counter()
     agent_type = supervisor.route_query(query)
+    _route_latency_ms = (time.perf_counter() - _route_t0) * 1000.0
 
     stream_logger.info(f"Supervisor routed to: {agent_type}", query=query, agent_type=agent_type)
+
+    # Step 2.5: シャドー評価（fire-and-forget。active path には影響しない）
+    if request_id and _should_run_shadow("routing", None):
+        try:
+            asyncio.create_task(
+                _shadow_routing(
+                    query=query,
+                    request_id=request_id,
+                    session_id=session_id,
+                    user_id=user_id,
+                    active_result=agent_type,
+                    active_latency_ms=_route_latency_ms,
+                )
+            )
+        except Exception as e:
+            # create_task 自体が失敗しても本番フローには影響させない
+            stream_logger.warning(f"Failed to schedule shadow routing (suppressed): {e}")
 
     yield {
         "type": "routing",
@@ -1045,7 +1311,7 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
                 accumulated_llm_ms += (time.time() - llm_start_time) * 1000
                 llm_start_time = None
 
-        # LLMトークンストリーミング（synthesizerノードのみ蓄積）
+        # LLMトークンストリーミング
         elif event_type == "on_chat_model_stream":
             chunk = event.get("data", {}).get("chunk", {})
             raw_content = getattr(chunk, "content", "")
@@ -1058,8 +1324,11 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
             else:
                 content = raw_content or ""
             if content:
-                if current_node == "synthesizer":
-                    accumulated_answer += content  # synthesizerトークンのみ蓄積
+                # synthesizer 由来のトークンを蓄積。
+                # 注意: current_node が "synthesizer" にならないバージョン差もあるため、
+                # executor/oracle 等 "ツール選択フェーズ" でない時のトークンを広く拾う。
+                if current_node in ("synthesizer", "strategist", "aggregator", ""):
+                    accumulated_answer += content
                 yield {
                     "type": "token",
                     "content": content,
@@ -1069,19 +1338,30 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
         # ノード終了イベント
         elif event_type == "on_chain_end":
             node_name = event.get("name", "")
+            node_output = (
+                event.get("data", {}).get("output") or
+                event.get("output") or
+                {}
+            )
+
+            # final_answer を含む on_chain_end は無条件で捕捉する。
+            # LangGraph のバージョン差で "synthesizer" 名のイベントが取れない場合や、
+            # graph 全体の on_chain_end ("LangGraph" 等) として最終 state が来る場合に備える。
+            if isinstance(node_output, dict) and "final_answer" in node_output:
+                # 既に非空の final_answer がある場合は上書きしない（最初に確定したもの優先）
+                if (
+                    not synthesizer_final_state.get("final_answer")
+                    or node_output.get("final_answer")
+                ):
+                    synthesizer_final_state.update(node_output)
+                    stream_logger.info(
+                        f"Captured final state from on_chain_end: name={node_name}, "
+                        f"answer_len={len(node_output.get('final_answer') or '')}, "
+                        f"isTable={node_output.get('isTable')}"
+                    )
+
             if node_name in ["oracle", "executor", "synthesizer", "reflection",
                              "planner", "parallel_executor", "aggregator", "strategist"]:
-                # synthesizerの出力を捕捉（isTable/tableDataを含む）
-                if node_name == "synthesizer":
-                    # v2イベントは output または data 直下に入る場合がある
-                    node_output = (
-                        event.get("data", {}).get("output") or
-                        event.get("output") or
-                        {}
-                    )
-                    if isinstance(node_output, dict) and node_output:
-                        synthesizer_final_state.update(node_output)
-                        stream_logger.info(f"Captured synthesizer state: isTable={node_output.get('isTable')}, decimalColumns={node_output.get('decimalColumns')}")
                 yield {
                     "type": "state_update",
                     "node": node_name,
@@ -1091,66 +1371,58 @@ async def run_mlb_agent_stream(query: str) -> AsyncGenerator[Dict[str, Any], Non
                     "step_type": "node_end"
                 }
 
-    # 最終状態を取得: synthesizerの出力を優先
-    if synthesizer_final_state:
-        stream_logger.info("Using synthesizer final state for final_answer")
-        yield {
-            "type": "final_answer",
-            "answer": synthesizer_final_state.get("final_answer", accumulated_answer),
-            "isTable": synthesizer_final_state.get("isTable", False),
-            "tableData": synthesizer_final_state.get("tableData"),
-            "columns": synthesizer_final_state.get("columns"),
-            "isTransposed": synthesizer_final_state.get("isTransposed", False),
-            "decimalColumns": synthesizer_final_state.get("decimalColumns", []),
-            "isChart": synthesizer_final_state.get("isChart", False),
-            "chartType": synthesizer_final_state.get("chartType"),
-            "chartData": synthesizer_final_state.get("chartData"),
-            "chartConfig": synthesizer_final_state.get("chartConfig"),
-            "isMatchupCard": synthesizer_final_state.get("isMatchupCard", False),
-            "matchupData": synthesizer_final_state.get("matchupData"),
-            "isStrategyReport": agent_type == "strategy",
-            "strategyData": synthesizer_final_state.get("strategyData"),
-            "llm_latency_ms": accumulated_llm_ms,
-        }
-    elif accumulated_answer:
-        stream_logger.info("Accumulated answer available, sending final_answer")
-        yield {
-            "type": "final_answer",
-            "answer": accumulated_answer,
-            "isTable": False,
-            "tableData": None,
-            "columns": None,
-            "isTransposed": False,
-            "isChart": False,
-            "chartType": None,
-            "chartData": None,
-            "chartConfig": None,
-            "isMatchupCard": False,
-            "matchupData": None,
-            "isStrategyReport": agent_type == "strategy",
-            "strategyData": None,
-            "llm_latency_ms": accumulated_llm_ms,
-        }
-    else:
-        stream_logger.info("No accumulated answer, running agent.run() to get final result")
-        final_result = agent.run(query)
-        yield {
-            "type": "final_answer",
-            "answer": final_result.get("final_answer", ""),
-            "isTable": final_result.get("isTable", False),
-            "tableData": final_result.get("tableData"),
-            "columns": final_result.get("columns"),
-            "isTransposed": final_result.get("isTransposed", False),
-            "isChart": final_result.get("isChart", False),
-            "chartType": final_result.get("chartType"),
-            "chartData": final_result.get("chartData"),
-            "chartConfig": final_result.get("chartConfig"),
-            "isMatchupCard": final_result.get("isMatchupCard", False),
-            "matchupData": final_result.get("matchupData"),
-            "isStrategyReport": final_result.get("isStrategyReport", False),
-            "strategyData": final_result.get("strategyData", None),
-            "llm_latency_ms": accumulated_llm_ms,
-        }
+    # 最終応答テキストの確定:
+    # 1) synthesizer_final_state["final_answer"] が非空ならそれを使う
+    # 2) なければ accumulated_answer
+    # 3) どちらも空 かつ table/chart も無ければ agent.run() で再取得
+    final_answer_text = (
+        (synthesizer_final_state.get("final_answer") or "").strip()
+        or (accumulated_answer or "").strip()
+    )
+    has_structured = bool(
+        synthesizer_final_state.get("isTable")
+        or synthesizer_final_state.get("isChart")
+        or synthesizer_final_state.get("isMatchupCard")
+    )
+
+    if not final_answer_text and not has_structured:
+        stream_logger.info(
+            "No final_answer captured from stream events, running agent.run() to recover"
+        )
+        try:
+            final_result = agent.run(query)
+        except Exception as e:
+            stream_logger.error(f"agent.run() recovery failed: {e}")
+            final_result = {}
+        # synthesizer_final_state を上書きしないようにマージ
+        for k, v in final_result.items():
+            synthesizer_final_state.setdefault(k, v)
+        final_answer_text = (final_result.get("final_answer") or "").strip()
+
+    stream_logger.info(
+        f"Final answer resolved: len={len(final_answer_text)}, "
+        f"has_structured={has_structured}, source="
+        f"{'synthesizer' if synthesizer_final_state.get('final_answer') else 'accumulated'}"
+    )
+
+    yield {
+        "type": "final_answer",
+        "answer": final_answer_text,
+        "isTable": synthesizer_final_state.get("isTable", False),
+        "tableData": synthesizer_final_state.get("tableData"),
+        "columns": synthesizer_final_state.get("columns"),
+        "isTransposed": synthesizer_final_state.get("isTransposed", False),
+        "decimalColumns": synthesizer_final_state.get("decimalColumns", []),
+        "isChart": synthesizer_final_state.get("isChart", False),
+        "chartType": synthesizer_final_state.get("chartType"),
+        "chartData": synthesizer_final_state.get("chartData"),
+        "chartConfig": synthesizer_final_state.get("chartConfig"),
+        "isMatchupCard": synthesizer_final_state.get("isMatchupCard", False),
+        "matchupData": synthesizer_final_state.get("matchupData"),
+        "isStrategyReport": agent_type == "strategy",
+        "strategyData": synthesizer_final_state.get("strategyData"),
+        "llm_latency_ms": accumulated_llm_ms,
+    }
 
     stream_logger.info(f"✅ Stream execution completed", agent_type=agent_type)
 

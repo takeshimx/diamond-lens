@@ -61,6 +61,22 @@ class LLMLogEntry:
         # Synthesizer fields
         self.synthesizer_source_data: Optional[str] = None
     
+    def _resolve_response_answer(self) -> Optional[str]:
+        """
+        BigQuery に書き込む response_answer を決定する。
+
+        テーブル/チャートのみの応答では synthesizer が final_answer="" を返すため、
+        従来は to_dict 時点で None に潰れて BQ に NULL が記録されていた。
+        ここで isTable/isChart を見てプレースホルダを残し、null 化を防ぐ。
+        """
+        if self.response_answer and self.response_answer.strip():
+            return self.response_answer[:1000]
+        if self.response_has_table:
+            return "[TABLE_RESPONSE]"
+        if self.response_has_chart:
+            return "[CHART_RESPONSE]"
+        return None
+
     def to_dict(self) -> Dict[str, Any]:
         """BigQuery INSERT 用の辞書に変換"""
         return {
@@ -78,8 +94,9 @@ class LLMLogEntry:
             "parsed_player_name": self.parsed_player_name,
             "parsed_season": self.parsed_season,
             "routing_result": self.routing_result,
-            # 回答テキストは長くなりすぎないよう先頭500文字に制限
-            "response_answer": self.response_answer[:1000] if self.response_answer else None,
+            # 回答テキストは長くなりすぎないよう先頭1000文字に制限。
+            # テーブル/チャートのみの応答は placeholder で記録（null 化防止）。
+            "response_answer": self._resolve_response_answer(),
             "response_has_table": self.response_has_table,
             "response_has_chart": self.response_has_chart,
             "success": self.success,

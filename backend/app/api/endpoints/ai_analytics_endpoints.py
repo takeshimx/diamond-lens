@@ -511,6 +511,10 @@ async def get_agentic_stats_stream_endpoint(
 
     async def event_generator() -> AsyncGenerator[Dict[str, Any], None]:
         """SSEイベントを生成する非同期ジェネレーター"""
+        # エンドポイントレベルで全トークンを蓄積。
+        # run_mlb_agent_stream の synthesizer 捕捉ロジックが取りこぼした場合の
+        # 最終フォールバックとして使用する。
+        endpoint_accumulated_answer = ""
         try:
             # Session start event
             yield {
@@ -528,9 +532,25 @@ async def get_agentic_stats_stream_endpoint(
             # Execute LangGraph streaming
             from backend.app.services.ai_agent_service import run_mlb_agent_stream
 
-            async for event in run_mlb_agent_stream(resolved_query):
-                if event.get("type") == "final_answer":
-                    log_entry.response_answer = event.get("answer", "")
+            async for event in run_mlb_agent_stream(
+                resolved_query,
+                request_id=log_entry.request_id,
+                session_id=session_id,
+                user_id=log_entry.user_id,
+            ):
+                event_type = event.get("type")
+                # トークンを無条件で蓄積（current_node 等のフィルタは介在しない）
+                if event_type == "token":
+                    content = event.get("content")
+                    if content:
+                        endpoint_accumulated_answer += content
+                if event_type == "final_answer":
+                    # event["answer"] が None/"" の場合、エンドポイント蓄積にフォールバック
+                    log_entry.response_answer = (
+                        event.get("answer")
+                        or endpoint_accumulated_answer
+                        or ""
+                    )
                     log_entry.response_has_table = event.get("isTable", False)
                     log_entry.response_has_chart = event.get("isChart", False)
                     log_entry.llm_latency_ms = event.get("llm_latency_ms")
@@ -541,6 +561,14 @@ async def get_agentic_stats_stream_endpoint(
                 "type": "stream_end",
                 "message": "処理が完了しました"
             }
+
+            # 最終フォールバック: final_answer イベント自体が来なかった/空だった場合
+            if not log_entry.response_answer and endpoint_accumulated_answer:
+                log_entry.response_answer = endpoint_accumulated_answer
+                logger.warning(
+                    f"final_answer event missing/empty; recovered from endpoint token "
+                    f"accumulation (len={len(endpoint_accumulated_answer)})"
+                )
 
             log_entry.total_latency_ms = (time.time() - stream_start_time) * 1000
             llm_logger.log(log_entry)

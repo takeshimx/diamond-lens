@@ -12,6 +12,7 @@ An AI-powered analytics interface for exploring Major League Baseball statistics
 - **⚙️ Custom Query Builder**: Advanced analytics with custom situational filters
 - **🤖 Autonomous Agent Mode (NEW)**: High-performance reasoning agent using LangGraph for multi-step data exploration and professional analysis
 - **🎤 Voice Input**: Microphone-based audio capture (MediaRecorder API) with backend transcription, injected directly into the query field
+- **📊 Table Response Format**: Per-query format selection (table / text); structured responses render as a transposable `DataTable` with automatic decimal-column formatting and grouping support
 
 **Analytics Capabilities**:
 - **Batting Statistics**: Season stats, splits, and advanced Statcast metrics

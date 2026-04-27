@@ -20,19 +20,21 @@ class SupervisorAgent:
         )
     
 
-    def route_query(self, query: str) -> Literal["batter", "pitcher", "stats", "matchup", "strategy"]:
+    def route_query(self, query: str, role: str = "active") -> Literal["batter", "pitcher", "stats", "matchup", "strategy"]:
         """
         Analyze query and route to appropriate agent.
 
         Args:
             query: User's natural language question
+            role: "active"（本番）または "shadow"（シャドー評価用）。
+                  shadow 指定時は SHADOW_VERSIONS["routing"] のプロンプトを使用する。
 
         Returns:
             Agent type: "batter", "pitcher", "stats", or "matchup"
         """
 
-        routing_prompt = get_prompt("routing", query=query)
-        logger.info(f"Using routing prompt version: {get_prompt_version('routing')}")
+        routing_prompt = get_prompt("routing", role=role, query=query)
+        logger.info(f"Using routing prompt version: {get_prompt_version('routing', role=role)} role={role}")
 
         response = self.model.invoke(routing_prompt)
         agent_type = response.content.strip().lower()
