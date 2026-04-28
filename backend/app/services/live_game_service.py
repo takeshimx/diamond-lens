@@ -275,14 +275,50 @@ class LiveGameService:
         return highlights
 
     async def get_boxscore(self, game_pk: int) -> Dict:
-        """終了試合のボックススコア（投手・野手スタッツ）を返す"""
-        url = f"{MLB_BASE}/api/v1/game/{game_pk}/boxscore"
+        """終了試合のボックススコア（投手・野手スタッツ + RISP/LOB）を返す"""
+        url = f"{MLB_BASE}/api/v1.1/game/{game_pk}/feed/live"
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(url)
             resp.raise_for_status()
             data = resp.json()
 
-        teams = data.get("teams", {})
+        live_data = data.get("liveData", {})
+        teams = live_data.get("boxscore", {}).get("teams", {})
+        linescore = live_data.get("linescore", {})
+        all_plays_data = live_data.get("plays", {}).get("allPlays", [])
+
+        non_ab_events = {"walk", "intent_walk", "hit_by_pitch", "sac_fly", "sac_bunt",
+                         "sac_fly_double_play", "sac_bunt_double_play", "catcher_interf"}
+        hit_events = {"single", "double", "triple", "home_run"}
+
+        def _risp(half):
+            h, ab = 0, 0
+            prev_2nd = None
+            prev_3rd = None
+            prev_half = None
+            for pl in all_plays_data:
+                pl_half = pl.get("about", {}).get("halfInning", "")
+                if pl_half != prev_half:
+                    prev_2nd = None
+                    prev_3rd = None
+                    prev_half = pl_half
+                if pl_half == half and (prev_2nd or prev_3rd):
+                    etype = pl.get("result", {}).get("eventType", "")
+                    if pl.get("result", {}).get("type") == "atBat" and etype not in non_ab_events:
+                        ab += 1
+                        if etype in hit_events:
+                            h += 1
+                m = pl.get("matchup", {})
+                prev_2nd = m.get("postOnSecond")
+                prev_3rd = m.get("postOnThird")
+            return {"h": h, "ab": ab}
+
+        risp = {"away": _risp("top"), "home": _risp("bottom")}
+        lob = {
+            "away": linescore.get("teams", {}).get("away", {}).get("leftOnBase", 0),
+            "home": linescore.get("teams", {}).get("home", {}).get("leftOnBase", 0),
+        }
+
         result = {}
         for side in ("away", "home"):
             team_data = teams.get(side, {})
@@ -341,7 +377,13 @@ class LiveGameService:
                     "k": stats.get("strikeOuts", 0),
                 })
 
-            result[side] = {"team": team_name, "pitchers": pitchers, "batters": batters}
+            result[side] = {
+                "team": team_name,
+                "pitchers": pitchers,
+                "batters": batters,
+                "risp": risp[side],
+                "lob": lob[side],
+            }
 
         return result
 
@@ -358,6 +400,8 @@ class LiveGameService:
         teams = game_data.get("teams", {})
         home_team = teams.get("home", {}).get("teamName", "")
         away_team = teams.get("away", {}).get("teamName", "")
+        home_abbr = teams.get("home", {}).get("abbreviation", home_team[:3].upper())
+        away_abbr = teams.get("away", {}).get("abbreviation", away_team[:3].upper())
         # ラインスコア（スコア・イニング・カウント）
         linescore = live_data.get("linescore", {})
         home_score = linescore.get("teams", {}).get("home", {}).get("runs", 0)
@@ -488,10 +532,47 @@ class LiveGameService:
                 "half": half,
                 "season_hr": season_hr,
             })
+        # RISP（得点圏安打/打数）& LOB（残塁）
+        all_plays_data = live_data.get("plays", {}).get("allPlays", [])
+        non_ab_events = {"walk", "intent_walk", "hit_by_pitch", "sac_fly", "sac_bunt",
+                         "sac_fly_double_play", "sac_bunt_double_play", "catcher_interf"}
+        hit_events = {"single", "double", "triple", "home_run"}
+
+        def _team_risp(half):
+            # 前打席の postOnSecond/Third でランナー状態を追跡する
+            h, ab = 0, 0
+            prev_on_2nd = None
+            prev_on_3rd = None
+            prev_half = None
+            for pl in all_plays_data:
+                pl_half = pl.get("about", {}).get("halfInning", "")
+                if pl_half != prev_half:
+                    prev_on_2nd = None
+                    prev_on_3rd = None
+                    prev_half = pl_half
+                if pl_half == half and (prev_on_2nd or prev_on_3rd):
+                    etype = pl.get("result", {}).get("eventType", "")
+                    if pl.get("result", {}).get("type") == "atBat" and etype not in non_ab_events:
+                        ab += 1
+                        if etype in hit_events:
+                            h += 1
+                matchup = pl.get("matchup", {})
+                prev_on_2nd = matchup.get("postOnSecond")
+                prev_on_3rd = matchup.get("postOnThird")
+            return {"h": h, "ab": ab}
+
+        risp = {"away": _team_risp("top"), "home": _team_risp("bottom")}
+        lob = {
+            "away": linescore.get("teams", {}).get("away", {}).get("leftOnBase", 0),
+            "home": linescore.get("teams", {}).get("home", {}).get("leftOnBase", 0),
+        }
+
         return {
             "gamePk": game_pk,
             "home_team": home_team,
             "away_team": away_team,
+            "home_abbr": home_abbr,
+            "away_abbr": away_abbr,
             "home_score": home_score,
             "away_score": away_score,
             "inning": inning,
@@ -510,6 +591,8 @@ class LiveGameService:
             "pitch_sequence": pitch_sequence,
             "pitcher_pitch_log": pitcher_pitch_log,
             "scoring_plays": scoring_plays,
+            "risp": risp,
+            "lob": lob,
             "abstract_game_state": "Live",
         }
 

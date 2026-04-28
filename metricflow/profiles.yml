@@ -1,0 +1,13 @@
+mlb_analytics_dbt_project:
+  target: prod
+  outputs:
+    prod:
+      type: bigquery
+      method: oauth
+      project: "{{ env_var('GCP_PROJECT_ID') }}"
+      dataset: "{{ env_var('BIGQUERY_DATASET') }}"
+      location: asia-northeast1
+      threads: 4
+      timeout_seconds: 300
+      priority: interactive
+      retries: 1

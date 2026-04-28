@@ -37,8 +37,11 @@ rl_models/
 dbt_models/logs
 dbt_models/target
 dbt_models/dbt_packages
-profiles.yml
+dbt_models/profiles.yml
 .user.yml
+
+# metricflow/profiles.yml は env_var() で値を注入するので機密情報なし、コミット可
+!metricflow/profiles.yml
 
 backend/docs/
 docs/

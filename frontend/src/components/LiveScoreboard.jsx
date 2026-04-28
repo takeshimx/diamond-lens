@@ -174,6 +174,24 @@ const BoxscoreModal = ({ game, onClose, getIdToken }) => {
                 </table>
               </div>
 
+              {/* RISP & LOB */}
+              {boxscore[activeTab]?.risp && (
+                <div style={{ display: "flex", gap: 20, marginBottom: 16, fontSize: 11 }}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <span className="h-label" style={{ fontSize: 8, color: "var(--ink-4)" }}>RISP</span>
+                    <span className="t-mono" style={{ color: "var(--ink-1)" }}>
+                      {boxscore[activeTab].risp.h}-{boxscore[activeTab].risp.ab}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <span className="h-label" style={{ fontSize: 8, color: "var(--ink-4)" }}>LOB</span>
+                    <span className="t-mono" style={{ color: "var(--ink-1)" }}>
+                      {boxscore[activeTab].lob}
+                    </span>
+                  </div>
+                </div>
+              )}
+
               {/* Batters */}
               <div className="h-label" style={{ fontSize: 9, color: "var(--ink-3)", marginBottom: 8 }}>BATTERS</div>
               <div style={{ overflowX: "auto" }}>
@@ -324,6 +342,32 @@ const GameCard = ({ game }) => {
               </span>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* RISP & LOB */}
+      {game.risp && game.lob && (
+        <div style={{ display: "flex", gap: 20, fontSize: 10 }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <span className="h-label" style={{ fontSize: 8, color: "var(--ink-4)" }}>RISP</span>
+            <span className="t-mono" style={{ color: "var(--ink-2)" }}>
+              {game.away_abbr} {game.risp.away.h}-{game.risp.away.ab}
+            </span>
+            <span style={{ color: "var(--ink-4)" }}>/</span>
+            <span className="t-mono" style={{ color: "var(--ink-2)" }}>
+              {game.home_abbr} {game.risp.home.h}-{game.risp.home.ab}
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <span className="h-label" style={{ fontSize: 8, color: "var(--ink-4)" }}>LOB</span>
+            <span className="t-mono" style={{ color: "var(--ink-2)" }}>
+              {game.away_abbr} {game.lob.away}
+            </span>
+            <span style={{ color: "var(--ink-4)" }}>/</span>
+            <span className="t-mono" style={{ color: "var(--ink-2)" }}>
+              {game.home_abbr} {game.lob.home}
+            </span>
+          </div>
         </div>
       )}
 
