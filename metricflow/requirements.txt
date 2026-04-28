@@ -1,5 +1,5 @@
 dbt-bigquery
-dbt-semantic-interfaces
-metricflow[bigquery]
+dbt-metricflow
 fastapi
 uvicorn[standard]
+pandas
