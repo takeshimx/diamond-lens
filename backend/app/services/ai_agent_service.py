@@ -533,6 +533,9 @@ def query_semantic_metrics_tool(
         where:   追加のWHERE句リスト（生のMetricFlow構文）
         order_by: ソート対象
         limit:    取得行数上限
+        output_format: "sentence"（デフォルト、文章で返す）または "table"。
+                      ユーザー質問に「表で」「一覧で」「テーブルで」「まとめて」が含まれていれば
+                      "table"、それ以外は "sentence" を渡してください。
     """
     from .semantic_layer_client import query_metric, SemanticLayerError
 
