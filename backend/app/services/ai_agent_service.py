@@ -502,6 +502,76 @@ def mlb_matchup_analytics_tool(batter_name: str, pitcher_name: str):
         logger.error(f"Error in mlb_matchup_analytics_tool: {e}")
         return []
 
+
+@tool
+def query_semantic_metrics_tool(
+    metrics: List[str],
+    mlbid: Optional[int] = None,
+    season: Optional[int] = None,
+    team: Optional[str] = None,
+    group_by: Optional[List[str]] = None,
+    where: Optional[List[str]] = None,
+    order_by: Optional[List[str]] = None,
+    limit: int = 20,
+):
+    """
+    dbt Semantic Layer (MetricFlow Cloud Run) からメトリクスを取得する専門ツール。
+
+    自然言語ではなく構造化引数で呼び出すこと。利用可能なメトリクス例:
+      - 打撃: batting_average, on_base_pct, ops_metric, weighted_on_base_avg, home_runs, walks
+      - 投手: era, whip, strikeout_rate (Phase 1で追加された semantic_model 名に依存)
+
+    Args:
+        metrics: 取得するメトリクス名のリスト（例: ["batting_average", "ops_metric"]）
+        mlbid:   MLB ID（例: 660271 = Ohtani）。指定すると WHERE player__batter = X が付く
+        season:  対象シーズン（例: 2026）
+        team:    チーム略称（例: "LAD"）
+        group_by: 集計次元（例: ["player", "season"]）
+        where:    追加のWHERE句リスト（生のMetricFlow構文）
+        order_by: ソート対象（例: ["-batting_average"]）
+        limit:    取得行数上限
+    """
+    from .semantic_layer_client import query_metric, SemanticLayerError
+
+    where_clauses: list[str] = list(where or [])
+    if mlbid is not None:
+        where_clauses.append(f"player__batter = {int(mlbid)}")
+    if season is not None:
+        where_clauses.append(f"season = {int(season)}")
+    if team:
+        team_safe = str(team).replace("'", "''")
+        where_clauses.append(f"team__team = '{team_safe}'")
+
+    try:
+        result = query_metric(
+            metrics=metrics,
+            group_by=group_by,
+            where=where_clauses,
+            order_by=order_by,
+            limit=limit,
+        )
+    except SemanticLayerError as e:
+        logger.warning(f"Semantic Layer query failed: {e}")
+        return {
+            "answer": f"Semantic Layer 経由のメトリクス取得に失敗しました: {e}",
+            "isTable": False,
+        }
+
+    rows = result.get("rows", [])
+    columns = result.get("columns", [])
+
+    if not rows:
+        return {"answer": "該当するデータが見つかりませんでした。", "isTable": False}
+
+    return {
+        "answer": f"以下は{len(rows)}件の結果です：",
+        "isTable": True,
+        "tableData": rows,
+        "columns": [{"key": c, "label": c.replace("_", " ").title()} for c in columns],
+        "isTransposed": len(rows) == 1,
+    }
+
+
 # ---- 3. Agent Definition ----
 class MLBStatsAgent:
     def __init__(self, model, tools):

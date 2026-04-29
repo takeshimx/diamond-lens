@@ -155,6 +155,12 @@ class Settings(BaseSettings):
     vertex_ai_endpoint_id_batter: Optional[str] = None  # Batter用エンドポイントID
     vertex_ai_endpoint_id_pitcher: Optional[str] = None  # Pitcher用エンドポイントID
 
+    # ============================================================
+    # Semantic Layer (MetricFlow Cloud Run) 設定
+    # ============================================================
+    metricflow_server_url: Optional[str] = Field(default=None, validation_alias='METRICFLOW_SERVER_URL')
+    use_semantic_layer: bool = False  # Phase 4 のカナリアフラグ。True にするとSemantic Layer経路に切替
+
 
     class Config:
         """Pydantic設定"""

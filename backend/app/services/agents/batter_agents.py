@@ -8,6 +8,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, To
 from langgraph.graph import StateGraph, END
 from backend.app.core.exceptions import AgentReasoningError
 from backend.app.utils.structured_logger import get_logger
+from backend.app.config.settings import get_settings
 
 
 logger = get_logger("batter_agent")
@@ -15,10 +16,32 @@ logger = get_logger("batter_agent")
 class BatterAgent:
     def __init__(self, model):
         self.raw_model = model
-        # 呼び出し側(ai_agent_service)で定義される batter 専用ツールをバインド
-        # ※ ツール定義はこの後 ai_agent_service.py で行います
-        from ..ai_agent_service import get_batter_stats_tool
-        self.tools = [get_batter_stats_tool]
+        settings = get_settings()
+        self.use_semantic = bool(settings.use_semantic_layer)
+
+        if self.use_semantic:
+            # Phase 4: Semantic Layer 経路
+            from ..ai_agent_service import query_semantic_metrics_tool
+            from ..semantic_layer_client import get_metric_metadata
+            self.tools = [query_semantic_metrics_tool]
+            self._semantic_tool_name = "query_semantic_metrics_tool"
+            try:
+                self._metric_metadata = get_metric_metadata()
+            except Exception as e:
+                logger.warning(f"Failed to load metric metadata at init: {e}")
+                self._metric_metadata = {"metrics": [], "dimensions": []}
+            logger.info(
+                "BatterAgent initialized with Semantic Layer",
+                metrics=len(self._metric_metadata.get("metrics", [])),
+                dimensions=len(self._metric_metadata.get("dimensions", [])),
+            )
+        else:
+            # 既存パス（query_maps.py 経由）
+            from ..ai_agent_service import get_batter_stats_tool
+            self.tools = [get_batter_stats_tool]
+            self._semantic_tool_name = None
+            self._metric_metadata = None
+
         self.model = self.raw_model.bind_tools(self.tools)
         # build graph
         self.app = self._build_graph()
@@ -113,15 +136,25 @@ class BatterAgent:
         return "oracle"
 
     def oracle_node(self, state):
-        system_prompt = """あなたはMLB打撃データの司令塔です。
+        if self.use_semantic:
+            from backend.app.config.prompt_registry import get_prompt
+            available_metrics = ", ".join(self._metric_metadata.get("metrics", [])) or "(取得不可)"
+            available_dimensions = ", ".join(self._metric_metadata.get("dimensions", [])) or "(取得不可)"
+            system_prompt = get_prompt(
+                "oracle_semantic",
+                available_metrics=available_metrics,
+                available_dimensions=available_dimensions,
+            )
+        else:
+            system_prompt = """あなたはMLB打撃データの司令塔です。
 
 **【絶対ルール】**
 - ユーザーの質問に対して、必ず `get_batter_stats_tool` を呼び出してデータを取得してください。
 - 自分の知識だけで答えることは絶対に禁止です。必ずツールを使ってください。
 - **2025年を含む全シーズンのデータがデータベースに存在します。** 「データがない」と判断せず、必ずツールを呼んでください。
 - ツールを呼ばずに直接回答することは禁止です。"""
-        prompt = [SystemMessage(content=system_prompt)] + state["messages"]
 
+        prompt = [SystemMessage(content=system_prompt)] + state["messages"]
         return {"messages": [self.model.invoke(prompt)]}
     
 
@@ -142,11 +175,16 @@ class BatterAgent:
             tool_name = tool_call["name"]
             logger.info(f"Calling tool: {tool_name}")
 
-            from ..ai_agent_service import get_batter_stats_tool
             args = dict(tool_call["args"])
-            if force_table and tool_name == "get_batter_stats_tool":
-                args["output_format"] = "table"
-            result = get_batter_stats_tool.invoke(args)
+
+            if self.use_semantic and tool_name == "query_semantic_metrics_tool":
+                from ..ai_agent_service import query_semantic_metrics_tool
+                result = query_semantic_metrics_tool.invoke(args)
+            else:
+                from ..ai_agent_service import get_batter_stats_tool
+                if force_table and tool_name == "get_batter_stats_tool":
+                    args["output_format"] = "table"
+                result = get_batter_stats_tool.invoke(args)
 
             # ===== エラー/空結果の検出 =====
             logger.info(f"Tool result type: {type(result).__name__}, preview: {str(result)[:200]}")

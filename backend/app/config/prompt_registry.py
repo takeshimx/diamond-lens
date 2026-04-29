@@ -23,6 +23,7 @@ ACTIVE_VERSIONS: Dict[str, str] = {
     "routing": "v2",
     "strategy_planner": "v1",
     "strategy_synthesizer": "v1",
+    "oracle_semantic": "v1",  # Phase 3: Semantic Layer 用 Oracle プロンプト（Phase 4で実利用）
 }
 
 SHADOW_VERSIONS: Dict[str, Optional[str]] = {
@@ -31,6 +32,7 @@ SHADOW_VERSIONS: Dict[str, Optional[str]] = {
     "routing": "v2",   # active も v2 なので現状は同一プロンプト。テスト用に有効化
     "strategy_planner": None,
     "strategy_synthesizer": None,
+    "oracle_semantic": None,
 }
 
 PromptRole = Literal["active", "shadow"]

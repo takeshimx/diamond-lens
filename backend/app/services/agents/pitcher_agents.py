@@ -8,6 +8,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, To
 from langgraph.graph import StateGraph, END
 from backend.app.core.exceptions import AgentReasoningError
 from backend.app.utils.structured_logger import get_logger
+from backend.app.config.settings import get_settings
 
 
 logger = get_logger("pitcher_agent")
@@ -15,10 +16,30 @@ logger = get_logger("pitcher_agent")
 class PitcherAgent:
     def __init__(self, model):
         self.raw_model = model
-        # 呼び出し側(ai_agent_service)で定義される batter 専用ツールをバインド
-        # ※ ツール定義はこの後 ai_agent_service.py で行います
-        from ..ai_agent_service import get_pitcher_stats_tool
-        self.tools = [get_pitcher_stats_tool]
+        settings = get_settings()
+        self.use_semantic = bool(settings.use_semantic_layer)
+
+        if self.use_semantic:
+            # Phase 4: Semantic Layer 経路
+            from ..ai_agent_service import query_semantic_metrics_tool
+            from ..semantic_layer_client import get_metric_metadata
+            self.tools = [query_semantic_metrics_tool]
+            try:
+                self._metric_metadata = get_metric_metadata()
+            except Exception as e:
+                logger.warning(f"Failed to load metric metadata at init: {e}")
+                self._metric_metadata = {"metrics": [], "dimensions": []}
+            logger.info(
+                "PitcherAgent initialized with Semantic Layer",
+                metrics=len(self._metric_metadata.get("metrics", [])),
+                dimensions=len(self._metric_metadata.get("dimensions", [])),
+            )
+        else:
+            # 既存パス
+            from ..ai_agent_service import get_pitcher_stats_tool
+            self.tools = [get_pitcher_stats_tool]
+            self._metric_metadata = None
+
         self.model = self.raw_model.bind_tools(self.tools)
         # build graph
         self.app = self._build_graph()
@@ -113,7 +134,17 @@ class PitcherAgent:
         return "oracle"
 
     def oracle_node(self, state):
-        system_prompt = """あなたはMLB投球データの専門家です。
+        if self.use_semantic:
+            from backend.app.config.prompt_registry import get_prompt
+            available_metrics = ", ".join(self._metric_metadata.get("metrics", [])) or "(取得不可)"
+            available_dimensions = ", ".join(self._metric_metadata.get("dimensions", [])) or "(取得不可)"
+            system_prompt = get_prompt(
+                "oracle_semantic",
+                available_metrics=available_metrics,
+                available_dimensions=available_dimensions,
+            )
+        else:
+            system_prompt = """あなたはMLB投球データの専門家です。
 
 **【絶対ルール】:**
 - 自分の知識だけで回答することは絶対に禁止です。必ず `get_pitcher_stats_tool` を呼び出してデータを取得してください。
@@ -126,8 +157,8 @@ class PitcherAgent:
 
 例: 「山本由伸の2025年の防御率は？」
 → get_pitcher_stats_tool(query="山本由伸の2025年の防御率は？", season=2025)"""
-        prompt = [SystemMessage(content=system_prompt)] + state["messages"]
 
+        prompt = [SystemMessage(content=system_prompt)] + state["messages"]
         return {"messages": [self.model.invoke(prompt)]}
     
 
@@ -143,8 +174,12 @@ class PitcherAgent:
             tool_name = tool_call["name"]
             logger.info(f"Calling tool: {tool_name}")
 
-            from ..ai_agent_service import get_pitcher_stats_tool
-            result = get_pitcher_stats_tool.invoke(tool_call["args"])
+            if self.use_semantic and tool_name == "query_semantic_metrics_tool":
+                from ..ai_agent_service import query_semantic_metrics_tool
+                result = query_semantic_metrics_tool.invoke(tool_call["args"])
+            else:
+                from ..ai_agent_service import get_pitcher_stats_tool
+                result = get_pitcher_stats_tool.invoke(tool_call["args"])
 
             # ===== エラー/空結果の検出 =====
             logger.info(f"Tool result type: {type(result).__name__}, preview: {str(result)[:200]}")
