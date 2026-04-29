@@ -139,8 +139,8 @@ steps:
       - '--platform'
       - 'managed'
       - '--ingress'
-      - 'internal'                           # 外部公開しない
-      - '--no-allow-unauthenticated'         # SA認証必須
+      - 'all'                                # backendからの公衆インターネット経由Cloud Run間呼び出しを許可（認証で保護）
+      - '--no-allow-unauthenticated'         # SA認証必須（未認証は403）
       - '--service-account'
       - 'mlb-metricflow-sa@${PROJECT_ID}.iam.gserviceaccount.com'
       - '--memory'
