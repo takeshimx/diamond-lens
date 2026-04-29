@@ -179,6 +179,8 @@ class BatterAgent:
 
             if self.use_semantic and tool_name == "query_semantic_metrics_tool":
                 from ..ai_agent_service import query_semantic_metrics_tool
+                if force_table:
+                    args["output_format"] = "table"
                 result = query_semantic_metrics_tool.invoke(args)
             else:
                 from ..ai_agent_service import get_batter_stats_tool

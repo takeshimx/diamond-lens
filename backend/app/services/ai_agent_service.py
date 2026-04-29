@@ -514,6 +514,7 @@ def query_semantic_metrics_tool(
     where: Optional[List[str]] = None,
     order_by: Optional[List[str]] = None,
     limit: int = 20,
+    output_format: str = "sentence",
 ):
     """
     dbt Semantic Layer (MetricFlow Cloud Run) からメトリクスを取得する専門ツール。
@@ -570,12 +571,23 @@ def query_semantic_metrics_tool(
     if not rows:
         return {"answer": "該当するデータが見つかりませんでした。", "isTable": False}
 
+    if output_format == "table":
+        return {
+            "answer": f"以下は{len(rows)}件の結果です：",
+            "isTable": True,
+            "tableData": rows,
+            "columns": [{"key": c, "label": c.replace("_", " ").title()} for c in columns],
+            "isTransposed": len(rows) == 1,
+        }
+
+    # sentence モード: Synthesizer の LLM が文章生成するため、生データを読みやすい
+    # テキストとして渡す（旧 get_batter_stats_tool と同じ UX を維持）
+    data_summary = "\n".join(
+        ", ".join(f"{k}: {v}" for k, v in row.items()) for row in rows
+    )
     return {
-        "answer": f"以下は{len(rows)}件の結果です：",
-        "isTable": True,
-        "tableData": rows,
-        "columns": [{"key": c, "label": c.replace("_", " ").title()} for c in columns],
-        "isTransposed": len(rows) == 1,
+        "answer": f"取得結果（{len(rows)}件）:\n{data_summary}",
+        "isTable": False,
     }
 
 

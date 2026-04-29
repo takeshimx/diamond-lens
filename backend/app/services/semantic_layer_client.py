@@ -38,13 +38,56 @@ def _get_id_token(audience: str) -> str:
     Cloud Run サービス間認証用のIDトークンを取得する（同期）。
 
     1時間有効なので、_TOKEN_TTL_BUFFER_SEC を引いた時刻までキャッシュを再利用する。
+
+    取得経路:
+      1. 本番 (Cloud Run): metadata server から自動取得（高速・標準パス）
+      2. ローカル開発: 1が失敗したら `gcloud auth print-identity-token` にフォールバック
     """
+    import subprocess
+
     now = time.time()
     with _token_lock:
         cached = _token_cache.get(audience)
         if cached and cached[1] - _TOKEN_TTL_BUFFER_SEC > now:
             return cached[0]
-        token = id_token.fetch_id_token(GoogleAuthRequest(), audience)
+
+        try:
+            # 標準パス（Cloud Run の metadata server / GOOGLE_APPLICATION_CREDENTIALS）
+            token = id_token.fetch_id_token(GoogleAuthRequest(), audience)
+        except Exception as primary_error:
+            logger.info(
+                "metadata-server token fetch failed; falling back to gcloud CLI "
+                f"(reason: {primary_error})"
+            )
+            # ローカル開発フォールバック: gcloud CLI で ID トークン取得
+            # Windows では gcloud は .cmd ファイルなので shell=True で PATHEXT 解決させる
+            import platform
+            is_windows = platform.system() == "Windows"
+            cmd_args = ["gcloud", "auth", "print-identity-token", f"--audiences={audience}"]
+            try:
+                if is_windows:
+                    # shell=True 用に文字列化（audience に空白等は入らない前提）
+                    cmd_str = " ".join(cmd_args)
+                    result = subprocess.run(
+                        cmd_str, capture_output=True, text=True, check=True, shell=True
+                    )
+                else:
+                    result = subprocess.run(
+                        cmd_args, capture_output=True, text=True, check=True, shell=False
+                    )
+                token = result.stdout.strip()
+                if not token:
+                    raise SemanticLayerError("gcloud returned empty ID token")
+            except FileNotFoundError as e:
+                raise SemanticLayerError(
+                    "gcloud CLI が見つかりません。本番では metadata server から取得されますが、"
+                    "ローカル開発では gcloud auth login + Google Cloud SDK が必要です。"
+                ) from e
+            except subprocess.CalledProcessError as e:
+                raise SemanticLayerError(
+                    f"gcloud auth print-identity-token 失敗: {e.stderr.strip() or e.stdout.strip()}"
+                ) from e
+
         _token_cache[audience] = (token, now + 3600)
         return token
 

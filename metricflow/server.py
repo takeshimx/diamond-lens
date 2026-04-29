@@ -59,8 +59,11 @@ def _run_mf_query(req: QueryRequest) -> dict:
         ]
         if req.group_by:
             cmd += ["--group-by", ",".join(req.group_by)]
-        for w in req.where:
-            cmd += ["--where", w]
+        # 複数 where を AND で連結し1つの --where に渡す（MetricFlow CLI は複数 --where を
+        # 正しく AND 結合しないため、片方しか効かないケースが発生する）
+        if req.where:
+            combined_where = " AND ".join(f"({w})" for w in req.where)
+            cmd += ["--where", combined_where]
         for o in req.order_by:
             cmd += ["--order", o]
         if req.limit:

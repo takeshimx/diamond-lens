@@ -170,6 +170,11 @@ class PitcherAgent:
         result_count = -1
         error_message = ""
 
+        # 元のクエリにテーブル指定があれば output_format を強制注入
+        original_query = state["messages"][0].content if state["messages"] else ""
+        TABLE_KEYWORDS = ["表で", "一覧で", "テーブルで", "まとめて", "table"]
+        force_table = any(kw in original_query for kw in TABLE_KEYWORDS)
+
         for tool_call in last_message.tool_calls:
             tool_name = tool_call["name"]
             logger.info(f"Calling tool: {tool_name}")
@@ -178,6 +183,8 @@ class PitcherAgent:
                 from ..ai_agent_service import query_semantic_metrics_tool
                 args = dict(tool_call["args"])
                 args["entity_type"] = "pitcher"  # PitcherAgent は pitcher_season を使うので強制注入
+                if force_table:
+                    args["output_format"] = "table"
                 result = query_semantic_metrics_tool.invoke(args)
             else:
                 from ..ai_agent_service import get_pitcher_stats_tool
