@@ -12,6 +12,9 @@ semantic_models:
         type_params:
           time_granularity: year
         expr: DATE(season, 1, 1)
+      # season(INT64) を直接フィルタ用の categorical 別名で公開
+      # batter_by_inning が同名 'season' を time dim として持つため別名にする
+      - {name: season_year, type: categorical, expr: season}
       # 注意: split_type 次元はこのテーブルに存在しない。
       # RISP等のスプリット指標は tbl_batter_split_stats (batter_split モデル) で定義する。
       # mart には risp_avg カラムとして pre-computed 値が格納されている。

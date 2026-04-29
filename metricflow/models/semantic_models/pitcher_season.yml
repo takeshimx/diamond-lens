@@ -14,6 +14,8 @@ semantic_models:
         type_params:
           time_granularity: year
         expr: DATE(season, 1, 1)
+      # season(INT64) の整数フィルタ用 categorical 別名
+      - {name: season_year, type: categorical, expr: season}
     measures:
       # ── 生カウント（SUM で集約可能） ──────────────────────────────────────────
       - {name: p_games,            agg: sum, expr: g}

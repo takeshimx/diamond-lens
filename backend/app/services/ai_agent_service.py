@@ -506,6 +506,7 @@ def mlb_matchup_analytics_tool(batter_name: str, pitcher_name: str):
 @tool
 def query_semantic_metrics_tool(
     metrics: List[str],
+    entity_type: str = "player",
     mlbid: Optional[int] = None,
     season: Optional[int] = None,
     team: Optional[str] = None,
@@ -519,30 +520,34 @@ def query_semantic_metrics_tool(
 
     自然言語ではなく構造化引数で呼び出すこと。利用可能なメトリクス例:
       - 打撃: batting_average, on_base_pct, ops_metric, weighted_on_base_avg, home_runs, walks
-      - 投手: era, whip, strikeout_rate (Phase 1で追加された semantic_model 名に依存)
+      - 投手: p_era, p_whip, p_fip, p_k9, p_strikeouts
 
     Args:
         metrics: 取得するメトリクス名のリスト（例: ["batting_average", "ops_metric"]）
-        mlbid:   MLB ID（例: 660271 = Ohtani）。指定すると WHERE player__batter = X が付く
+        entity_type: "player"（打者用 batter_season）または "pitcher"（投手用 pitcher_season）
+        mlbid:   MLB ID（例: 660271 = Ohtani）
         season:  対象シーズン（例: 2026）
         team:    チーム略称（例: "LAD"）
-        group_by: 集計次元（例: ["player", "season"]）
-        where:    追加のWHERE句リスト（生のMetricFlow構文）
-        order_by: ソート対象（例: ["-batting_average"]）
+        group_by: 集計次元
+        where:   追加のWHERE句リスト（生のMetricFlow構文）
+        order_by: ソート対象
         limit:    取得行数上限
     """
     from .semantic_layer_client import query_metric, SemanticLayerError
 
+    # entity_type で primary entity 名を切替（batter_season=player, pitcher_season=pitcher）
+    primary_entity = "pitcher" if entity_type == "pitcher" else "player"
+
     where_clauses: list[str] = list(where or [])
+    # MetricFlow は --where のフィルタ列を Jinja templated 形式で書くと
+    # 内部 subquery に正しく SELECT してくれる。生カラム名だと未解決になる。
     if mlbid is not None:
-        # primary entity 'player' は entity 名のみで参照する
-        where_clauses.append(f"player = {int(mlbid)}")
+        where_clauses.append(f"{{{{ Entity('{primary_entity}') }}}} = {int(mlbid)}")
     if season is not None:
-        # dimension は 'entity__dimension' 形式で参照する
-        where_clauses.append(f"player__season = {int(season)}")
+        where_clauses.append(f"{{{{ Dimension('{primary_entity}__season_year') }}}} = {int(season)}")
     if team:
         team_safe = str(team).replace("'", "''")
-        where_clauses.append(f"player__team = '{team_safe}'")
+        where_clauses.append(f"{{{{ Entity('team') }}}} = '{team_safe}'")
 
     try:
         result = query_metric(

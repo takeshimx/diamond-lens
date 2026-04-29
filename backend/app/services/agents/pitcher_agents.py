@@ -176,7 +176,9 @@ class PitcherAgent:
 
             if self.use_semantic and tool_name == "query_semantic_metrics_tool":
                 from ..ai_agent_service import query_semantic_metrics_tool
-                result = query_semantic_metrics_tool.invoke(tool_call["args"])
+                args = dict(tool_call["args"])
+                args["entity_type"] = "pitcher"  # PitcherAgent は pitcher_season を使うので強制注入
+                result = query_semantic_metrics_tool.invoke(args)
             else:
                 from ..ai_agent_service import get_pitcher_stats_tool
                 result = get_pitcher_stats_tool.invoke(tool_call["args"])

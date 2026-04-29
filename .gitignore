@@ -40,6 +40,13 @@ dbt_models/dbt_packages
 dbt_models/profiles.yml
 .user.yml
 
+# metricflow/ のローカル生成物（Cloud Buildで再生成される）
+metricflow/.venv/
+metricflow/dbt_packages/
+metricflow/target/
+metricflow/logs/
+metricflow/package-lock.yml
+
 # metricflow/profiles.yml は env_var() で値を注入するので機密情報なし、コミット可
 !metricflow/profiles.yml
 
