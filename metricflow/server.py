@@ -39,7 +39,11 @@ def _run_mf(args: list[str]) -> dict:
         env=env,
     )
     if result.returncode != 0:
-        raise RuntimeError(f"mf {' '.join(args)} failed: {result.stderr}")
+        # stderr が空でも stdout に有用な情報が出ることがあるので両方を含める
+        raise RuntimeError(
+            f"mf {' '.join(args)} failed (exit={result.returncode}): "
+            f"stderr={result.stderr!r} stdout={result.stdout!r}"
+        )
     return {"stdout": result.stdout, "stderr": result.stderr}
 
 

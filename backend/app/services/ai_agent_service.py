@@ -535,12 +535,14 @@ def query_semantic_metrics_tool(
 
     where_clauses: list[str] = list(where or [])
     if mlbid is not None:
-        where_clauses.append(f"player__batter = {int(mlbid)}")
+        # primary entity 'player' は entity 名のみで参照する
+        where_clauses.append(f"player = {int(mlbid)}")
     if season is not None:
-        where_clauses.append(f"season = {int(season)}")
+        # dimension は 'entity__dimension' 形式で参照する
+        where_clauses.append(f"player__season = {int(season)}")
     if team:
         team_safe = str(team).replace("'", "''")
-        where_clauses.append(f"team__team = '{team_safe}'")
+        where_clauses.append(f"player__team = '{team_safe}'")
 
     try:
         result = query_metric(
