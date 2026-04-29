@@ -24,8 +24,11 @@
 |---|---|
 | 「2026年の大谷の打率」 | `metrics=["batting_average"], mlbid=660271, season=2026` |
 | 「ドジャースの2026年OPS」 | `metrics=["ops_metric"], team="LAD", season=2026` |
-| 「2026年の本塁打ランキングTop10」 | `metrics=["home_runs"], season=2026, group_by=["player"], order_by=["-home_runs"], limit=10` |
-| 「大谷の2026年シーズン全打撃指標」 | `metrics=["batting_average","ops_metric","home_runs","weighted_on_base_avg"], mlbid=660271, season=2026` |
+| 「大谷の2026年シーズン全打撃指標」 | `metrics=["batting_average","on_base_pct","ops_metric","weighted_on_base_avg"], mlbid=660271, season=2026` |
+| 「大谷のRISP打率」 | `metrics=["risp_batting_average"], mlbid=660271, season=2026` |
+| 「ヤンキースのクラッチwOBA」 | `metrics=["clutch_woba"], team="NYY", season=2026` |
+
+**重要: home_runs / walks / strikeouts などは measure であって metric ではないため `metrics` 引数には指定しないこと。** metrics に指定できるのは下記「利用可能なメトリクス」リストに存在する名前のみ。
 
 ---
 

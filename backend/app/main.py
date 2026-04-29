@@ -135,6 +135,37 @@ app.add_middleware(RequestIDMiddleware)
 app.include_router(api_router, prefix="/api/v1", tags=["Players"])
 
 
+@app.on_event("startup")
+async def warmup_semantic_layer_metadata():
+    """
+    アプリ起動時に MetricFlow からメトリクス/次元メタデータをキャッシュする。
+
+    リクエスト経路で fetch するとコールドスタート（20秒前後）で間に合わず空に
+    なるケースが頻発したため、起動時に1回だけリトライ付きで取得しておく。
+    """
+    from backend.app.config.settings import get_settings
+
+    if not get_settings().use_semantic_layer:
+        structured_logger.info(
+            "use_semantic_layer=false, skipping MetricFlow metadata warmup"
+        )
+        return
+
+    try:
+        from backend.app.services.semantic_layer_client import warmup_metric_metadata
+        meta = warmup_metric_metadata()
+        structured_logger.info(
+            "MetricFlow metadata warmup complete",
+            metric_count=len(meta.get("metrics", [])),
+            dimension_count=len(meta.get("dimensions", [])),
+        )
+    except Exception as e:
+        structured_logger.warning(
+            "MetricFlow metadata warmup failed (non-fatal)",
+            error=str(e),
+        )
+
+
 @app.get("/", summary="API router", description="API router endpoint")
 async def read_root():
     return {

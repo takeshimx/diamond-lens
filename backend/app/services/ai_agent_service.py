@@ -519,9 +519,15 @@ def query_semantic_metrics_tool(
     """
     dbt Semantic Layer (MetricFlow Cloud Run) からメトリクスを取得する専門ツール。
 
-    自然言語ではなく構造化引数で呼び出すこと。利用可能なメトリクス例:
-      - 打撃: batting_average, on_base_pct, ops_metric, weighted_on_base_avg, home_runs, walks
-      - 投手: p_era, p_whip, p_fip, p_k9, p_strikeouts
+    自然言語ではなく構造化引数で呼び出すこと。利用可能なメトリクス（metrics yamlに実在するもの）:
+      - 打撃シーズン: batting_average, on_base_pct, ops_metric, weighted_on_base_avg
+      - 打撃クラッチ: clutch_woba, clutch_xwoba, clutch_ops, clutch_batting_average, clutch_hard_hit_rate, clutch_barrel_rate
+      - 打撃RISP: risp_batting_average, risp_woba, risp_strikeout_rate
+      - 打撃満塁: bases_loaded_batting_average, bases_loaded_woba
+      - 打撃月別: monthly_batting_average, monthly_ops, monthly_home_runs
+      - 投手: era_by_inning, era_first_inning（pitcher_seasonの metrics は metrics yaml で要確認）
+
+    注意: home_runs や walks は measure であって metric ではないため指定不可。
 
     Args:
         metrics: 取得するメトリクス名のリスト（例: ["batting_average", "ops_metric"]）
@@ -537,7 +543,23 @@ def query_semantic_metrics_tool(
                       ユーザー質問に「表で」「一覧で」「テーブルで」「まとめて」が含まれていれば
                       "table"、それ以外は "sentence" を渡してください。
     """
-    from .semantic_layer_client import query_metric, SemanticLayerError
+    from .semantic_layer_client import query_metric, get_metric_metadata, SemanticLayerError
+
+    # ── バリデーション: 未定義メトリクスを LLM が要求していないか確認 ──
+    # キャッシュ済みメタデータと突合し、不一致があれば即エラー（mf に投げる前に弾く）。
+    # キャッシュ空（warmup失敗等）なら fail-open で MetricFlow にそのまま渡す。
+    metadata = get_metric_metadata()
+    available_metrics = set(metadata.get("metrics", []))
+    if available_metrics:
+        unknown = [m for m in metrics if m not in available_metrics]
+        if unknown:
+            return {
+                "answer": (
+                    f"指定されたメトリクス {unknown} は Semantic Layer に存在しません。"
+                    f"利用可能なメトリクス: {sorted(available_metrics)}"
+                ),
+                "isTable": False,
+            }
 
     # entity_type で primary entity 名を切替（batter_season=player, pitcher_season=pitcher）
     primary_entity = "pitcher" if entity_type == "pitcher" else "player"

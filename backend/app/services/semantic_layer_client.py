@@ -148,11 +148,17 @@ def query_metric(
         raise SemanticLayerError(f"MetricFlow transport error: {e}") from e
 
 
+# メタデータ取得は MetricFlow Cloud Run のコールドスタート（dbt parse で20秒前後）を
+# 吸収できるよう長めにする。アプリ起動時に1回叩いてキャッシュするため、
+# レイテンシよりも確実性を優先。
+_METADATA_TIMEOUT_SEC = 60.0
+
+
 def list_available_metrics() -> list[str]:
     """MetricFlow に登録されたメトリクス名の一覧を取得する（同期）。"""
     url = _ensure_url()
     token = _get_id_token(audience=url)
-    with httpx.Client(timeout=10.0) as client:
+    with httpx.Client(timeout=_METADATA_TIMEOUT_SEC) as client:
         resp = client.get(
             f"{url}/metrics",
             headers={"Authorization": f"Bearer {token}"},
@@ -165,7 +171,7 @@ def list_available_dimensions() -> list[str]:
     """MetricFlow に登録された次元名の一覧を取得する（同期）。"""
     url = _ensure_url()
     token = _get_id_token(audience=url)
-    with httpx.Client(timeout=10.0) as client:
+    with httpx.Client(timeout=_METADATA_TIMEOUT_SEC) as client:
         resp = client.get(
             f"{url}/dimensions",
             headers={"Authorization": f"Bearer {token}"},
@@ -182,12 +188,72 @@ _metric_metadata_cache: Optional[dict] = None
 _metadata_lock = threading.Lock()
 
 
+def _fetch_metadata_with_retry(max_attempts: int = 3, backoff_sec: float = 5.0) -> dict:
+    """
+    メタデータ取得をリトライ付きで実行する。
+
+    MetricFlow Cloud Run はコールドスタート時の dbt parse で20秒以上待たされるため、
+    1回失敗しても数秒空けてリトライする。
+    """
+    last_error: Optional[Exception] = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            metrics = list_available_metrics()
+            dimensions = list_available_dimensions()
+            logger.info(
+                "MetricFlow metadata fetched",
+                attempt=attempt,
+                metric_count=len(metrics),
+                dimension_count=len(dimensions),
+            )
+            return {
+                "metrics": metrics,
+                "dimensions": dimensions,
+                "fetched_at": datetime.now(timezone.utc).isoformat(),
+            }
+        except Exception as e:
+            last_error = e
+            logger.warning(
+                f"MetricFlow metadata fetch attempt {attempt}/{max_attempts} failed: {e}"
+            )
+            if attempt < max_attempts:
+                time.sleep(backoff_sec)
+
+    logger.warning(
+        f"MetricFlow metadata fetch exhausted retries (last_error: {last_error}); "
+        "caching empty metadata. Validation will fail-open until next refresh."
+    )
+    return {"metrics": [], "dimensions": [], "fetched_at": None}
+
+
+def warmup_metric_metadata() -> dict:
+    """
+    アプリ起動時に呼び出す。リトライ付きでメタデータをキャッシュ確定する。
+
+    既にキャッシュされていれば再取得しない（多重起動 race 用）。
+    """
+    global _metric_metadata_cache
+
+    with _metadata_lock:
+        if _metric_metadata_cache is not None:
+            return _metric_metadata_cache
+
+        if not _settings.metricflow_server_url:
+            logger.info("METRICFLOW_SERVER_URL not set; skipping metadata warmup")
+            _metric_metadata_cache = {"metrics": [], "dimensions": [], "fetched_at": None}
+            return _metric_metadata_cache
+
+        _metric_metadata_cache = _fetch_metadata_with_retry()
+        return _metric_metadata_cache
+
+
 def get_metric_metadata(force_refresh: bool = False) -> dict:
     """
-    利用可能なメトリクス・次元のメタデータを取得する（同期）。
+    キャッシュ済みメタデータを返す（同期、ノンブロッキング想定）。
 
-    Returns:
-        {"metrics": [...], "dimensions": [...], "fetched_at": "ISO8601"} 形式
+    通常はアプリ起動時の warmup_metric_metadata() でキャッシュが満たされている。
+    リクエスト経路から呼ばれた場合にキャッシュが空なら、即座に再取得を試みる
+    （ただし MetricFlow がコールドスタート中だと失敗してフォールバック空を返す）。
     """
     global _metric_metadata_cache
 
@@ -199,27 +265,11 @@ def get_metric_metadata(force_refresh: bool = False) -> dict:
             return _metric_metadata_cache
 
         if not _settings.metricflow_server_url:
-            logger.info("METRICFLOW_SERVER_URL not set, returning empty metadata")
             _metric_metadata_cache = {"metrics": [], "dimensions": [], "fetched_at": None}
             return _metric_metadata_cache
 
-        try:
-            metrics = list_available_metrics()
-            dimensions = list_available_dimensions()
-            _metric_metadata_cache = {
-                "metrics": metrics,
-                "dimensions": dimensions,
-                "fetched_at": datetime.now(timezone.utc).isoformat(),
-            }
-            logger.info(
-                "MetricFlow metadata cached",
-                metric_count=len(metrics),
-                dimension_count=len(dimensions),
-            )
-        except Exception as e:
-            logger.warning(f"Failed to fetch metric metadata, returning empty: {e}")
-            _metric_metadata_cache = {"metrics": [], "dimensions": [], "fetched_at": None}
-
+        # warmup と違い、リクエスト経路ではリトライ少なめ・短時間で打ち切る
+        _metric_metadata_cache = _fetch_metadata_with_retry(max_attempts=1, backoff_sec=0.0)
         return _metric_metadata_cache
 
 
