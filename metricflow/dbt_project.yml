@@ -1,11 +1,62 @@
+
+# Name your project! Project names should contain only lowercase characters
+# and underscores. A good package name should reflect your organization's
+# name or the intended use of these models
 name: 'mlb_analytics_dbt_project'
 version: '1.0.0'
-config-version: 2
 
+# This setting configures which "profile" dbt uses for this project.
 profile: 'mlb_analytics_dbt_project'
 
+# These configurations specify where dbt should look for different types of files.
+# The `model-paths` config, for example, states that models in this project can be
+# found in the "models/" directory. You probably won't need to change these!
 model-paths: ["models"]
-target-path: "target"
-clean-targets:
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:         # directories to be removed by `dbt clean`
   - "target"
   - "dbt_packages"
+
+vars:
+  target_season: 2026
+  # Environment-specific variables
+  dev:
+    full_refresh: true  # Always full refresh in dev
+  staging:
+    full_refresh: false
+  prod:
+    full_refresh: false
+
+# Configuring models
+# Full documentation: https://docs.getdbt.com/docs/configuring-models
+
+# In this example config, we tell dbt to build all models in the example/
+# directory as views. These settings can be overridden in the individual model
+# files using the `{{ config(...) }}` macro.
+models:
+  mlb_analytics_dbt_project:
+    # Staging layer: Clean and standardize raw data
+    staging:
+      +materialized: view  # Use views to avoid storage costs
+      +tags: ['staging']
+
+    # Intermediate layer: Reusable business logic and filters
+    intermediate:
+      +materialized: view  # Use views for intermediate transformations
+      +tags: ['intermediate']
+
+    # Core layer: Fact and dimension tables
+    core:
+      +materialized: incremental  # Use incremental for large fact tables
+      +tags: ['core']
+
+    # Marts layer: Analytics-ready denormalized tables for dashboards/APIs
+    marts:
+      +materialized: table  # Use tables for fast query performance
+      +tags: ['marts']
+    

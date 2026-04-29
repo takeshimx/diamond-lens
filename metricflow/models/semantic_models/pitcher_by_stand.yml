@@ -1,0 +1,23 @@
+semantic_models:
+  - name: pitcher_by_stand
+    model: ref('mart_pitcher_era_by_stand')
+    defaults:
+      agg_time_dimension: stand_season
+    entities:
+      - {name: pitcher, type: primary, expr: pitcher}         # pitcher = mlbid (INT64)
+      - {name: team,    type: foreign, expr: pitcher_team}    # チーム略称 STRING
+    dimensions:
+      - name: stand_season
+        type: time
+        type_params:
+          time_granularity: year
+        expr: DATE(game_year, 1, 1)
+      - {name: stand,  type: categorical}   # 対戦打者の打席 'L' | 'R'
+    measures:
+      # 生カウント（SUM で集約可能）
+      - {name: stand_total_outs,      agg: sum, expr: total_outs}
+      - {name: stand_runs_allowed,    agg: sum, expr: runs_allowed}
+      - {name: stand_earned_runs,     agg: sum, expr: earned_runs}
+      - {name: stand_innings_pitched, agg: sum, expr: innings_pitched}
+      # pre-computed ratio（1投手×シーズン×stand で1行のため average で集約）
+      - {name: era_vs_stand, agg: average, expr: era_vs_stand}

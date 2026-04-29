@@ -1,0 +1,23 @@
+semantic_models:
+  - name: pitcher_by_inning
+    model: ref('mart_pitcher_era_by_inning')
+    defaults:
+      agg_time_dimension: season
+    entities:
+      - {name: pitcher, type: primary, expr: pitcher}         # pitcher = mlbid (INT64)
+      - {name: team,    type: foreign, expr: pitcher_team}    # チーム略称 STRING
+    dimensions:
+      - name: season
+        type: time
+        type_params:
+          time_granularity: year
+        expr: DATE(game_year, 1, 1)
+      - {name: inning, type: categorical}   # 1–9+（イニング番号）
+    measures:
+      # 生カウント（SUM で集約可能）
+      - {name: inning_total_outs,      agg: sum, expr: total_outs}
+      - {name: inning_runs_allowed,    agg: sum, expr: runs_allowed}
+      - {name: inning_earned_runs,     agg: sum, expr: earned_runs}
+      - {name: inning_innings_pitched, agg: sum, expr: innings_pitched}
+      # pre-computed ratio（1投手×シーズン×イニングで1行のため average で集約）
+      - {name: era_by_inning, agg: average, expr: era_by_inning}

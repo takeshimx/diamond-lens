@@ -1,0 +1,199 @@
+metrics:
+# ── pitcher_season_legacy (FanGraphs ベース) ───────────────────────────────────
+# 主キーは pitcher_fg (idfg)。Statcast ベースの pitcher_by_* とは別エンティティ。
+
+  # 主要投球指標
+  - name: fg_p_era
+    label: "FG ERA"
+    type: simple
+    type_params:
+      measure: fg_p_era
+
+  - name: fg_p_fip
+    label: "FG FIP"
+    type: simple
+    type_params:
+      measure: fg_p_fip
+
+  - name: fg_p_xfip
+    label: "FG xFIP"
+    type: simple
+    type_params:
+      measure: fg_p_xfip
+
+  - name: fg_p_siera
+    label: "FG SIERA"
+    type: simple
+    type_params:
+      measure: fg_p_siera
+
+  - name: fg_p_xera
+    label: "FG xERA"
+    type: simple
+    type_params:
+      measure: fg_p_xera
+
+  - name: fg_p_whip
+    label: "FG WHIP"
+    type: simple
+    type_params:
+      measure: fg_p_whip
+
+  - name: fg_p_war
+    label: "FG Pitcher WAR"
+    type: simple
+    type_params:
+      measure: fg_p_war
+
+  # レート指標
+  - name: fg_p_k_pct
+    label: "FG K%"
+    type: simple
+    type_params:
+      measure: fg_p_k_pct
+
+  - name: fg_p_bb_pct
+    label: "FG BB%"
+    type: simple
+    type_params:
+      measure: fg_p_bb_pct
+
+  - name: fg_p_k_minus_bb_pct
+    label: "FG K-BB%"
+    type: simple
+    type_params:
+      measure: fg_p_k_minus_bb_pct
+
+  - name: fg_p_k9
+    label: "FG K/9"
+    type: simple
+    type_params:
+      measure: fg_p_k9
+
+  - name: fg_p_swstr_pct
+    label: "FG SwStr%"
+    type: simple
+    type_params:
+      measure: fg_p_swstr_pct
+
+  # 打球・Statcast 指標（被）
+  - name: fg_p_gb_pct
+    label: "FG GB%"
+    type: simple
+    type_params:
+      measure: fg_p_gb_pct
+
+  - name: fg_p_hr_fb
+    label: "FG HR/FB%"
+    type: simple
+    type_params:
+      measure: fg_p_hr_fb
+
+  - name: fg_p_barrel_pct
+    label: "FG Barrel% (against)"
+    type: simple
+    type_params:
+      measure: fg_p_barrel_pct
+
+  - name: fg_p_hard_hit_pct
+    label: "FG Hard Hit% (against)"
+    type: simple
+    type_params:
+      measure: fg_p_hard_hit_pct
+
+  # scaled 指標（100 基準、低いほど良い）
+  - name: fg_p_era_minus
+    label: "FG ERA-"
+    type: simple
+    type_params:
+      measure: fg_p_era_minus
+
+  - name: fg_p_fip_minus
+    label: "FG FIP-"
+    type: simple
+    type_params:
+      measure: fg_p_fip_minus
+
+  # Stuff+ / Location+ / Pitching+（高いほど良い）
+  - name: fg_p_stuff_plus
+    label: "FG Stuff+"
+    type: simple
+    type_params:
+      measure: fg_p_stuff_plus
+
+  - name: fg_p_location_plus
+    label: "FG Location+"
+    type: simple
+    type_params:
+      measure: fg_p_location_plus
+
+  - name: fg_p_pitching_plus
+    label: "FG Pitching+"
+    type: simple
+    type_params:
+      measure: fg_p_pitching_plus
+
+  # 三振 / 四球 ratio
+  - name: fg_p_k_bb_ratio
+    label: "FG K/BB"
+    type: simple
+    type_params:
+      measure: fg_p_k_bb
+
+# ── pitcher_season (Statcast ベース) ──────────────────────────────────────────
+# 主キーは pitcher (mlbid)。FanGraphs 系より列数は少ないが xwOBA 等 Statcast 指標あり。
+
+  - name: p_era
+    label: "ERA (Statcast)"
+    type: simple
+    type_params:
+      measure: p_era
+
+  - name: p_fip
+    label: "FIP (Statcast)"
+    type: simple
+    type_params:
+      measure: p_fip
+
+  - name: p_whip
+    label: "WHIP (Statcast)"
+    type: simple
+    type_params:
+      measure: p_whip
+
+  - name: p_xwoba_against
+    label: "xwOBA Against (Statcast)"
+    type: simple
+    type_params:
+      measure: p_xwoba_against
+
+  - name: p_k9
+    label: "K/9 (Statcast)"
+    type: simple
+    type_params:
+      measure: p_k9
+
+  - name: p_bb9
+    label: "BB/9 (Statcast)"
+    type: simple
+    type_params:
+      measure: p_bb9
+
+  - name: p_swstr_pct
+    label: "SwStr% (Statcast)"
+    type: simple
+    type_params:
+      measure: p_swstr_pct
+
+  - name: p_barrel_pct
+    label: "Barrel% Against (Statcast)"
+    type: simple
+    type_params:
+      measure: p_barrel_pct
+
+  - name: p_hard_hit_pct
+    label: "Hard Hit% Against (Statcast)"
+    type: simple
+    type_params:
+      measure: p_hard_hit_pct
+

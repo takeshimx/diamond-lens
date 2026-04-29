@@ -1,0 +1,54 @@
+semantic_models:
+  - name: batter_clutch
+    model: ref('mart_batter_clutch')
+    defaults:
+      agg_time_dimension: clutch_season
+    entities:
+      - {name: player, type: primary, expr: batter_id}   # batter_id = mlbid (INT64)
+      - {name: team,   type: foreign, expr: team}         # team = チーム略称 STRING
+    dimensions:
+      - name: clutch_season
+        type: time
+        type_params:
+          time_granularity: year
+        expr: DATE(game_year, 1, 1)
+      - {name: situation_type, type: categorical}
+      # situation_type の値: 'bases_loaded' | 'risp' | 'on_1b' | 'no_runner'
+      # クラッチ状況ごとに1行。LLM は situation_type でフィルタして比較可能。
+    measures:
+      # 生カウント（SUM で集約可能）
+      - {name: clutch_pa,              agg: sum, expr: pa}
+      - {name: clutch_ab,              agg: sum, expr: ab}
+      - {name: clutch_hits,            agg: sum, expr: hits}
+      - {name: clutch_singles,         agg: sum, expr: singles}
+      - {name: clutch_doubles,         agg: sum, expr: doubles}
+      - {name: clutch_triples,         agg: sum, expr: triples}
+      - {name: clutch_home_runs,       agg: sum, expr: homeruns}
+      - {name: clutch_bb_hbp,          agg: sum, expr: bb_hbp}
+      - {name: clutch_strikeouts,      agg: sum, expr: so}
+      - {name: hard_hit_count,         agg: sum, expr: hard_hit_count}
+      - {name: barrels_count,          agg: sum, expr: barrels_count}
+      - {name: swinging_strike_count,  agg: sum, expr: swinging_strike_count}
+      - {name: total_pitches,          agg: sum, expr: total_pitches}
+      - {name: total_batted_balls,     agg: sum, expr: total_batted_balls}
+
+      # pre-computed ratios（1選手×シーズン×situation_type で1行のため average で集約）
+      # woba/xwoba は mart 側で SAFE_DIVIDE(SUM(woba_value), SUM(woba_denom)) 済み。
+      # situation_type をまたいで集約すると重み付きにならないため、クロス集計には注意。
+      - {name: clutch_avg,             agg: average, expr: avg}
+      - {name: clutch_obp,             agg: average, expr: obp}
+      - {name: clutch_slg,             agg: average, expr: slg}
+      - {name: clutch_ops,             agg: average, expr: ops}
+      - {name: clutch_woba,            agg: average, expr: woba}
+      - {name: clutch_xwoba,           agg: average, expr: xwoba}
+      - {name: clutch_bb_rate,         agg: average, expr: bb_rate}
+      - {name: clutch_strikeout_rate,  agg: average, expr: strikeout_rate}
+      - {name: clutch_hard_hit_rate,   agg: average, expr: hard_hit_rate}
+      - {name: clutch_barrels_rate,    agg: average, expr: barrels_rate}
+      - {name: swinging_strike_rate,   agg: average, expr: swinging_strike_rate}
+
+      # Statcast 平均値（既に平均のため average で集約）
+      - {name: avg_exit_velocity,      agg: average, expr: avg_exit_velocity}
+      - {name: avg_launch_angle,       agg: average, expr: avg_launch_angle}
+      - {name: avg_bat_speed,          agg: average, expr: avg_bat_speed}
+      - {name: avg_swing_length,       agg: average, expr: avg_swing_length}

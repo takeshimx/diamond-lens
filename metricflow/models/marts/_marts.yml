@@ -1,0 +1,93 @@
+version: 2
+
+models:
+  - name: fact_statcast_events
+    description: "Statcast events with player names for analysis"
+    columns:
+      - name: game_pk
+        description: "Unique game identifier"
+        tests:
+          - not_null
+      - name: game_date
+        description: "Game date"
+        tests:
+          - not_null
+
+  - name: fact_batting_stats_with_risp
+    description: "Batting statistics filtered for runners in scoring position"
+    columns:
+      - name: idfg
+        description: "Fangraphs player ID"
+        tests:
+          - not_null
+
+  - name: tbl_batter_performance_risp_monthly
+    description: "Monthly batter performance with runners in scoring position"
+
+  - name: tbl_batter_offensive_stats_monthly
+    description: "Monthly offensive statistics for batters"
+
+  - name: tbl_batter_performance_by_strike_count
+    description: "Batter performance segmented by strike count"
+
+  - name: tbl_pitching_performance_by_inning
+    description: "Pitching performance segmented by inning"
+
+  - name: tbl_shohei_ohtani_two_way
+    description: "Shohei Ohtani's two-way player statistics"
+
+  - name: mart_batter_season_stats
+    description: "Batter season aggregate stats with percentile ranks (AVG/OBP/SLG/OPS/wOBA/xwOBA/wRC+/HardHit%/Barrel%/SwStr%/RISP)"
+    columns:
+      - name: batter
+        description: "MLB batter ID"
+        tests:
+          - not_null
+      - name: season
+        description: "Season year"
+        tests:
+          - not_null
+
+  - name: mart_pitcher_season_stats
+    description: "Pitcher season aggregate stats with percentile ranks (ERA/FIP/WHIP/K9/BB9/SwStr%/HardHit%/Barrel%)"
+    columns:
+      - name: pitcher
+        description: "MLB pitcher ID"
+        tests:
+          - not_null
+      - name: season
+        description: "Season year"
+        tests:
+          - not_null
+
+  - name: mart_batter_pitch_type
+    description: "Batter stats broken down by pitch type: AVG/OBP/SLG/OPS/HardHit/Barrel/SwStr per pitch type"
+    columns:
+      - name: batter_id
+        description: "MLB batter ID"
+        tests:
+          - not_null
+      - name: game_year
+        description: "Season year"
+        tests:
+          - not_null
+      - name: pitch_name
+        description: "Pitch type name"
+        tests:
+          - not_null
+
+  - name: mart_batter_inning_stats
+    description: "Batter stats broken down by inning: AVG/OBP/SLG/OPS/HardHit/Barrel/SwStr per inning"
+    columns:
+      - name: batter_id
+        description: "MLB batter ID"
+        tests:
+          - not_null
+      - name: game_year
+        description: "Season year"
+        tests:
+          - not_null
+      - name: inning
+        description: "Inning number"
+        tests:
+          - not_null

@@ -1,0 +1,50 @@
+semantic_models:
+  - name: pitcher_season
+    model: ref('mart_pitcher_season_stats')
+    # Statcast ベースの投手シーズン集計テーブル。主キーは pitcher (mlb_id)。
+    # FanGraphs ベースの pitcher_season_legacy とは別エンティティ（pitcher_fg = idfg）。
+    defaults:
+      agg_time_dimension: pitcher_main_season
+    entities:
+      - {name: pitcher, type: primary, expr: pitcher}   # pitcher = mlbid (INTEGER)
+      - {name: team,    type: foreign, expr: team}       # チーム略称 STRING
+    dimensions:
+      - name: pitcher_main_season
+        type: time
+        type_params:
+          time_granularity: year
+        expr: DATE(season, 1, 1)
+    measures:
+      # ── 生カウント（SUM で集約可能） ──────────────────────────────────────────
+      - {name: p_games,            agg: sum, expr: g}
+      - {name: p_games_started,    agg: sum, expr: gs}
+      - {name: p_bf,               agg: sum, expr: bf}     # batters faced
+      - {name: p_ip,               agg: sum, expr: ip}     # innings pitched (FLOAT, additive)
+      - {name: p_strikeouts,       agg: sum, expr: so}
+      - {name: p_walks,            agg: sum, expr: bb}
+      - {name: p_hbp,              agg: sum, expr: hbp}
+      - {name: p_hr_allowed,       agg: sum, expr: hr}
+      - {name: p_hits_allowed,     agg: sum, expr: h}
+
+      # ── pre-computed ratios（1投手×シーズン1行のため average で集約） ──────────
+      - {name: p_era,              agg: average, expr: era}
+      - {name: p_fip,              agg: average, expr: fip}
+      - {name: p_whip,             agg: average, expr: whip}
+      - {name: p_k9,               agg: average, expr: k_9}
+      - {name: p_bb9,              agg: average, expr: bb_9}
+      - {name: p_xwoba_against,    agg: average, expr: xwoba_against}
+      - {name: p_hard_hit_pct,     agg: average, expr: hardhitpct}
+      - {name: p_barrel_pct,       agg: average, expr: barrelpct}
+      - {name: p_swstr_pct,        agg: average, expr: swstrpct}
+
+      # ── ランキング（シーズン内での順位）──────────────────────────────────────
+      # rank 値はシーズン内の相対順位。複数シーズンにまたいで average すると意味が変わるため注意。
+      - {name: p_era_rank,         agg: average, expr: era_rank}
+      - {name: p_fip_rank,         agg: average, expr: fip_rank}
+      - {name: p_whip_rank,        agg: average, expr: whip_rank}
+      - {name: p_k9_rank,          agg: average, expr: k_9_rank}
+      - {name: p_bb9_rank,         agg: average, expr: bb_9_rank}
+      - {name: p_so_rank,          agg: average, expr: so_rank}
+      - {name: p_hard_hit_rank,    agg: average, expr: hardhitpct_rank}
+      - {name: p_barrel_rank,      agg: average, expr: barrelpct_rank}
+      - {name: p_swstr_rank,       agg: average, expr: swstrpct_rank}

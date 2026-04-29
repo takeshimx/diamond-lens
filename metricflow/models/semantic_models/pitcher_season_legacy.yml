@@ -1,0 +1,80 @@
+semantic_models:
+  - name: pitcher_season_legacy
+    model: ref('fact_pitching_stats_master')
+    # FanGraphs ベースのレガシーテーブル。主キーは idfg (FanGraphs ID)。
+    # mlbid カラム（小文字）も格納されており、Statcast ベース mart との結合に使用可能。
+    defaults:
+      agg_time_dimension: season
+    entities:
+      - {name: pitcher_fg, type: primary, expr: idfg}   # FanGraphs ID (INTEGER)
+      - {name: team,       type: foreign, expr: team}    # チーム略称 STRING
+    dimensions:
+      - name: season
+        type: time
+        type_params:
+          time_granularity: year
+        expr: DATE(season, 1, 1)
+    measures:
+      # ── 生カウント（SUM で集約可能） ──────────────────────────────────────────
+      - {name: fg_p_wins,           agg: sum, expr: w}
+      - {name: fg_p_losses,         agg: sum, expr: l}
+      - {name: fg_p_games,          agg: sum, expr: g}
+      - {name: fg_p_games_started,  agg: sum, expr: gs}
+      - {name: fg_p_saves,          agg: sum, expr: sv}
+      - {name: fg_p_holds,          agg: sum, expr: hld}
+      - {name: fg_p_ip,             agg: sum, expr: ip}    # innings pitched (FLOAT, additive)
+      - {name: fg_p_tbf,            agg: sum, expr: tbf}   # total batters faced
+      - {name: fg_p_hits,           agg: sum, expr: h}
+      - {name: fg_p_runs,           agg: sum, expr: r}
+      - {name: fg_p_earned_runs,    agg: sum, expr: er}
+      - {name: fg_p_hr,             agg: sum, expr: hr}
+      - {name: fg_p_bb,             agg: sum, expr: bb}
+      - {name: fg_p_so,             agg: sum, expr: so}
+      - {name: fg_p_hbp,            agg: sum, expr: hbp}
+      - {name: fg_p_barrels,        agg: sum, expr: barrels}
+      - {name: fg_p_hard_hit,       agg: sum, expr: hardhit}
+
+      # ── pre-computed ratios（1投手×シーズン1行のため average で集約） ──────────
+      # 主要投球指標
+      - {name: fg_p_era,            agg: average, expr: era}
+      - {name: fg_p_whip,           agg: average, expr: whip}
+      - {name: fg_p_fip,            agg: average, expr: fip}
+      - {name: fg_p_xfip,           agg: average, expr: xfip}
+      - {name: fg_p_siera,          agg: average, expr: siera}
+      - {name: fg_p_xera,           agg: average, expr: xera}
+      - {name: fg_p_war,            agg: average, expr: war}
+      # レート指標（per 9 innings）
+      - {name: fg_p_k9,             agg: average, expr: k_9}
+      - {name: fg_p_bb9,            agg: average, expr: bb_9}
+      - {name: fg_p_k_bb,           agg: average, expr: k_bb}
+      - {name: fg_p_hr9,            agg: average, expr: hr_9}
+      # 対戦打者指標
+      - {name: fg_p_avg_against,    agg: average, expr: avg}
+      - {name: fg_p_babip,          agg: average, expr: babip}
+      - {name: fg_p_lob_pct,        agg: average, expr: lobpct}
+      # プレート規律
+      - {name: fg_p_k_pct,          agg: average, expr: kpct}
+      - {name: fg_p_bb_pct,         agg: average, expr: bbpct}
+      - {name: fg_p_k_minus_bb_pct, agg: average, expr: kminusbbpct}
+      - {name: fg_p_swstr_pct,      agg: average, expr: swstrpct}
+      - {name: fg_p_zone_pct,       agg: average, expr: zonepct}
+      # 打球傾向（被）
+      - {name: fg_p_gb_pct,         agg: average, expr: gbpct}
+      - {name: fg_p_fb_pct,         agg: average, expr: fbpct}
+      - {name: fg_p_hr_fb,          agg: average, expr: hr_fb}
+      - {name: fg_p_hard_pct,       agg: average, expr: hardpct}
+      - {name: fg_p_barrel_pct,     agg: average, expr: barrelpct}
+      - {name: fg_p_hard_hit_pct,   agg: average, expr: hardhitpct}
+      - {name: fg_p_avg_ev_against, agg: average, expr: ev}
+      - {name: fg_p_avg_la_against, agg: average, expr: la}
+      # scaled 指標（100 基準）
+      - {name: fg_p_era_minus,      agg: average, expr: eraminus}    # 低いほど良い
+      - {name: fg_p_fip_minus,      agg: average, expr: fipminus}
+      - {name: fg_p_xfip_minus,     agg: average, expr: xfipminus}
+      # Stuff+ / Location+ / Pitching+
+      - {name: fg_p_stuff_plus,     agg: average, expr: stuffplus}
+      - {name: fg_p_location_plus,  agg: average, expr: locationplus}
+      - {name: fg_p_pitching_plus,  agg: average, expr: pitchingplus}
+      # 高度指標
+      - {name: fg_p_wpa,            agg: average, expr: wpa}
+      - {name: fg_p_clutch,         agg: average, expr: clutch}

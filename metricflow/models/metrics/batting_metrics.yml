@@ -1,0 +1,355 @@
+metrics:
+  - name: batting_average
+    label: "Batting Average"
+    type: simple
+    type_params:
+      measure: avg
+  - name: on_base_pct
+    label: "On-Base Percentage"
+    type: simple
+    type_params:
+      measure: obp
+  - name: ops_metric
+    label: "OPS"
+    type: simple
+    type_params:
+      measure: ops     # mart の pre-computed 値をそのまま公開
+  - name: weighted_on_base_avg
+    label: "Weighted On-Base Average (wOBA)"
+    type: simple
+    type_params:
+      measure: woba
+
+# ── batter_clutch ─────────────────────────────────────────────────────────────
+# situation_type の値: 'bases_loaded' | 'risp' | 'on_1b' | 'no_runner'
+
+  # 状況横断（クエリ時に situation_type ディメンションで絞り込む）
+  - name: clutch_woba
+    label: "Clutch wOBA"
+    type: simple
+    type_params:
+      measure: clutch_woba
+
+  - name: clutch_xwoba
+    label: "Clutch xwOBA"
+    type: simple
+    type_params:
+      measure: clutch_xwoba
+
+  - name: clutch_ops
+    label: "Clutch OPS"
+    type: simple
+    type_params:
+      measure: clutch_ops
+
+  - name: clutch_batting_average
+    label: "Clutch Batting Average (H/AB)"
+    type: simple
+    type_params:
+      measure: clutch_avg
+
+  - name: clutch_hard_hit_rate
+    label: "Clutch Hard Hit Rate"
+    type: simple
+    type_params:
+      measure: clutch_hard_hit_rate
+
+  - name: clutch_barrel_rate
+    label: "Clutch Barrel Rate"
+    type: simple
+    type_params:
+      measure: clutch_barrels_rate
+
+  # RISP 固定（situation_type = 'risp'）
+  - name: risp_batting_average
+    label: "RISP Batting Average"
+    type: simple
+    type_params:
+      measure: clutch_avg
+    filter: |
+      {{ Dimension('player__situation_type') }} = 'risp'
+
+  - name: risp_woba
+    label: "RISP wOBA"
+    type: simple
+    type_params:
+      measure: clutch_woba
+    filter: |
+      {{ Dimension('player__situation_type') }} = 'risp'
+
+  - name: risp_strikeout_rate
+    label: "RISP Strikeout Rate"
+    type: simple
+    type_params:
+      measure: clutch_strikeout_rate
+    filter: |
+      {{ Dimension('player__situation_type') }} = 'risp'
+
+  # 満塁固定（situation_type = 'bases_loaded'）
+  - name: bases_loaded_batting_average
+    label: "Bases Loaded Batting Average"
+    type: simple
+    type_params:
+      measure: clutch_avg
+    filter: |
+      {{ Dimension('player__situation_type') }} = 'bases_loaded'
+
+  - name: bases_loaded_woba
+    label: "Bases Loaded wOBA"
+    type: simple
+    type_params:
+      measure: clutch_woba
+    filter: |
+      {{ Dimension('player__situation_type') }} = 'bases_loaded'
+
+# ── batter_monthly ────────────────────────────────────────────────────────────
+
+  - name: monthly_batting_average
+    label: "Monthly Batting Average"
+    type: simple
+    type_params:
+      measure: monthly_batting_average
+
+  - name: monthly_ops
+    label: "Monthly OPS"
+    type: simple
+    type_params:
+      measure: monthly_ops
+
+  - name: monthly_home_runs
+    label: "Monthly Home Runs"
+    type: simple
+    type_params:
+      measure: monthly_home_runs
+
+# ── pitcher_by_inning ─────────────────────────────────────────────────────────
+
+  - name: era_by_inning
+    label: "ERA by Inning"
+    type: simple
+    type_params:
+      measure: era_by_inning
+
+  - name: era_first_inning
+    label: "1st Inning ERA"
+    type: simple
+    type_params:
+      measure: era_by_inning
+    filter: |
+      CAST({{ Dimension('pitcher__inning') }} AS INT64) = 1
+
+# ── pitcher_by_stand ──────────────────────────────────────────────────────────
+
+  - name: era_vs_lhb
+    label: "ERA vs Left-Handed Batters"
+    type: simple
+    type_params:
+      measure: era_vs_stand
+    filter: |
+      {{ Dimension('pitcher__stand') }} = 'L'
+
+  - name: era_vs_rhb
+    label: "ERA vs Right-Handed Batters"
+    type: simple
+    type_params:
+      measure: era_vs_stand
+    filter: |
+      {{ Dimension('pitcher__stand') }} = 'R'
+
+# ── pitcher_by_runner ─────────────────────────────────────────────────────────
+# situation の値: 'risp' | 'non_risp'
+
+  - name: pitcher_risp_xwoba
+    label: "Pitcher xwOBA with RISP"
+    type: simple
+    type_params:
+      measure: pitcher_xwoba
+    filter: |
+      {{ Dimension('pitcher__situation') }} = 'risp'
+
+  - name: pitcher_non_risp_xwoba
+    label: "Pitcher xwOBA without RISP"
+    type: simple
+    type_params:
+      measure: pitcher_xwoba
+    filter: |
+      {{ Dimension('pitcher__situation') }} = 'non_risp'
+
+  - name: pitcher_risp_k_pct
+    label: "Pitcher K% with RISP"
+    type: simple
+    type_params:
+      measure: pitcher_k_pct
+    filter: |
+      {{ Dimension('pitcher__situation') }} = 'risp'
+
+  - name: pitcher_risp_baa
+    label: "Pitcher BAA with RISP"
+    type: simple
+    type_params:
+      measure: pitcher_baa
+    filter: |
+      {{ Dimension('pitcher__situation') }} = 'risp'
+
+# ── batter_season_legacy (FanGraphs ベース) ───────────────────────────────────
+# 主キーは player_fg (idfg)。Statcast ベースの batter_season とは別エンティティ。
+
+  - name: fg_woba
+    label: "FG wOBA"
+    type: simple
+    type_params:
+      measure: fg_woba
+
+  - name: fg_xwoba
+    label: "FG xwOBA"
+    type: simple
+    type_params:
+      measure: fg_xwoba
+
+  - name: fg_wrc_plus
+    label: "FG wRC+"
+    type: simple
+    type_params:
+      measure: fg_wrc_plus
+
+  - name: fg_war
+    label: "FG WAR"
+    type: simple
+    type_params:
+      measure: fg_war
+
+  - name: fg_ops
+    label: "FG OPS"
+    type: simple
+    type_params:
+      measure: fg_ops
+
+  - name: fg_batting_average
+    label: "FG Batting Average"
+    type: simple
+    type_params:
+      measure: fg_avg
+
+  - name: fg_barrel_rate
+    label: "FG Barrel Rate"
+    type: simple
+    type_params:
+      measure: fg_barrel_pct
+
+  - name: fg_hard_hit_rate
+    label: "FG Hard Hit Rate"
+    type: simple
+    type_params:
+      measure: fg_hard_hit_pct
+
+  - name: fg_clutch_score
+    label: "FG Clutch Score"
+    type: simple
+    type_params:
+      measure: fg_clutch
+
+  - name: fg_risp_batting_average
+    label: "FG RISP Batting Average (pre-computed)"
+    type: simple
+    type_params:
+      measure: fg_avg_at_risp
+
+  - name: fg_risp_batting_average_calc
+    label: "FG RISP Batting Average (H/AB)"
+    type: simple
+    type_params:
+      measure: fg_avg_at_risp
+
+# ── batter_by_inning ──────────────────────────────────────────────────────────
+# inning はクエリ時にディメンションで絞り込む
+
+  - name: inning_avg
+    label: "Batting Average by Inning"
+    type: simple
+    type_params:
+      measure: inning_avg
+
+  - name: inning_ops
+    label: "OPS by Inning"
+    type: simple
+    type_params:
+      measure: inning_ops
+
+  - name: inning_hard_hit_rate
+    label: "Hard Hit Rate by Inning"
+    type: simple
+    type_params:
+      measure: inning_hard_hit_rate
+
+  - name: inning_batting_average
+    label: "Batting Average by Inning (H/AB)"
+    type: simple
+    type_params:
+      measure: inning_avg
+
+  - name: early_inning_avg
+    label: "Early Inning Batting Average (1-3)"
+    type: simple
+    type_params:
+      measure: inning_avg
+    filter: |
+      CAST({{ Dimension('player__inning') }} AS INT64) <= 3
+
+  - name: late_inning_avg
+    label: "Late Inning Batting Average (7+)"
+    type: simple
+    type_params:
+      measure: inning_avg
+    filter: |
+      CAST({{ Dimension('player__inning') }} AS INT64) >= 7
+
+# ── batter_by_pitch_type ──────────────────────────────────────────────────────
+# pitch_name はクエリ時にディメンションで絞り込む（例: 'FF', 'SL', 'CH' 等）
+
+  - name: pitch_type_avg
+    label: "Batting Average by Pitch Type"
+    type: simple
+    type_params:
+      measure: pitch_avg
+
+  - name: pitch_type_ops
+    label: "OPS by Pitch Type"
+    type: simple
+    type_params:
+      measure: pitch_ops
+
+  - name: pitch_type_swinging_strike_rate
+    label: "Swinging Strike Rate by Pitch Type"
+    type: simple
+    type_params:
+      measure: pitch_swinging_strike_rate
+
+  - name: pitch_type_hard_hit_rate
+    label: "Hard Hit Rate by Pitch Type"
+    type: simple
+    type_params:
+      measure: pitch_hard_hit_rate
+
+  - name: vs_fastball_avg
+    label: "Batting Average vs Fastball (4-seam)"
+    type: simple
+    type_params:
+      measure: pitch_avg
+    filter: |
+      {{ Dimension('player__pitch_name') }} = 'FF'
+
+  - name: vs_slider_avg
+    label: "Batting Average vs Slider"
+    type: simple
+    type_params:
+      measure: pitch_avg
+    filter: |
+      {{ Dimension('player__pitch_name') }} = 'SL'
+
+  - name: vs_changeup_ops
+    label: "OPS vs Changeup"
+    type: simple
+    type_params:
+      measure: pitch_ops
+    filter: |
+      {{ Dimension('player__pitch_name') }} = 'CH'

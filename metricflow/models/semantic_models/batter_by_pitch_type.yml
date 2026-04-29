@@ -1,0 +1,47 @@
+semantic_models:
+  - name: batter_by_pitch_type
+    model: ref('mart_batter_pitch_type')
+    defaults:
+      agg_time_dimension: pitch_type_season
+    entities:
+      - {name: player, type: primary, expr: batter_id}   # batter_id = mlbid (INTEGER)
+      - {name: team,   type: foreign, expr: team}
+    dimensions:
+      - name: pitch_type_season
+        type: time
+        type_params:
+          time_granularity: year
+        expr: DATE(game_year, 1, 1)
+      - {name: pitch_name, type: categorical}
+      # pitch_name の値例: 'FF' (4-seam) | 'SL' (slider) | 'CH' (changeup) |
+      #                    'CU' (curveball) | 'SI' (sinker) | 'FC' (cutter) 等
+    measures:
+      # ── 生カウント（SUM で集約可能） ──────────────────────────────────────────
+      - {name: pitch_ab,                    agg: sum, expr: ab_by_pitch_type}
+      - {name: pitch_hits,                  agg: sum, expr: hits_by_pitch_type}
+      - {name: pitch_singles,               agg: sum, expr: singles_by_pitch_type}
+      - {name: pitch_doubles,               agg: sum, expr: doubles_by_pitch_type}
+      - {name: pitch_triples,               agg: sum, expr: triples_by_pitch_type}
+      - {name: pitch_home_runs,             agg: sum, expr: homeruns_by_pitch_type}
+      - {name: pitch_bb_hbp,                agg: sum, expr: bb_hbp_by_pitch_type}
+      - {name: pitch_strikeouts,            agg: sum, expr: so_by_pitch_type}
+      - {name: pitch_hard_hit_count,        agg: sum, expr: hard_hit_count_by_pitch_type}
+      - {name: pitch_barrels_count,         agg: sum, expr: barrels_count_by_pitch_type}
+      - {name: pitch_total_batted_balls,    agg: sum, expr: total_batted_balls_by_pitch_type}
+      - {name: pitch_swinging_strike_count, agg: sum, expr: swinging_strike_count_by_pitch_type}
+
+      # ── pre-computed ratios（1選手×シーズン×pitch_name で1行のため average で集約） ─
+      - {name: pitch_avg,                   agg: average, expr: avg_by_pitch_type}
+      - {name: pitch_obp,                   agg: average, expr: obp_by_pitch_type}
+      - {name: pitch_slg,                   agg: average, expr: slg_by_pitch_type}
+      - {name: pitch_ops,                   agg: average, expr: ops_by_pitch_type}
+      - {name: pitch_hard_hit_rate,         agg: average, expr: hard_hit_rate_by_pitch_type}
+      - {name: pitch_barrels_rate,          agg: average, expr: barrels_rate_by_pitch_type}
+      - {name: pitch_strikeout_rate,        agg: average, expr: strikeout_rate_by_pitch_type}
+      - {name: pitch_swinging_strike_rate,  agg: average, expr: swinging_strike_rate_by_pitch_type}
+
+      # ── Statcast 平均値（既に平均のため average で集約） ─────────────────────
+      - {name: pitch_avg_exit_velocity,     agg: average, expr: exit_velocity_by_pitch_type}
+      - {name: pitch_avg_launch_angle,      agg: average, expr: launch_angle_by_pitch_type}
+      - {name: pitch_avg_bat_speed,         agg: average, expr: bat_speed_by_pitch_type}
+      - {name: pitch_avg_swing_length,      agg: average, expr: swing_length_by_pitch_type}

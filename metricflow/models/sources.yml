@@ -1,0 +1,76 @@
+version: 2
+
+sources:
+  - name: mlb_raw_data # ソースグループの名前。任意の名前でOK
+    database: tksm-dash-test-25 # ★あなたのGCPプロジェクトIDに置き換える
+    schema: mlb_analytics_dash_25 # ★既存のstagingテーブルがあるデータセットIDに置き換える
+    freshness: # When MLB offseason, deactivate freshness checks
+      warn_after: {count: 48, period: hour}
+      error_after: {count: 96, period: hour}
+
+    tables:
+      - name: fact_batting_stats_weekly_staging
+        description: "Weekly batting stats loaded directly from ETL pipeline."
+        columns:
+          - name: idfg
+            description: "Fangraphs player ID"
+            tests:
+              - not_null
+          - name: season
+            description: "Season year"
+            tests:
+              - not_null
+
+      - name: fact_pitching_stats_weekly_staging
+        description: "Weekly pitching stats loaded directly from ETL pipeline."
+        columns:
+          - name: idfg
+            description: "Fangraphs player ID"
+            tests:
+              - not_null
+          - name: season
+            description: "Season year"
+            tests:
+              - not_null
+
+      - name: statcast_staging
+        description: "Raw Statcast data loaded weekly."
+        columns:
+          - name: game_pk
+            description: "Unique game identifier"
+            tests:
+              - not_null
+          - name: pitch_number
+            description: "Pitch number in the game"
+            tests:
+              - not_null
+          - name: at_bat_number
+            description: "At-bat number in the game"
+            tests:
+              - not_null
+          - name: game_date
+            description: "Game date"
+            tests:
+              - not_null
+
+      - name: dim_players
+        description: "Dimension table for players, including MLB IDs and Fangraphs IDs."
+        columns:
+          - name: mlb_id
+            description: "MLB player ID"
+            tests:
+              - not_null
+              - unique
+
+      - name: dim_players_latest
+        description: "Latest dimension table for players, including MLB IDs (non-Fangraphs IDs)."
+      
+      - name: dim_players_pb
+        description: "Dimension table for players, including MLB IDs and Fangraphs IDs. 
+                      This is sourced from Chadwick Baseball Bureau, where data is not often updated, so idfg for some players might be missing."
+      
+      - name: dim_player_season_teams
+        description: "Player season team affiliations with team abbreviations."
+
+      - name: dim_park_factors
+        description: "Park factors by team and season used for wRC+ normalization."
