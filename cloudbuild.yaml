@@ -168,7 +168,7 @@ steps:
       - '--port'
       - '8080'
       - '--set-env-vars'
-      - 'DBT_PROJECT_DIR=/app,GCP_PROJECT_ID=${PROJECT_ID},BIGQUERY_DATASET=mlb_analytics_dash_25'
+      - 'DBT_PROJECT_DIR=/app/dbt_project,DBT_PROFILES_DIR=/app/dbt_project,GCP_PROJECT_ID=${PROJECT_ID},BIGQUERY_DATASET=mlb_analytics_dash_25'
 
   # # ----------------------------------------------------------------------
   # 1. バックエンド (FastAPI) のDockerイメージをビルド

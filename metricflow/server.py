@@ -79,6 +79,7 @@ def _run_mf_query(req: QueryRequest) -> dict:
 @app.on_event("startup")
 async def startup():
     """コンテナ起動時に dbt parse して semantic manifest を生成する。"""
+    print(f"[startup] DBT_PROJECT_DIR={DBT_PROJECT_DIR}, DBT_PROFILES_DIR={DBT_PROFILES_DIR}")
     result = subprocess.run(
         ["dbt", "parse", "--profiles-dir", DBT_PROFILES_DIR, "--project-dir", DBT_PROJECT_DIR],
         capture_output=True,
@@ -86,7 +87,12 @@ async def startup():
         timeout=120,
     )
     if result.returncode != 0:
-        raise RuntimeError(f"dbt parse failed at startup: {result.stderr}")
+        # stderr が空のことがあるので stdout も含める
+        raise RuntimeError(
+            f"dbt parse failed at startup (exit={result.returncode}): "
+            f"stderr={result.stderr!r} stdout={result.stdout!r}"
+        )
+    print("[startup] dbt parse succeeded; semantic_manifest.json generated")
 
 
 @app.post("/query")
