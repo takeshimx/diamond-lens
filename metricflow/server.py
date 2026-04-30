@@ -10,8 +10,8 @@ from pydantic import BaseModel
 
 app = FastAPI()
 
-DBT_PROJECT_DIR = os.environ.get("DBT_PROJECT_DIR", "/app")
-DBT_PROFILES_DIR = os.environ.get("DBT_PROFILES_DIR", "/app")
+DBT_PROJECT_DIR = os.environ.get("DBT_PROJECT_DIR", "/app/dbt_project")
+DBT_PROFILES_DIR = os.environ.get("DBT_PROFILES_DIR", "/app/dbt_project")
 
 
 class QueryRequest(BaseModel):

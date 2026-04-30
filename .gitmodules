@@ -1,0 +1,3 @@
+[submodule "metricflow/dbt_project"]
+	path = metricflow/dbt_project
+	url = https://github.com/takeshimx/mlb-analytics-data-dbt.git

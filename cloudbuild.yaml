@@ -104,10 +104,28 @@ steps:
   #       fi
 
   # ----------------------------------------------------------------------
+  # Submodule 取得（mlb-analytics-data-dbt を metricflow/dbt_project に展開）
+  # Cloud Build はデフォルトで submodule を取得しないため明示。
+  # 対象が private リポジトリのため Secret Manager の GitHub PAT で認証する。
+  # ----------------------------------------------------------------------
+  - id: 'init-submodules'
+    name: 'gcr.io/cloud-builders/git'
+    entrypoint: 'bash'
+    secretEnv: ['GITHUB_PAT']
+    args:
+      - '-c'
+      - |
+        # PAT を URL に埋め込んで HTTPS で private リポジトリを clone する
+        git config --global url."https://x-access-token:$${GITHUB_PAT}@github.com/".insteadOf "https://github.com/"
+        git submodule update --init --recursive
+        ls -la metricflow/dbt_project/ | head
+
+  # ----------------------------------------------------------------------
   # MetricFlow Server: ビルド
   # ----------------------------------------------------------------------
   - id: 'metricflow-build-image'
     name: 'gcr.io/cloud-builders/docker'
+    waitFor: ['init-submodules']
     args:
       - 'build'
       - '-t'
@@ -276,11 +294,15 @@ steps:
   #     - '--clear-secrets'
 
 
-# # Secret Manager から環境変数を取得
-# availableSecrets:
-#   secretManager:
-#     - versionName: projects/${PROJECT_ID}/secrets/VITE_APP_PASSWORD_V2/versions/latest
-#       env: 'VITE_APP_PASSWORD_V2'
+# Secret Manager から環境変数を取得
+availableSecrets:
+  secretManager:
+    # private な mlb-analytics-data-dbt を submodule として clone するための GitHub PAT
+    - versionName: projects/${PROJECT_ID}/secrets/github-pat/versions/latest
+      env: 'GITHUB_PAT'
+    # 既存の他 Secret は必要時にコメント解除
+    # - versionName: projects/${PROJECT_ID}/secrets/VITE_APP_PASSWORD_V2/versions/latest
+    #   env: 'VITE_APP_PASSWORD_V2'
     # - versionName: projects/${PROJECT_ID}/secrets/NOTIFICATION_EMAIL_V2/versions/latest
     #   env: 'NOTIFICATION_EMAIL_V2'
 
