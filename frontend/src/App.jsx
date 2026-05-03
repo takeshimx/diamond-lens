@@ -10,6 +10,7 @@ import Standings from './components/Standings.jsx';
 import Leaderboard from './components/Leaderboard.jsx';
 import HotSlumpDashboard from './components/HotSlumpDashboard.jsx';
 import PlayerProfile from './components/PlayerProfile.jsx';
+import StrategyReportPage from './components/StrategyReportPage.jsx';
 import { useAuth } from './hooks/useAuth';
 import { useSession } from './hooks/useSession.js';
 import { useBackendAPI } from './hooks/useBackendAPI.js';
@@ -177,6 +178,14 @@ const MLBChatApp = () => {
             />
           </div>
         );
+      case "strategy":
+        return (
+          <StrategyReportPage
+            getBackendURL={getBackendURL}
+            getAuthHeaders={getAuthHeaders}
+            onSearchPlayers={searchPlayers}
+          />
+        );
       default:
         return <Placeholder label={mode.toUpperCase()}/>;
     }
@@ -229,7 +238,7 @@ const MLBChatApp = () => {
             />
 
             {/* Screen content */}
-            <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflowY: mode === "chat" ? "hidden" : "auto" }}>
+            <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflowY: (mode === "chat" || mode === "strategy") ? "hidden" : "auto" }}>
               {renderScreen()}
             </div>
           </div>

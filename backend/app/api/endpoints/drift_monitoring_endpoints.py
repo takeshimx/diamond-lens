@@ -18,7 +18,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ml-monitoring", tags=["ML Monitoring"])
 
 service = DataDriftService()
-monitoring_logger = get_ml_monitoring_logger()
+# NOTE: monitoring_logger はモジュールimport時にBigQueryクライアントを
+# 初期化して起動を遅延させていたため、各エンドポイント関数の冒頭で
+# `get_ml_monitoring_logger()` を呼ぶ形に変更（シングルトンなので初回のみ初期化）。
 
 # Registry for auto-baseline (fallback gracefully if unavailable)
 try:
@@ -74,6 +76,7 @@ async def detect_drift(
     MLモデル入力データのドリフト検知を実行。
     baseline_season が未指定の場合、Registry の active モデルから学習シーズンを自動取得する。
     """
+    monitoring_logger = get_ml_monitoring_logger()
     if baseline_season is None:
         if registry is None:
             raise HTTPException(
@@ -117,6 +120,7 @@ async def detect_prediction_drift(
     同じモデルで baseline / target の Statcast データを推論し、
     予測分布の KS / PSI を比較する。Stuff+ 系モデル専用。
     """
+    monitoring_logger = get_ml_monitoring_logger()
     if baseline_season is None:
         if registry is None:
             raise HTTPException(
@@ -161,6 +165,7 @@ async def detect_concept_drift(
     同じモデルの RMSE / 相関係数が baseline→target で悪化していれば
     特徴量と目的変数の関係が変わった（= 再学習が必要）ことを示す。
     """
+    monitoring_logger = get_ml_monitoring_logger()
     if baseline_season is None:
         if registry is None:
             raise HTTPException(
@@ -196,6 +201,7 @@ async def get_drift_history(
     limit: int = Query(30, ge=1, le=100),
 ):
     """過去のドリフト検知履歴を取得"""
+    monitoring_logger = get_ml_monitoring_logger()
     history = monitoring_logger.get_drift_history(
         model_type=model_type, limit=limit
     )
@@ -207,6 +213,7 @@ async def get_drift_summary(
     model_type: str = Query(..., description="Model type to query"),
 ):
     """最新のドリフト検知サマリを取得"""
+    monitoring_logger = get_ml_monitoring_logger()
     summary = monitoring_logger.get_latest_summary(model_type)
     if not summary:
         return {

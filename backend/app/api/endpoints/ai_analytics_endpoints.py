@@ -30,8 +30,9 @@ from pydantic import BaseModel
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 structured_logger = get_logger("diamond-lens")
-monitoring = get_monitoring_service()
-llm_logger = get_llm_logger()
+# NOTE: monitoring / llm_logger はモジュールimport時にBigQuery/Monitoring
+# クライアントを初期化して起動を遅延させていたため、各エンドポイント関数の
+# 冒頭で `get_*()` を呼ぶ形に変更（シングルトンなので初回のみ初期化される）。
 
 # APIRouterインスタンスを作成
 # このルーターは、FastAPIアプリケーションの他の部分とは独立してエンドポイントを定義できます。
@@ -63,6 +64,8 @@ async def get_player_stats_qna_endpoint(
     ユーザーの自然言語クエリに基づいて、AIが選手/チームの統計情報に関する回答を生成します。
     会話履歴機能: session_idを指定することで、過去の会話を参照して「彼」などの代名詞を自動解決します。
     """
+    monitoring = get_monitoring_service()
+    llm_logger = get_llm_logger()
     # セッションIDがない場合は新規作成
     session_id = request_body.session_id or str(uuid4())
 
@@ -292,6 +295,7 @@ async def get_agentic_stats_endpoint(
     """
     自律型エージェント（LangGraph）を起動して回答を得るエンドポイント。
     """
+    llm_logger = get_llm_logger()
     session_id = body.session_id or str(uuid4())
 
     # トークンバジェットチェック
@@ -444,6 +448,7 @@ class FeedbackRequest(BaseModel):
 async def submit_llm_feedback(feedback: FeedbackRequest):
     """ユーザーからのAI回答フィードバックを記録する"""
     try:
+        llm_logger = get_llm_logger()
         llm_logger.update_feedback(
             request_id=feedback.request_id,
             session_id=feedback.session_id,

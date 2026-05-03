@@ -149,9 +149,10 @@ function Section({ title, lines }) {
 }
 
 // ===== メインコンポーネント =====
-const StrategyReportCard = ({ finalAnswer }) => {
+const StrategyReportCard = ({ finalAnswer, season }) => {
   const sections = parseSections(finalAnswer);
   if (sections.length === 0) return null;
+  const seasonLabel = season ?? new Date().getFullYear();
 
   return (
     <div className="mt-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm overflow-hidden transition-all duration-300 hover:shadow-md w-full max-w-2xl">
@@ -164,7 +165,7 @@ const StrategyReportCard = ({ finalAnswer }) => {
           <p className="text-indigo-200 text-xs font-semibold tracking-wider">MLB ADVANCED ANALYSIS</p>
         </div>
         <span className="ml-auto px-2 py-0.5 text-xs bg-white/20 text-white rounded-full font-bold tracking-wide">
-          2025
+          {seasonLabel}
         </span>
       </div>
 

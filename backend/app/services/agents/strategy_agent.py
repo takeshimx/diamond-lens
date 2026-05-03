@@ -371,3 +371,28 @@ class StrategyAgent:
             "isStrategyReport": True,
             "strategyData": result.get("parallel_results", {}),
         }
+
+    def run_structured(
+        self,
+        batter_name: str,
+        pitcher_name: str,
+        season: Optional[int] = None,
+    ):
+        """
+        構造化入力（打者名・投手名・シーズン）から戦略レポートを生成する。
+
+        新規タブ「対戦戦略レポート」専用エントリーポイント。チャットの自然言語経路には影響しない。
+        内部では既存の self.run() を再利用するため、planner / parallel_executor /
+        aggregator / strategist のロジック・プロンプトは一切変更されない。
+        """
+        season_part = f"（{season}年）" if season else ""
+        query = (
+            f"{batter_name} vs {pitcher_name}{season_part} の対戦戦略レポートを作成してください。"
+        )
+        logger.info(
+            "StrategyAgent.run_structured invoked",
+            batter=batter_name,
+            pitcher=pitcher_name,
+            season=season,
+        )
+        return self.run(query)

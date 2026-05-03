@@ -631,6 +631,10 @@ class PlayerBattingKPI(BaseModel):
     slg: Optional[float] = None
     ops: Optional[float] = None
     woba: Optional[float] = None
+    xwoba: Optional[float] = None
+    xba: Optional[float] = None
+    k_pct: Optional[float] = None
+    bb_pct: Optional[float] = None
     war: Optional[float] = None
     wrcplus: Optional[int] = None
     hardhitpct: Optional[float] = None
@@ -647,6 +651,10 @@ class PlayerBattingKPI(BaseModel):
     bb_rank: Optional[int] = None
     so_rank: Optional[int] = None
     woba_rank: Optional[int] = None
+    xwoba_rank: Optional[int] = None
+    xba_rank: Optional[int] = None
+    k_pct_rank: Optional[int] = None
+    bb_pct_rank: Optional[int] = None
     wrcplus_rank: Optional[int] = None
     war_rank: Optional[int] = None
     hardhitpct_rank: Optional[int] = None

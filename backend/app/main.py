@@ -17,7 +17,9 @@ from backend.app.middleware.rate_limit import RateLimitMiddleware
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 structured_logger = get_logger("diamond-lens")
-monitoring = get_monitoring_service()
+# NOTE: monitoring（Cloud Monitoring gRPC client）はモジュールimport時に
+# 初期化すると起動が9秒前後遅くなるため、middleware/handler 内で
+# `get_monitoring_service()` を呼ぶ形に変更（シングルトンなので初回のみ初期化）。
 
 # Create the FastAPI app instance
 app = FastAPI(
@@ -37,6 +39,7 @@ async def custom_rate_limit_handler(request: Request, exc: RateLimitExceeded):
         path=request.url.path,
         detail=str(exc.detail),
     )
+    monitoring = get_monitoring_service()
     monitoring.record_rate_limit_rejection(
         endpoint=request.url.path, limit_type="endpoint"
     )
@@ -94,6 +97,7 @@ async def monitoring_middleware(request: Request, call_next):
     )
 
     # Record metrics
+    monitoring = get_monitoring_service()
     monitoring.record_api_latency(
         endpoint=request.url.path,
         latency_ms=latency_ms,

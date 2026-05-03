@@ -1,8 +1,7 @@
 export const NAV_ITEMS = [
   { id: "chat",      icon: "chat",   code: "CHT", jp: "チャット",        en: "CHAT"       },
-  { id: "quick",     icon: "bolt",   code: "QCK", jp: "クイック質問",    en: "QUICK"      },
+  { id: "strategy",  icon: "bolt",   code: "STR", jp: "対戦戦略",        en: "STRATEGY"   },
   { id: "stats",     icon: "chart",  code: "STA", jp: "統計分析",        en: "STATS"      },
-  { id: "segment",   icon: "users",  code: "SEG", jp: "選手分類",        en: "SEG"        },
   { id: "stuff",     icon: "target", code: "STF", jp: "球質評価",        en: "STUFF+"     },
   { id: "advanced",  icon: "grid",   code: "ADV", jp: "Advanced Stats", en: "ADV.STATS"  },
   { id: "hot",       icon: "fire",   code: "HOT", jp: "Hot / Slump",    en: "HOT/SLUMP"  },
