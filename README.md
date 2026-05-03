@@ -514,6 +514,46 @@ Predicts a pitcher's whiff rate under user-specified situational conditions usin
 
 **Technologies**: FastAPI, BigQuery (`statcast_master`), React, Recharts
 
+### 22. dbt Semantic Layer Integration (NEW 2026)
+**Status**: ✅ Production-ready (canary via `USE_SEMANTIC_LAYER` flag)
+
+Replaces the legacy two-stage LLM parse + dynamic SQL pipeline with the dbt Semantic Layer (MetricFlow), running as an internal Cloud Run service.
+
+**Why this exists**:
+- The legacy chat path required **two LLM calls** per query: Oracle picked a tool with a natural-language `query: str`, then the tool internally re-parsed that string with a second LLM call to extract metric / player / season parameters and build SQL via `query_maps.py`.
+- That string handoff lost intent, doubled cost / latency, and forced metric definitions to live as Python code inside `query_maps.py`.
+- 2026 dbt benchmarks show Semantic Layer driven text-to-metric reaches ≥ 90% accuracy versus raw text-to-SQL — the industry has moved on.
+
+**Capabilities**:
+- **🎯 Single-pass function calling**: Oracle (Gemini 2.5 Flash) emits a structured `query_semantic_metrics_tool` call with `metrics`, `mlbid`, `season`, `team` directly — no second-stage parse.
+- **📐 Single source of truth for metrics**: Every metric (AVG, OBP, SLG, OPS, wOBA, wRC+, HR, RBI, SO, BB, …) is defined in `mlb-analytics-data-dbt/models/metrics/batting_metrics.yml`. Adding a new metric is a YAML change, not a Python release.
+- **🛡️ Tool-side validation**: Metrics not present in MetricFlow's `/metrics` are rejected before reaching BigQuery so the LLM cannot hallucinate column names.
+- **🔁 Canary rollout flag**: `USE_SEMANTIC_LAYER=true|false` toggles the new path on a per-service basis. Instant rollback with one env-var change.
+- **🌐 Service isolation**: MetricFlow runs as a separate Cloud Run service (`mlb-metricflow-server`) authenticated via Cloud Run service-to-service OIDC ID tokens (`roles/run.invoker`).
+- **🔖 Standard baseball labels**: Internal metric names like `weighted_on_base_avg` are mapped to display names like `wOBA` in table responses.
+
+**Architecture**:
+```
+User question
+    ↓
+Oracle (Gemini, function calling)         ← single LLM call
+    ↓ structured args (metrics=["batting_average","on_base_pct",...], mlbid=660271, season=2025)
+query_semantic_metrics_tool
+    ↓ HTTP POST /query (OIDC ID token)
+mlb-metricflow-server (Cloud Run)
+    ↓ mf query → SQL
+BigQuery (mlb_analytics_dash_25)
+    ↓ rows
+Synthesizer → user (sentence) or DataTable (table)
+```
+
+**Operational notes**:
+- The dbt project under `metricflow/dbt_project/` is a **git submodule** of the private `mlb-analytics-data-dbt` repository. See [Operations: dbt Submodule Update Workflow](#operations-dbt-submodule-update-workflow).
+- Cloud Build authenticates to the private dbt repo via a GitHub PAT stored in Secret Manager (`github-pat`) and pulls the submodule before building the MetricFlow image.
+- Metric metadata is fetched once at backend startup (`@app.on_event("startup")` in `main.py` → `warmup_metric_metadata()`) and cached, so per-request latency is unaffected.
+
+**Technologies**: dbt-bigquery, dbt-metricflow (`mf` CLI), FastAPI (MetricFlow HTTP wrapper), BigQuery, Cloud Run service-to-service auth, Secret Manager.
+
 ---
 
 ### Technical Features
@@ -528,8 +568,19 @@ Predicts a pitcher's whiff rate under user-specified situational conditions usin
 
 ## 🏗 Architecture
 
-### Core Data Processing Pipeline
-The application follows a sophisticated 4-step pipeline:
+### Two Coexisting Chat Pipelines (2026)
+
+The application supports two chat backends, switchable per service via the `USE_SEMANTIC_LAYER` environment variable:
+
+#### A. Semantic Layer Path (current, recommended)
+
+1. **🎯 Oracle (Single LLM Call)** — Gemini 2.5 Flash with function calling emits a structured `query_semantic_metrics_tool` invocation: `metrics=[...], mlbid, season, team, output_format`.
+2. **🛡️ Validation** — `query_semantic_metrics_tool` checks each metric against the MetricFlow `/metrics` cache (warmed up at app startup) and rejects unknown metrics before any network call.
+3. **🌐 MetricFlow Cloud Run** — `semantic_layer_client.py` POSTs `/query` with an OIDC ID token to `mlb-metricflow-server`. The server runs `mf query` (dbt-metricflow CLI) which compiles the request into BigQuery SQL using semantic models from the `mlb-analytics-data-dbt` git submodule.
+4. **📊 BigQuery** — MetricFlow issues SQL against `mlb_analytics_dash_25`.
+5. **💬 Synthesizer** — Renders as a `DataTable` (table mode) or asks Gemini to generate a Japanese sentence (text mode). Standard baseball labels (`AVG`, `OBP`, `wOBA`, `wRC+`, ...) are applied via a display-name map.
+
+#### B. Legacy Path (still available, will be retired in Phase 5)
 
 1. **🧠 LLM Query Parsing** (`ai_service._parse_query_with_llm`)
    - Converts natural language (Japanese) to structured JSON parameters
@@ -977,6 +1028,49 @@ Analyze OPS impact on win rate with fixed ERA and home runs allowed.
 - **Auto-scroll**: Automatic scrolling to latest messages
 - **Loading States**: Visual feedback during API calls
 - **Error Handling**: Graceful error display and recovery
+
+## 🔧 Operations: dbt Submodule Update Workflow
+
+The dbt project under `metricflow/dbt_project/` is a **git submodule** of the private `mlb-analytics-data-dbt` repository. Whenever a YAML there changes (a new metric, a new semantic_model, a measure rename), the diamond-lens-side submodule pointer must be bumped so Cloud Build picks up the new commit.
+
+### Standard flow (manual)
+
+```bash
+# 1. Edit and push in the dbt repo
+cd ~/path/to/mlb-analytics-data-dbt
+# ... edit YAML files ...
+git add .
+git commit -m "feat: add new metric foo_bar"
+git push
+
+# 2. Bump the submodule pointer in diamond-lens
+cd ~/path/to/diamond-lens
+git submodule update --remote metricflow/dbt_project
+git add metricflow/dbt_project
+git commit -m "chore: bump dbt_project submodule"
+git push
+# → Cloud Build rebuilds & redeploys mlb-metricflow-server with the new YAML
+```
+
+### Why the second commit is required
+
+Git submodules pin to a **specific commit SHA**, not to a branch tip. Pushing in the dbt repo alone does not change what the diamond-lens commit points at. The `git submodule update --remote` command fast-forwards the local submodule, then the diamond-lens commit records the new SHA so Cloud Build clones the right state.
+
+### Verifying after deploy
+
+```
+resource.type="cloud_run_revision"
+resource.labels.service_name="mlb-metricflow-server"
+"dbt parse succeeded"
+```
+
+If the Semantic Layer call returns `Semantic Layer 経由のメトリクス取得に失敗しました`, the most common cause is a forgotten submodule bump — the new metric exists in the dbt repo but the deployed MetricFlow image still has the old commit.
+
+### Cloud Build authentication for the private dbt repo
+
+Cloud Build uses a fine-grained GitHub PAT stored in Secret Manager as `github-pat`. The `init-submodules` step in `cloudbuild.yaml` writes a one-shot git config that injects the PAT into HTTPS clone URLs. Token rotation: regenerate the PAT in GitHub, add a new version to the `github-pat` secret, then redeploy.
+
+---
 
 ## 🏗️ Infrastructure Management
 

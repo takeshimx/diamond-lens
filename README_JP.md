@@ -509,6 +509,46 @@ BigQueryマートテーブルをソースとした打者・投手の伝統的な
 
 **技術**: FastAPI、BigQuery（statcast_master）、React、Recharts
 
+### 22. dbt セマンティックレイヤー統合（NEW 2026）
+**ステータス**: ✅ `USE_SEMANTIC_LAYER` フラグによるカナリア展開で本番稼働
+
+従来の「2段階LLMパース + 動的SQL」パイプラインを、dbt セマンティックレイヤー（MetricFlow）を内部 Cloud Run サービスとして稼働させる構成へ置き換えました。
+
+**この機能が必要な理由**:
+- 旧チャット経路では1質問につき **LLMを2回呼出** していました：Oracle が自然言語の `query: str` でツールを選び、ツール内部でその文字列を別のLLMで再パースして metric / 選手 / シーズンを抽出し `query_maps.py` 経由でSQLを構築
+- 文字列バケツリレーで意図情報が劣化し、コスト・レイテンシが2倍、メトリクス定義はPythonコードに散在
+- 2026年の dbt ベンチマークではセマンティックレイヤー駆動の text-to-metric が ≥ 90% 精度を達成。業界標準が移行済
+
+**機能**:
+- **🎯 1段階 function calling**: Oracle（Gemini 2.5 Flash）が `query_semantic_metrics_tool` を `metrics`, `mlbid`, `season`, `team` といった構造化引数で直接呼出。2回目のパース不要
+- **📐 メトリクス定義の単一真実**: AVG / OBP / SLG / OPS / wOBA / wRC+ / HR / RBI / SO / BB 等すべて `mlb-analytics-data-dbt/models/metrics/batting_metrics.yml` で定義。新メトリクス追加は YAML 編集のみで Python リリース不要
+- **🛡️ Tool 側バリデーション**: MetricFlow の `/metrics` キャッシュにないメトリクス指定は BigQuery 到達前に拒否。LLM のメトリクス名ハルシネーションを防ぐ
+- **🔁 カナリア切替フラグ**: `USE_SEMANTIC_LAYER=true|false` でサービス毎に新旧経路を切替。問題発生時は環境変数1つで即ロールバック
+- **🌐 サービス分離**: MetricFlow は別 Cloud Run サービス（`mlb-metricflow-server`）として稼働。Cloud Run サービス間 OIDC ID トークン認証（`roles/run.invoker`）
+- **🔖 野球慣用ラベル**: 内部メトリクス名 `weighted_on_base_avg` などはテーブル表示時に `wOBA` 等の標準略称にマッピング
+
+**アーキテクチャ**:
+```
+ユーザー質問
+    ↓
+Oracle（Gemini、function calling）         ← LLM呼出は1回
+    ↓ 構造化引数（metrics=["batting_average","on_base_pct",...], mlbid=660271, season=2025）
+query_semantic_metrics_tool
+    ↓ HTTP POST /query（OIDC ID トークン）
+mlb-metricflow-server（Cloud Run）
+    ↓ mf query → SQL
+BigQuery（mlb_analytics_dash_25）
+    ↓ rows
+Synthesizer → ユーザー（文章 or DataTable）
+```
+
+**運用上の注意**:
+- `metricflow/dbt_project/` 配下の dbt プロジェクトは private リポジトリ `mlb-analytics-data-dbt` の **git submodule** です。詳細は [運用: dbt サブモジュール更新フロー](#運用-dbt-サブモジュール更新フロー) を参照
+- Cloud Build は Secret Manager に格納された GitHub PAT (`github-pat`) で private dbt リポを認証取得し、MetricFlow イメージビルド前に submodule を展開
+- メトリクスメタデータはバックエンド起動時（`main.py` の `@app.on_event("startup")` → `warmup_metric_metadata()`）に1回だけ取得してキャッシュ。リクエスト毎の追加レイテンシなし
+
+**技術**: dbt-bigquery, dbt-metricflow（`mf` CLI）, FastAPI（MetricFlow HTTP ラッパー）, BigQuery, Cloud Run サービス間認証, Secret Manager
+
 ---
 
 ### 技術機能
@@ -523,8 +563,19 @@ BigQueryマートテーブルをソースとした打者・投手の伝統的な
 
 ## 🏗 アーキテクチャ
 
-### コアデータ処理パイプライン
-アプリケーションは洗練された4ステップパイプラインに従います：
+### 2つの並走するチャットパイプライン（2026）
+
+`USE_SEMANTIC_LAYER` 環境変数で **サービス毎に新旧経路を切替** できる構成です：
+
+#### A. セマンティックレイヤー経路（現行・推奨）
+
+1. **🎯 Oracle（LLM 1回呼出）** — Gemini 2.5 Flash の function calling が `query_semantic_metrics_tool` を構造化引数で発行：`metrics=[...], mlbid, season, team, output_format`
+2. **🛡️ バリデーション** — `query_semantic_metrics_tool` がアプリ起動時に warm up された MetricFlow `/metrics` キャッシュとメトリクス名を突合し、未定義は BigQuery 到達前に拒否
+3. **🌐 MetricFlow Cloud Run** — `semantic_layer_client.py` が OIDC ID トークン付き HTTP POST で `mlb-metricflow-server` の `/query` を叩く。サーバーは `mf query`（dbt-metricflow CLI）を実行し、`mlb-analytics-data-dbt` git submodule のセマンティックモデルから BigQuery SQL を生成
+4. **📊 BigQuery** — MetricFlow が `mlb_analytics_dash_25` に対して SQL 発行
+5. **💬 Synthesizer** — テーブルモードは `DataTable` でレンダリング、テキストモードは Gemini に日本語回答生成。標準野球略称（`AVG`, `OBP`, `wOBA`, `wRC+`, ...）はディスプレイネームマップで適用
+
+#### B. 旧経路（現存、Phase 5 で廃止予定）
 
 1. **🧠 LLMクエリパース** (`ai_service._parse_query_with_llm`)
    - 自然言語（日本語）を構造化されたJSONパラメータに変換
@@ -891,6 +942,49 @@ while (true) {
 - **自動スクロール**: 最新メッセージへの自動スクロール
 - **ローディング状態**: API呼び出し中の視覚的フィードバック
 - **エラーハンドリング**: 優雅なエラー表示と回復
+
+## 🔧 運用: dbt サブモジュール更新フロー
+
+`metricflow/dbt_project/` 配下の dbt プロジェクトは private リポジトリ `mlb-analytics-data-dbt` の **git submodule** です。dbt 側で YAML（新メトリクス追加・新セマンティックモデル追加・measure リネーム等）を更新したら、diamond-lens 側で submodule のポインタも進めないと Cloud Build に新コミットが反映されません。
+
+### 標準フロー（手動）
+
+```bash
+# 1. dbt リポジトリで編集 & push
+cd ~/path/to/mlb-analytics-data-dbt
+# ... YAML を編集 ...
+git add .
+git commit -m "feat: add new metric foo_bar"
+git push
+
+# 2. diamond-lens 側で submodule ポインタを進める
+cd ~/path/to/diamond-lens
+git submodule update --remote metricflow/dbt_project
+git add metricflow/dbt_project
+git commit -m "chore: bump dbt_project submodule"
+git push
+# → Cloud Build が走り、新YAMLを含む mlb-metricflow-server が再デプロイされる
+```
+
+### 2回目のコミットがなぜ必要か
+
+git submodule は **特定のコミット SHA** にピン留めされています（ブランチの先端ではない）。dbt リポでの push だけでは diamond-lens のコミットが指す先は変わりません。`git submodule update --remote` でローカルの submodule を最新コミットに進め、続く diamond-lens のコミットがその新 SHA を記録することで、Cloud Build が正しい状態を clone します。
+
+### デプロイ後の確認
+
+```
+resource.type="cloud_run_revision"
+resource.labels.service_name="mlb-metricflow-server"
+"dbt parse succeeded"
+```
+
+セマンティックレイヤー呼出が `Semantic Layer 経由のメトリクス取得に失敗しました` を返した場合、最も多い原因は **submodule bump 忘れ** です。dbt リポには新メトリクスがあるが、デプロイ済みの MetricFlow イメージは古いコミットを保持している状態。
+
+### Cloud Build から private dbt リポへの認証
+
+Cloud Build は Secret Manager の `github-pat` シークレットに格納された fine-grained GitHub PAT を使います。`cloudbuild.yaml` の `init-submodules` ステップで HTTPS クローン URL に PAT を注入する一時的な git config を設定します。トークンローテーション時は GitHub で PAT を再発行 → `github-pat` シークレットに新バージョン追加 → 再デプロイ。
+
+---
 
 ## 🏗️ インフラ管理
 

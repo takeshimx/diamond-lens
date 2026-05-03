@@ -343,6 +343,28 @@ predictions = await self._predict_with_vertex_ai(endpoint_id, instances)
 | **Endpoints** | `/api/cache/clear` (POST) - Clear frontend cache |
 | **Dependencies** | Backend API |
 
+### 5b. MetricFlow Cloud Run Server (NEW 2026)
+
+| Property | Value |
+|----------|-------|
+| **Name** | mlb-metricflow-server |
+| **Repository** | `diamond-lens` (this repo) under `metricflow/` |
+| **Deployment** | Cloud Run (asia-northeast1) |
+| **Authentication** | Cloud Run service-to-service OIDC ID tokens (`roles/run.invoker`); `--no-allow-unauthenticated` |
+| **Ingress** | `all` (private auth via SA, no public access without token) |
+| **Service Account** | `mlb-metricflow-sa@tksm-dash-test-25.iam.gserviceaccount.com` (`roles/bigquery.dataViewer`, `roles/bigquery.jobUser`) |
+| **Language** | Python 3.11 |
+| **Framework** | FastAPI + dbt-metricflow CLI |
+| **Endpoints** | `POST /query`, `GET /metrics`, `GET /dimensions`, `GET /health` |
+| **Responsibility** | Wraps `mf` CLI as HTTP. Resolves Semantic Layer queries (metrics + filters) into BigQuery SQL via dbt project |
+| **dbt Project** | git submodule of `mlb-analytics-data-dbt` mounted at `/app/dbt_project`. Single source of truth for semantic_models / metrics |
+| **Secret** | `github-pat` in Secret Manager (PAT for Cloud Build to clone the private dbt submodule) |
+| **Startup** | Runs `dbt parse` to materialize `target/semantic_manifest.json`, then serves requests |
+| **Dependencies** | BigQuery `mlb_analytics_dash_25`, `mlb-analytics-data-dbt` (submodule) |
+| **Caller** | Backend `query_semantic_metrics_tool` only (when `USE_SEMANTIC_LAYER=true`) |
+
+**Why a separate Cloud Run service**: Keeps heavy dbt + MetricFlow dependencies out of the main backend image; lets the dbt project version (submodule SHA) be advanced independently of backend code releases; can be scaled, monitored, and IAM-restricted independently.
+
 ### 6. Agentic AI System (Supervisor + LangGraph)
 
 | Property | Value |
@@ -1156,17 +1178,47 @@ Pipeline status notifications are sent to Discord webhook:
 
 ---
 
+## Operations: dbt Submodule Update Workflow (NEW 2026)
+
+The dbt project mounted at `metricflow/dbt_project/` in this repository is a **git submodule** of the private `mlb-analytics-data-dbt` repository. Updating semantic models or metrics requires a two-step propagation:
+
+```bash
+# Step 1 — edit & push in the dbt repo (single source of truth)
+cd ~/path/to/mlb-analytics-data-dbt
+# edit YAML (semantic_models, metrics, etc.)
+git add .
+git commit -m "feat: add metric foo_bar"
+git push
+
+# Step 2 — bump the submodule pointer in diamond-lens
+cd ~/path/to/diamond-lens
+git submodule update --remote metricflow/dbt_project
+git add metricflow/dbt_project
+git commit -m "chore: bump dbt_project submodule"
+git push
+# → Cloud Build rebuilds & redeploys mlb-metricflow-server with the new YAML
+```
+
+**Why two commits**: git submodules pin to a specific commit SHA, not to a branch tip. Without step 2, Cloud Build clones the old SHA and the deployed MetricFlow image keeps the previous YAML.
+
+**Symptom of forgetting step 2**: Semantic Layer queries return `Semantic Layer 経由のメトリクス取得に失敗しました` because the new metric exists upstream but not in the deployed manifest.
+
+**Cloud Build authentication for the private dbt repo**: A fine-grained GitHub PAT is stored in Secret Manager as `github-pat`. The `init-submodules` step in `cloudbuild.yaml` writes a one-shot git config to inject this PAT into HTTPS clone URLs.
+
+---
+
 ## Cost Breakdown
 
 | Service | Monthly Cost (Estimated) | Notes |
 |---------|-------------------------|-------|
 | BigQuery Storage | $10-20 | ~60GB total storage |
 | BigQuery Queries | $5-10 | Weekly pipeline queries |
-| Cloud Run | $5-10 | Pay-per-use, minimal traffic |
-| Cloud Build | $2-5 | Weekly dbt builds |
+| Cloud Run (backend / frontend / metricflow) | $5-15 | Pay-per-use, minimal traffic |
+| Cloud Build | $2-5 | dbt + metricflow + backend builds |
 | Cloud Workflows | $0.15 | Weekly executions |
 | Cloud Scheduler | $0.10 | Single job |
-| **Total** | **$22-45/month** | Production costs |
+| Secret Manager | $0.06 | Few secrets including github-pat |
+| **Total** | **$22-50/month** | Production costs |
 
 ---
 
