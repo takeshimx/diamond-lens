@@ -84,7 +84,7 @@ async def startup():
         ["dbt", "parse", "--profiles-dir", DBT_PROFILES_DIR, "--project-dir", DBT_PROJECT_DIR],
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=300,
     )
     if result.returncode != 0:
         # stderr が空のことがあるので stdout も含める
