@@ -53,6 +53,19 @@ async def get_standings(season: int = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/live/team-stats")
+async def get_team_stats(season: int = None):
+    """
+    チーム別主要シーズンスタッツ（打撃・投手・RISPスプリット）を返す
+
+    - season: シーズン年（省略時は今年）
+    """
+    try:
+        return await service.get_team_stats(season)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/live/fatigue/baselines")
 async def get_pitcher_baselines(
     pitchers: List[str] = Query(..., description="投手名リスト（MLB API形式: 'Gerrit Cole'）"),

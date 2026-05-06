@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Dict, List, Optional, Tuple
@@ -12,6 +13,8 @@ MLB_BASE = "https://statsapi.mlb.com"
 
 
 class LiveGameService:
+    _team_stats_cache: Dict[int, Tuple[float, Dict]] = {}
+    _TEAM_STATS_TTL_SEC = 600
 
     async def get_today_live_games(self) -> Dict:
         """
@@ -653,3 +656,118 @@ class LiveGameService:
                 "teams": teams,
             })
         return {"standings": standings, "season": season}
+
+    async def get_team_stats(self, season: Optional[int] = None) -> Dict:
+        """チーム別主要シーズンスタッツ（打撃・投手・RISPスプリット）を返す"""
+        from datetime import date as date_cls
+        if season is None:
+            season = date_cls.today().year
+
+        now = time.time()
+        cached = self._team_stats_cache.get(season)
+        if cached and (now - cached[0]) < self._TEAM_STATS_TTL_SEC:
+            return cached[1]
+
+        base = f"{MLB_BASE}/api/v1/teams/stats"
+        common = {"season": season, "sportId": 1}
+        params_hit = {**common, "group": "hitting", "stats": "season"}
+        params_pit = {**common, "group": "pitching", "stats": "season"}
+        params_risp = {**common, "group": "hitting", "stats": "statSplits", "sitCodes": "risp"}
+        params_bl = {**common, "group": "hitting", "stats": "statSplits", "sitCodes": "r123"}
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            responses = await asyncio.gather(
+                client.get(base, params=params_hit),
+                client.get(base, params=params_pit),
+                client.get(base, params=params_risp),
+                client.get(base, params=params_bl),
+            )
+        for r in responses:
+            r.raise_for_status()
+        hit_data, pit_data, risp_data, bl_data = [r.json() for r in responses]
+
+        def _index_by_team(payload: Dict) -> Dict[int, Dict]:
+            out: Dict[int, Dict] = {}
+            for stat_block in payload.get("stats", []):
+                for split in stat_block.get("splits", []):
+                    team = split.get("team", {})
+                    tid = team.get("id")
+                    if tid is None:
+                        continue
+                    out[tid] = {
+                        "team_name": team.get("name", ""),
+                        "team_abbrev": team.get("abbreviation", ""),
+                        **split.get("stat", {}),
+                    }
+            return out
+
+        hit_map = _index_by_team(hit_data)
+        pit_map = _index_by_team(pit_data)
+        risp_map = _index_by_team(risp_data)
+        bl_map = _index_by_team(bl_data)
+
+        def _num(v):
+            if v is None or v == "":
+                return None
+            try:
+                if isinstance(v, str) and "." in v:
+                    return float(v)
+                return float(v) if isinstance(v, str) else v
+            except (ValueError, TypeError):
+                return v
+
+        teams_out = []
+        for tid, h in hit_map.items():
+            p = pit_map.get(tid, {})
+            r = risp_map.get(tid, {})
+            b = bl_map.get(tid, {})
+            teams_out.append({
+                "team_id": tid,
+                "team_name": h.get("team_name"),
+                "team_abbrev": h.get("team_abbrev"),
+                "hitting": {
+                    "g": h.get("gamesPlayed"),
+                    "pa": h.get("plateAppearances"),
+                    "ab": h.get("atBats"),
+                    "avg": _num(h.get("avg")),
+                    "obp": _num(h.get("obp")),
+                    "slg": _num(h.get("slg")),
+                    "ops": _num(h.get("ops")),
+                    "r": h.get("runs"),
+                    "h": h.get("hits"),
+                    "hr": h.get("homeRuns"),
+                    "rbi": h.get("rbi"),
+                    "bb": h.get("baseOnBalls"),
+                    "so": h.get("strikeOuts"),
+                    "sb": h.get("stolenBases"),
+                    "babip": _num(h.get("babip")),
+                    "risp_avg": _num(r.get("avg")),
+                    "risp_ops": _num(r.get("ops")),
+                    "risp_rbi": r.get("rbi"),
+                    "bl_avg": _num(b.get("avg")),
+                    "bl_ops": _num(b.get("ops")),
+                    "bl_rbi": b.get("rbi"),
+                    "grand_slam": b.get("homeRuns"),
+                },
+                "pitching": {
+                    "g": p.get("gamesPlayed"),
+                    "w": p.get("wins"),
+                    "l": p.get("losses"),
+                    "era": _num(p.get("era")),
+                    "whip": _num(p.get("whip")),
+                    "ip": p.get("inningsPitched"),
+                    "so": p.get("strikeOuts"),
+                    "bb": p.get("baseOnBalls"),
+                    "hr": p.get("homeRuns"),
+                    "sv": p.get("saves"),
+                    "sho": p.get("shutouts"),
+                    "cg": p.get("completeGames"),
+                    "k_9": _num(p.get("strikeoutsPer9Inn")),
+                    "bb_9": _num(p.get("walksPer9Inn")),
+                    "k_bb": _num(p.get("strikeoutWalkRatio")),
+                },
+            })
+
+        result = {"season": season, "teams": teams_out}
+        self._team_stats_cache[season] = (now, result)
+        return result

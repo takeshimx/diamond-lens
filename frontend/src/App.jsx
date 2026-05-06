@@ -7,6 +7,7 @@ import AdvancedStats from './components/AdvancedStats.jsx';
 import LiveScoreboard from './components/LiveScoreboard.jsx';
 import LiveMonitorBoard from './components/LiveMonitorBoard.jsx';
 import Standings from './components/Standings.jsx';
+import TeamStats from './components/TeamStats.jsx';
 import Leaderboard from './components/Leaderboard.jsx';
 import HotSlumpDashboard from './components/HotSlumpDashboard.jsx';
 import PlayerProfile from './components/PlayerProfile.jsx';
@@ -168,6 +169,8 @@ const MLBChatApp = () => {
         return <div style={{ padding: "24px 32px", height: "100%", width: "100%" }}><LiveMonitorBoard/></div>;
       case "standings":
         return <div style={{ padding: "24px 32px", height: "100%", width: "100%" }}><Standings/></div>;
+      case "team":
+        return <div style={{ padding: "24px 32px", height: "100%", width: "100%" }}><TeamStats/></div>;
       case "profile":
         return (
           <div style={{ padding: "24px 32px", height: "100%", width: "100%" }}>

@@ -9,5 +9,6 @@ export const NAV_ITEMS = [
   { id: "live",      icon: "radio",  code: "LIV", jp: "試合速報",        en: "LIVE"       },
   { id: "monitor",   icon: "board",  code: "MON", jp: "モニターボード",  en: "MONITOR"    },
   { id: "standings", icon: "medal",  code: "STD", jp: "順位表",          en: "STAND"      },
+  { id: "team",      icon: "grid",   code: "TM",  jp: "チームスタッツ",  en: "TEAM"       },
   { id: "profile",   icon: "user",   code: "PRF", jp: "選手プロフィール", en: "PLAYER"    },
 ];
