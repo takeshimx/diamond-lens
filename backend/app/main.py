@@ -120,7 +120,7 @@ app.add_middleware(
     allow_credentials=True,  # <-- これが True であることを確認
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], # DO NOT add " *" to allow_methods
     allow_headers=["Content-Type", "Authorization"],  # DO NOT add " *" to allow_headers
-    expose_headers=['X-Request-ID'] # Frontend can read this header
+    expose_headers=['X-Request-ID', 'X-Trace-Id'] # Frontend can read these headers
 )
 
 # 重要: add_middleware は「後に登録したものが先に実行される」ので、

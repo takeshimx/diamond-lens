@@ -17,6 +17,7 @@ import json
 import logging
 
 from backend.app.config.settings import get_settings
+from backend.app.middleware.request_context import get_trace_id
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,8 @@ class ShadowComparisonEntry:
     def __init__(self):
         self.comparison_id: str = str(uuid.uuid4())
         self.request_id: str = ""
+        # Snowflake-style 横断的 trace id（ContextVar から自動取得、明示セットで上書き可）
+        self.trace_id: Optional[str] = get_trace_id() or None
         self.session_id: Optional[str] = None
         self.user_id: Optional[str] = None
         self.user_query: str = ""
@@ -80,6 +83,7 @@ class ShadowComparisonEntry:
         return {
             "comparison_id": self.comparison_id,
             "request_id": self.request_id,
+            "trace_id": self.trace_id,
             "session_id": self.session_id,
             "user_id": self.user_id,
             "user_query": self.user_query[:2000] if self.user_query else "",

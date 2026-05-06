@@ -2,23 +2,36 @@
 SSE (Server-Sent Events) Streaming
 """
 import json
-from typing import AsyncGenerator, Dict, Any
+from typing import AsyncGenerator, Dict, Any, Optional
 import logging
+
+from backend.app.middleware.request_context import get_trace_id
 
 logger = logging.getLogger(__name__)
 
 
-def format_sse(data: Dict[str, Any], event: str = None) -> str:
+def format_sse(
+    data: Dict[str, Any],
+    event: Optional[str] = None,
+    trace_id: Optional[str] = None,
+) -> str:
     """
     Generate a SSE formatted message
 
     Args:
         data: 送信するデータ (辞書形式)
         event: イベント名 (オプション)
-    
+        trace_id: 明示的に上書きしたい場合に指定。None の場合は ContextVar から取得。
+                  payload に既に trace_id がある場合は変更しない。
+
     Returns:
         SSE形式の文字列
     """
+    # trace_id を payload に必ず埋め込む（フロントが SSE event ↔ BQ ログを突合できるように）
+    resolved_trace_id = trace_id if trace_id is not None else get_trace_id()
+    if resolved_trace_id and "trace_id" not in data:
+        data = {**data, "trace_id": resolved_trace_id}
+
     msg = ""
     if event:
         msg += f"event: {event}\n"
@@ -31,10 +44,10 @@ async def stream_json_events(
 ) -> AsyncGenerator[str, None]:
     """
     JSONイベントをSSE形式でストリーミングします
-    
+
     Args:
         generator: イベントを生成する非同期ジェネレーター
-    
+
     Yields:
         SSE形式の文字列
     """

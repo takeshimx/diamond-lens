@@ -13,6 +13,8 @@ from google.cloud import bigquery
 import json
 import logging
 
+from backend.app.middleware.request_context import get_trace_id
+
 logger = logging.getLogger(__name__)
 
 # BigQuery 設定
@@ -29,6 +31,8 @@ class LLMLogEntry:
         self.user_id: str = ""
         self.timestamp = datetime.now(timezone.utc).isoformat()
         self.request_id: Optional[str] = None
+        # Snowflake-style 横断的 trace id（ContextVar から自動取得、明示セットで上書き可）
+        self.trace_id: Optional[str] = get_trace_id() or None
         self.session_id: Optional[str] = None
         self.user_query: str = ""
         self.resolved_query: Optional[str] = None
@@ -84,6 +88,7 @@ class LLMLogEntry:
             "timestamp": self.timestamp,
             "user_id": self.user_id,
             "request_id": self.request_id,
+            "trace_id": self.trace_id,
             "session_id": self.session_id,
             "user_query": self.user_query,
             "resolved_query": self.resolved_query,
@@ -176,6 +181,9 @@ class LLMLoggerService:
                 "log_id": str(uuid.uuid4()),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "request_id": request_id,
+                # 元 request の trace_id が分からない場合は呼び出し元から渡す設計だが、
+                # 既存 API 互換のため当面は ContextVar から best-effort で取得
+                "trace_id": get_trace_id() or None,
                 "session_id": session_id,
                 "user_rating": user_rating,
                 "feedback_category": category,

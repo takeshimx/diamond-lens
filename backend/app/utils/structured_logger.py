@@ -9,6 +9,7 @@ import sys
 from datetime import datetime
 from typing import Any, Dict, Optional
 from backend.app.middleware.request_id import get_request_id
+from backend.app.middleware.request_context import get_trace_id
 
 
 class StructuredLogger:
@@ -42,6 +43,7 @@ class StructuredLogger:
                     "message": record.getMessage(),
                     "logger": record.name,
                     "request_id": get_request_id(),
+                    "trace_id": get_trace_id(),
                 }
 
                 # Add extra fields if present
