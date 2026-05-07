@@ -247,6 +247,7 @@ steps:
           --build-arg VITE_FIREBASE_STORAGE_BUCKET="tksm-dash-test-25.firebasestorage.app" \
           --build-arg VITE_FIREBASE_MESSAGING_SENDER_ID="907924272679" \
           --build-arg VITE_FIREBASE_APP_ID="1:907924272679:web:54447482c648cf7154c002" \
+          --build-arg VITE_USE_AUTOCOMPLETE_API="true" \
           ./frontend
 
   # ----------------------------------------------------------------------
