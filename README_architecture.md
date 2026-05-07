@@ -826,6 +826,26 @@ python scripts/train_stuff_plus.py --season 2025 --min-pitches 100
 | **Output** | Per-pitch-type whiff rate prediction |
 | **Frontend** | `PitcherWhiffPredictor.jsx` — multi-filter panel + color-coded bar chart |
 
+### 8p. Search Autocomplete System (Vol.1)
+
+| Property | Value |
+|----------|-------|
+| **Status** | Production-ready (canary via `VITE_USE_AUTOCOMPLETE_API`) |
+| **Service** | `backend/app/services/sandbox/autocomplete_service.py` |
+| **Endpoint** | `GET /api/v1/players/autocomplete?q=&context=&season=&limit=` |
+| **Replaces** | 4 legacy `LIKE '%q%'` endpoints: `/players/search`, `/advanced-stats/{pitching\|batting}/search`, `/stuff-plus/search` |
+| **Data Sources** | BigQuery: `dim_players_master`, `dim_teams`, `statcast_master`, `stuff_plus_rankings`, `fact_batting_stats_with_risp`, `fact_pitching_stats_master`, `mart_batter_season_stats`, `mart_pitcher_season_stats` |
+| **Build** | Single BigQuery query at Cloud Run cold start via FastAPI `lifespan` + `asyncio.to_thread`. ~7,000 entries, 3–5s, 5–10 MB resident |
+| **Player Filter** | `mlb_debut_year >= 2000 OR mlb_last_year >= 2000` |
+| **Data Structures** | (1) Trie keyed by `full_name` and `last_name` lowercase. (2) `ContextFilter` post-filters by `frozenset[int]` season tags per context. (3) `OrderedDict` LRU `PrefixCache` (max 4096 entries) |
+| **Popularity Score** | Pre-computed `log(1 + PA + IP*3) + (active ? 1.0 : 0.0)`. PA/IP from recent 3 seasons via UNION ALL of fact (≤2025) + mart (≥2026) layers |
+| **Contexts** | `all` (no filter), `statcast_pitcher`, `statcast_batter`, `stuffplus` — last three require `season` query param |
+| **Request Flow** | `Cache → Trie → ContextFilter → sort by score DESC → top N`, returns `served_from` ∈ {`cache`, `trie`, `fallback`} |
+| **Fallback** | If `app.state.autocomplete_ready=False` (build failed or in progress), endpoint falls back to `get_players_by_name` (legacy `LIKE`) |
+| **Frontend Integration** | `VITE_USE_AUTOCOMPLETE_API=true` switches 4 call sites: `useBackendAPI.searchPlayers`, `AdvancedStats.handleSearchChange`, `StrategyReportPage.PlayerSearchPicker`, Stuff+ search hook. Hook layer aliases `mlbid → pitcher_id / batter_id` for legacy contracts |
+| **Observability** | `autocomplete_build_completed` (entries_loaded / elapsed_query_ms / elapsed_total_ms) and `autocomplete_request` (prefix / context / season / served_from / latency_ms / result_count) via `StructuredLogger`, auto-tagged with Snowflake `trace_id` |
+| **Design Doc** | `docs/plan_docs/SEARCH_AUTOCOMPLETE_PLAN_VOL1.md` |
+
 ---
 
 ### 8. Orchestration

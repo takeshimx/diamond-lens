@@ -396,14 +396,35 @@ const AdvancedStats = () => {
       setTrendsSearchResults([]);
       if (val.length < 2) return;
       try {
-        const endpoint = category === 'pitching'
-          ? `/api/v1/advanced-stats/pitching/search?name=${encodeURIComponent(val)}&season=2025&limit=10`
-          : `/api/v1/advanced-stats/batting/search?name=${encodeURIComponent(val)}&season=2025&limit=10`;
+        // feature flag: VITE_USE_AUTOCOMPLETE_API=true で新統合エンドポイントへ切替
+        const useAutocomplete =
+          String(import.meta.env.VITE_USE_AUTOCOMPLETE_API).toLowerCase() === 'true';
+        const isPitching = category === 'pitching';
+        const endpoint = useAutocomplete
+          ? `/api/v1/players/autocomplete?q=${encodeURIComponent(val)}&context=${
+              isPitching ? 'statcast_pitcher' : 'statcast_batter'
+            }&season=2025&limit=10`
+          : `/api/v1/advanced-stats/${isPitching ? 'pitching' : 'batting'}/search?name=${encodeURIComponent(
+              val
+            )}&season=2025&limit=10`;
         const headers = await getAuthHeaders();
         const res = await fetch(`${BACKEND_URL}${endpoint}`, { headers });
         const data = await res.json();
         if (trendsQueryRef.current !== val) return;
-        setTrendsSearchResults(Array.isArray(data) ? data : []);
+
+        let results;
+        if (useAutocomplete) {
+          // 新 API: {results: [{mlbid, full_name, team}]} → 旧形式 (pitcher_id|batter_id, player_name, team) に揃える
+          const idKey = isPitching ? 'pitcher_id' : 'batter_id';
+          results = (data.results || []).map((item) => ({
+            [idKey]: item.mlbid,
+            player_name: item.full_name,
+            team: item.team || '',
+          }));
+        } else {
+          results = Array.isArray(data) ? data : [];
+        }
+        setTrendsSearchResults(results);
       } catch (e) {
         console.error('Search error:', e);
       }

@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional
 import logging
+import time
 
 # サービス層とスキーマをインポート
 from backend.app.services.player_service import get_players_by_name
@@ -8,7 +9,12 @@ from backend.app.services.player_profile_service import get_player_profile
 from backend.app.api.schemas import (
     PlayerSearchResults,
     PlayerProfileResponse,
+    AutocompleteResponse,
+    AutocompletePlayerItem,
 )
+from backend.app.utils.structured_logger import get_logger
+
+structured_logger = get_logger("diamond-lens")
 
 # ロガーの設定
 logging.basicConfig(level=logging.INFO)
@@ -45,6 +51,116 @@ async def search_players_endpoint(
     # PlayerSearchResultsモデルのインスタンスを構築して返す
     # search_results_listは既にPlayerSearchItemのリストなので、そのままresultsに渡す
     return PlayerSearchResults(query=q, results=search_results_list)
+
+
+@router.get(
+    "/players/autocomplete",
+    response_model=AutocompleteResponse,
+    summary="選手名オートコンプリート（統合版）",
+    description=(
+        "メモリ常駐の Trie から候補上位 N 件を返す。"
+        "context により候補プールを切り替える: "
+        "all / statcast_pitcher / statcast_batter / stuffplus。"
+        "Trie 構築未完了 / 失敗時は /players/search へフォールバック。"
+    ),
+    tags=["players"],
+)
+async def autocomplete_players_endpoint(
+    request: Request,
+    q: str = Query(..., min_length=1, max_length=64, description="検索プレフィックス"),
+    context: str = Query("all", description="all / statcast_pitcher / statcast_batter / stuffplus"),
+    season: Optional[int] = Query(None, ge=2000, le=2100, description="context!=all のとき必須"),
+    limit: int = Query(10, ge=1, le=50, description="返却件数の上限"),
+):
+    """選手名オートコンプリート用の統合エンドポイント。"""
+    valid_contexts = {"all", "statcast_pitcher", "statcast_batter", "stuffplus"}
+    if context not in valid_contexts:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid context. Must be one of {sorted(valid_contexts)}.",
+        )
+    if context != "all" and season is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"season is required when context='{context}'.",
+        )
+
+    service = getattr(request.app.state, "autocomplete_service", None)
+    is_ready = bool(getattr(request.app.state, "autocomplete_ready", False))
+    started = time.monotonic()
+
+    # Trie 構築完了 → 通常パス
+    if service is not None and is_ready:
+        try:
+            entries, served_from = service.query(
+                prefix=q, context=context, season=season, limit=limit
+            )
+            results = [
+                AutocompletePlayerItem(
+                    mlbid=e.mlbid,
+                    full_name=e.full_name,
+                    team=e.team,
+                    primary_position=e.primary_position,
+                    bat_side=e.bat_side,
+                    pitch_hand=e.pitch_hand,
+                    active=e.active,
+                    score=e.popularity_score,
+                )
+                for e in entries
+            ]
+            structured_logger.info(
+                "autocomplete_request",
+                prefix=q,
+                context=context,
+                season=season,
+                served_from=served_from,
+                latency_ms=int((time.monotonic() - started) * 1000),
+                result_count=len(results),
+            )
+            return AutocompleteResponse(
+                query=q,
+                context=context,
+                season=season,
+                served_from=served_from,
+                results=results,
+            )
+        except Exception as e:
+            logger.error(f"Autocomplete trie query failed: {e}", exc_info=True)
+            # 例外時は fallback に落とす
+
+    # フォールバック: 既存 /players/search 相当のロジックで候補を返す
+    # （context によるサブセット絞り込みは Vol.1 の fallback ではスキップ）
+    fallback_results_raw = get_players_by_name(q) or []
+    fallback_results = [
+        AutocompletePlayerItem(
+            mlbid=item.mlbid if item.mlbid is not None else 0,
+            full_name=item.player_name,
+            team=item.team,
+            primary_position=None,
+            bat_side=None,
+            pitch_hand=None,
+            active=False,
+            score=0.0,
+        )
+        for item in fallback_results_raw
+        if item.mlbid is not None
+    ][:limit]
+    structured_logger.info(
+        "autocomplete_request",
+        prefix=q,
+        context=context,
+        season=season,
+        served_from="fallback",
+        latency_ms=int((time.monotonic() - started) * 1000),
+        result_count=len(fallback_results),
+    )
+    return AutocompleteResponse(
+        query=q,
+        context=context,
+        season=season,
+        served_from="fallback",
+        results=fallback_results,
+    )
 
 
 @router.get(

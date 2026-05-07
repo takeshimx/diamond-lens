@@ -575,6 +575,31 @@ class PlayerSearchResults(BaseModel):
     results: List[PlayerSearchItem] = Field([], description="検索に一致した選手のリスト")
 
 
+class AutocompletePlayerItem(BaseModel):
+    """
+    オートコンプリート結果の各項目（メモリ常駐 Trie から返す詳細情報付き）。
+    """
+    mlbid: int = Field(..., description="MLB選手ID")
+    full_name: str = Field(..., description="選手名（フルネーム）")
+    team: Optional[str] = Field(None, description="所属チーム略称")
+    primary_position: Optional[str] = Field(None, description="主ポジション")
+    bat_side: Optional[str] = Field(None, description="打席（L/R/S）")
+    pitch_hand: Optional[str] = Field(None, description="投球側（L/R）")
+    active: bool = Field(False, description="現役フラグ")
+    score: float = Field(0.0, description="popularity_score（並べ替え用）")
+
+
+class AutocompleteResponse(BaseModel):
+    """
+    /api/v1/players/autocomplete のレスポンス。
+    """
+    query: str = Field(..., description="正規化前の検索クエリ")
+    context: str = Field("all", description="all / statcast_pitcher / statcast_batter / stuffplus")
+    season: Optional[int] = Field(None, description="context!=all のとき必須のシーズン")
+    served_from: str = Field(..., description="cache / trie / fallback")
+    results: List[AutocompletePlayerItem] = Field([], description="候補上位 N 件")
+
+
 # ★★★ 修正箇所: ランキング結果用のPydanticモデルを追加 ★★★
 class PlayerRankingResult(BaseModel):
     # ランキングの指標名とその順位を動的に保持するため、Extra を許可する

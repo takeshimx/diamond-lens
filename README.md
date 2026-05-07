@@ -556,6 +556,62 @@ Synthesizer → user (sentence) or DataTable (table)
 
 ---
 
+### 23. Search Autocomplete System (Full Stack, Vol.1)
+**Status**: ✅ Production-ready (canary via `VITE_USE_AUTOCOMPLETE_API` flag)
+
+Replaces four scattered `LIKE '%q%'` BigQuery search endpoints with a single in-memory Trie + popularity-ranked autocomplete service. Loaded once at Cloud Run startup and held in process memory.
+
+**Why this exists**:
+- The legacy frontend hit four separate endpoints (`/players/search`, `/advanced-stats/{pitching|batting}/search`, `/stuff-plus/search`), each running a `LIKE '%q%'` query against BigQuery on every keystroke.
+- Substring matching produced noise (typing `oh` returned `Yamamoto`, `Bishop`, `Varsho`), and popularity ranking was absent so retired players ranked alongside active stars.
+- BigQuery costs and p95 latency were both keystroke-bound; with cache disabled (frontend `lru_cache(128)` did not benefit prefix reuse) every typed character round-tripped.
+
+**Capabilities**:
+- **🌳 In-memory Trie**: ~7,000 players (filtered to `mlb_debut_year >= 2000 OR mlb_last_year >= 2000`) inserted under both `full_name` and `last_name` keys for partial-name lookup.
+- **🏷️ Tag-based context filtering**: Each player carries `statcast_pitcher_seasons` / `statcast_batter_seasons` / `stuffplus_seasons` as `frozenset[int]`. A single Trie serves four contexts (`all` / `statcast_pitcher` / `statcast_batter` / `stuffplus`) by post-filtering on tags.
+- **📊 Popularity scoring**: Pre-computed `log(1 + PA + IP*3) + (active ? 1.0 : 0.0)` from recent 3 seasons (2024-2025 from `fact_*` layer, 2026+ from `mart_*` layer via UNION ALL). Scores are baked into entries at build time.
+- **⚡ LRU Prefix Cache**: 4,096-entry `OrderedDict` keyed by `(context, season, prefix)` with O(1) lookup.
+- **🔄 Background warmup with fallback**: FastAPI `lifespan` runs `build()` in `asyncio.to_thread` so cold-start traffic is never blocked. Until ready (or on build failure), the endpoint falls back to legacy `/players/search`.
+- **🚦 Frontend feature flag**: `VITE_USE_AUTOCOMPLETE_API=true` switches all four search call sites (`useBackendAPI.searchPlayers`, `AdvancedStats trends`, `StrategyReportPage PlayerSearchPicker`, Stuff+ pitcher search) to the unified endpoint.
+- **🆔 ID alias mapping**: New API returns `mlbid`; legacy callers expecting `pitcher_id` / `batter_id` get transparent aliasing in the hook layer to preserve existing component contracts.
+
+**Architecture**:
+```
+Cloud Run cold start
+    ↓
+lifespan → asyncio.to_thread(AutocompleteService.build)
+    ↓ single BigQuery query (LEFT JOIN dim_players_master + dim_teams
+    ↓                       + ARRAY_AGG over statcast_master / stuff_plus_rankings
+    ↓                       + UNION ALL fact_*/mart_* for PA/IP)
+Trie populated (~7,000 entries, ~3-5s, ~5-10 MB)
+    ↓
+app.state.autocomplete_ready = True
+
+Per request:
+GET /api/v1/players/autocomplete?q=oht&context=statcast_pitcher&season=2026
+    ↓
+PrefixCache.get((context, season, "oht"))  → hit returns "cache"
+    ↓ miss
+Trie.search_prefix("oht")  → DFS subtree, dedup by mlbid
+    ↓
+ContextFilter.apply(entries, context, season)  → tag-based filter
+    ↓
+sort by popularity_score DESC, slice [:limit]
+    ↓ "trie" served_from
+PrefixCache.put(...)
+```
+
+**Observability**:
+- **Build log** (`autocomplete_build_completed`): `entries_loaded`, `elapsed_query_ms`, `elapsed_total_ms`.
+- **Request log** (`autocomplete_request`): `prefix`, `context`, `season`, `served_from` (`cache` / `trie` / `fallback`), `latency_ms`, `result_count`.
+- All logs auto-tagged with Snowflake `trace_id` via `StructuredLogger`.
+
+**Technologies**: FastAPI (lifespan), BigQuery (`dim_players_master`, `statcast_master`, `stuff_plus_rankings`, `fact_batting_stats_with_risp`, `fact_pitching_stats_master`, `mart_batter_season_stats`, `mart_pitcher_season_stats`), Python (Trie, OrderedDict-LRU, dataclass), React (Vite env-flag), Cloud Logging.
+
+**Related design doc**: [docs/plan_docs/SEARCH_AUTOCOMPLETE_PLAN_VOL1.md](docs/plan_docs/SEARCH_AUTOCOMPLETE_PLAN_VOL1.md).
+
+---
+
 ### Technical Features
 - **AI-Powered Processing**: Uses Gemini 2.5 Flash for query parsing and response generation
 - **Real-time Interface**: Interactive experience with loading states and live updates

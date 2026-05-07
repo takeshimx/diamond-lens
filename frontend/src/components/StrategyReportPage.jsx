@@ -826,12 +826,30 @@ const PlayerSearchPicker = ({
       try {
         const baseURL = getBackendURL ? getBackendURL() : "";
         const headers = getAuthHeaders ? await getAuthHeaders() : {};
-        const url = `${baseURL}/api/v1/players/search?q=${encodeURIComponent(q)}`;
+        // feature flag: VITE_USE_AUTOCOMPLETE_API=true で新統合エンドポイントへ切替
+        const useAutocomplete =
+          String(import.meta.env.VITE_USE_AUTOCOMPLETE_API).toLowerCase() === "true";
+        const url = useAutocomplete
+          ? `${baseURL}/api/v1/players/autocomplete?q=${encodeURIComponent(q)}&context=all&limit=20`
+          : `${baseURL}/api/v1/players/search?q=${encodeURIComponent(q)}`;
         const res = await fetch(url, { headers });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         if (cancelled) return;
-        setResults(Array.isArray(json.results) ? json.results.slice(0, 20) : []);
+
+        // 旧 API: { results: [{mlbid, player_name, team, league}] }
+        // 新 API: { results: [{mlbid, full_name, team, ...}] }
+        // 既存呼び出し側 (handleSelect) は player_name を読むので旧形式に揃える。
+        const rawResults = Array.isArray(json.results) ? json.results : [];
+        const normalized = useAutocomplete
+          ? rawResults.map((it) => ({
+              mlbid: it.mlbid,
+              player_name: it.full_name,
+              team: it.team || null,
+              league: null,
+            }))
+          : rawResults;
+        setResults(normalized.slice(0, 20));
         setError(null);
       } catch (e) {
         if (cancelled) return;

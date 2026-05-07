@@ -551,6 +551,61 @@ Synthesizer → ユーザー（文章 or DataTable）
 
 ---
 
+### 23. 検索オートコンプリートシステム（フルスタック、Vol.1）
+**ステータス**: ✅ `VITE_USE_AUTOCOMPLETE_API` フラグによるカナリア展開で本番稼働
+
+4 系統に分散していた `LIKE '%q%'` BigQuery 検索エンドポイントを、起動時にメモリ常駐させた Trie + 人気度ランキング付きオートコンプリートサービスに統合しました。Cloud Run コンテナ起動時に 1 回だけロードしプロセスメモリに保持します。
+
+**この機能が必要な理由**:
+- 旧フロントエンドは 4 つの別エンドポイント (`/players/search`, `/advanced-stats/{pitching|batting}/search`, `/stuff-plus/search`) を打鍵ごとに叩き、いずれも BigQuery への `LIKE '%q%'` クエリを毎回実行していました
+- 部分一致のためノイズが多く（`oh` で `Yamamoto` `Bishop` `Varsho` が混入）、人気度ランキングが無いため引退選手が現役スターと並列で返却されていました
+- BigQuery コストと p95 レイテンシは打鍵数に比例。フロントの `lru_cache(128)` はプレフィックス再利用に効かず、毎打鍵で BigQuery まで往復していました
+
+**機能**:
+- **🌳 メモリ常駐 Trie**: `mlb_debut_year >= 2000 OR mlb_last_year >= 2000` で絞った約 7,000 選手を `full_name` と `last_name` の 2 通りで insert し、部分一致を高速化
+- **🏷️ タグベースのコンテキスト絞り込み**: 各 PlayerEntry に `statcast_pitcher_seasons` / `statcast_batter_seasons` / `stuffplus_seasons` を `frozenset[int]` で持たせ、Trie 1 本で 4 コンテキスト（`all` / `statcast_pitcher` / `statcast_batter` / `stuffplus`）を post-filter で振り分け
+- **📊 人気度スコア事前計算**: 直近 3 シーズン（2024〜2025 は `fact_*` 層、2026〜は `mart_*` 層を UNION ALL）から `log(1 + PA + IP*3) + (現役なら +1.0)` を計算し、Trie 構築時に各エントリに焼き込み
+- **⚡ LRU プレフィックスキャッシュ**: `(context, season, prefix)` をキーにする 4,096 件の `OrderedDict` で O(1) 参照
+- **🔄 バックグラウンド warmup + フォールバック**: FastAPI の `lifespan` で `asyncio.to_thread` 経由で `build()` を非同期実行し、コールドスタート時のリクエストを止めない。構築未完了 / 失敗時は旧 `/players/search` に自動退避
+- **🚦 フロントエンド feature flag**: `VITE_USE_AUTOCOMPLETE_API=true` で 4 つの検索呼出箇所（`useBackendAPI.searchPlayers`、`AdvancedStats trends`、`StrategyReportPage PlayerSearchPicker`、Stuff+ 投手検索）を統合エンドポイントへ一括切替
+- **🆔 ID エイリアスマッピング**: 新 API は `mlbid` を返すが、旧呼出側で `pitcher_id` / `batter_id` を期待しているコードへは hook 層で透過的にエイリアスし、既存コンポーネント契約を破壊しない
+
+**アーキテクチャ**:
+```
+Cloud Run コールドスタート
+    ↓
+lifespan → asyncio.to_thread(AutocompleteService.build)
+    ↓ BigQuery 1 本（dim_players_master + dim_teams + statcast_master / stuff_plus_rankings の ARRAY_AGG
+    ↓                + fact_*/mart_* の UNION ALL で PA/IP）
+Trie 構築完了（約 7,000 件、3〜5 秒、5〜10 MB）
+    ↓
+app.state.autocomplete_ready = True
+
+リクエスト時:
+GET /api/v1/players/autocomplete?q=oht&context=statcast_pitcher&season=2026
+    ↓
+PrefixCache.get((context, season, "oht"))  → ヒット時は "cache" を返却
+    ↓ ミス
+Trie.search_prefix("oht")  → サブツリーを DFS、mlbid 単位で dedup
+    ↓
+ContextFilter.apply(entries, context, season)  → タグで絞り込み
+    ↓
+popularity_score 降順ソート → 上位 N 件
+    ↓ "trie" served_from
+PrefixCache.put(...)
+```
+
+**観測性**:
+- **起動ログ** (`autocomplete_build_completed`): `entries_loaded`, `elapsed_query_ms`, `elapsed_total_ms`
+- **リクエストログ** (`autocomplete_request`): `prefix`, `context`, `season`, `served_from`（`cache` / `trie` / `fallback`）, `latency_ms`, `result_count`
+- 全ログに Snowflake `trace_id` を `StructuredLogger` 経由で自動付与
+
+**技術**: FastAPI（lifespan）、BigQuery（`dim_players_master`, `statcast_master`, `stuff_plus_rankings`, `fact_batting_stats_with_risp`, `fact_pitching_stats_master`, `mart_batter_season_stats`, `mart_pitcher_season_stats`）、Python（Trie、OrderedDict-LRU、dataclass）、React（Vite env-flag）、Cloud Logging
+
+**関連設計ドキュメント**: [docs/plan_docs/SEARCH_AUTOCOMPLETE_PLAN_VOL1.md](docs/plan_docs/SEARCH_AUTOCOMPLETE_PLAN_VOL1.md)
+
+---
+
 ### 技術機能
 - **AI搭載処理**: Gemini 2.5 Flashを使用したクエリ解析とレスポンス生成
 - **リアルタイムインターフェース**: ローディング状態とライブ更新付きのインタラクティブ体験
