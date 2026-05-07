@@ -2,10 +2,13 @@ from fastapi import FastAPI, Request
 from backend.app.api.endpoints.router import api_router  # For Development, add backend. path
 # from backend.app.api.endpoints import ai_analytics_endpoints  # For Development, add backend. path
 from fastapi.middleware.cors import CORSMiddleware
+import asyncio
 import logging
 import time
+from contextlib import asynccontextmanager
 from backend.app.utils.structured_logger import get_logger
 from backend.app.services.monitoring_service import get_monitoring_service
+from backend.app.services.sandbox.autocomplete_service import AutocompleteService
 from backend.app.middleware.request_id import RequestIDMiddleware
 from backend.app.middleware.firebase_auth import FirebaseAuthMiddleware
 from slowapi.errors import RateLimitExceeded
@@ -21,11 +24,40 @@ structured_logger = get_logger("diamond-lens")
 # 初期化すると起動が9秒前後遅くなるため、middleware/handler 内で
 # `get_monitoring_service()` を呼ぶ形に変更（シングルトンなので初回のみ初期化）。
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """起動時に AutocompleteService.build() をバックグラウンド実行する。
+
+    Cloud Run のコールドスタートを伸ばさないため、build はリクエスト処理と
+    並行して走らせる。完了するまで autocomplete エンドポイントは
+    fallback 動線（既存 4 系統）に退避する設計とする
+    （詳細: docs/plan_docs/SEARCH_AUTOCOMPLETE_PLAN_VOL1.md）。
+    """
+    app.state.autocomplete_service = AutocompleteService()
+    app.state.autocomplete_ready = False
+
+    async def _build_autocomplete() -> None:
+        try:
+            await asyncio.to_thread(app.state.autocomplete_service.build)
+            app.state.autocomplete_ready = True
+            logger.info("Autocomplete service ready")
+        except Exception as e:
+            app.state.autocomplete_ready = False
+            logger.error(f"Autocomplete build failed: {e}", exc_info=True)
+
+    # タスクの参照を保持しないと GC で途中破棄される可能性があるため app.state に保持
+    app.state.autocomplete_build_task = asyncio.create_task(_build_autocomplete())
+
+    yield
+
+
 # Create the FastAPI app instance
 app = FastAPI(
     title="MLB Analytics API",
     description="API for MLB Analytics Dashboard V2",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # Add rate limiting to the FastAPI app
@@ -182,7 +214,11 @@ def health_check():
     """
     Health check endpoint to verify the API is running.
     """
-    return {"status": "ok", "version": "0.1.1"}
+    return {
+        "status": "ok",
+        "version": "0.1.1",
+        "autocomplete_ready": getattr(app.state, "autocomplete_ready", False),
+    }
 
 
 @app.get("/debug/routes")

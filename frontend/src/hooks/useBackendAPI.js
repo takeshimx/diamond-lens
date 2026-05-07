@@ -7,6 +7,14 @@
  * @param {Function} deps.setSessionId  - セッションID更新関数
  * @param {boolean} deps.isAgentMode  - エージェントモードのON/OFF
  */
+// ===== feature flag =====
+// 新しい統合オートコンプリート API (/api/v1/players/autocomplete) を使うか。
+// 既存 4 系統 (/players/search, /advanced-stats/{pitching|batting}/search,
+// /stuff-plus/search) からの段階移行用。
+// .env で VITE_USE_AUTOCOMPLETE_API=true にすると有効。
+export const USE_AUTOCOMPLETE_API =
+  String(import.meta.env.VITE_USE_AUTOCOMPLETE_API).toLowerCase() === 'true';
+
 export const useBackendAPI = ({ getIdToken, sessionId, setSessionId, isAgentMode }) => {
 
   // ===== 環境別バックエンドURL検出 =====
@@ -44,18 +52,105 @@ export const useBackendAPI = ({ getIdToken, sessionId, setSessionId, isAgentMode
   };
 
   // ===== 選手検索 =====
+  // USE_AUTOCOMPLETE_API=true のとき新統合エンドポイントを叩き、
+  // 新形式 (mlbid, full_name, team) を旧形式 (mlbid, player_name, team, league) に
+  // マッピングして既存呼び出し側との互換を保つ。
   const searchPlayers = async (searchTerm, signal) => {
     const baseURL = getBackendURL();
-    const endpoint = `${baseURL}/api/v1/players/search?q=${encodeURIComponent(searchTerm)}`;
+    const endpoint = USE_AUTOCOMPLETE_API
+      ? `${baseURL}/api/v1/players/autocomplete?q=${encodeURIComponent(searchTerm)}&context=all&limit=10`
+      : `${baseURL}/api/v1/players/search?q=${encodeURIComponent(searchTerm)}`;
     try {
       const headers = await getAuthHeaders();
       const response = await fetch(endpoint, { headers, signal });
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
-      return data.results || [];
+      const results = data.results || [];
+
+      if (USE_AUTOCOMPLETE_API) {
+        return results.map((item) => ({
+          mlbid: item.mlbid,
+          player_name: item.full_name,
+          team: item.team || null,
+          league: null, // 新 API は league を返さない（Vol.1 スコープ外）
+        }));
+      }
+      return results;
     } catch (error) {
       if (error.name === 'AbortError') return [];
       console.error('選手検索API呼び出しエラー:', error);
+      return [];
+    }
+  };
+
+  // ===== Statcast 投手・打者検索（AdvancedStats trends 用） =====
+  // category: 'pitching' | 'batting'
+  // 旧 API は配列を直接返す: [{pitcher_id|batter_id, player_name, team}]
+  // 新 API は {results: [{mlbid, full_name, team, ...}]} を返すので、
+  // ID 名のエイリアス (mlbid → pitcher_id / batter_id) を吸収して旧形式に揃える。
+  const searchAdvancedStatsPlayers = async (searchTerm, category, season, signal) => {
+    const baseURL = getBackendURL();
+    const isPitching = category === 'pitching';
+
+    const endpoint = USE_AUTOCOMPLETE_API
+      ? `${baseURL}/api/v1/players/autocomplete?q=${encodeURIComponent(searchTerm)}&context=${
+          isPitching ? 'statcast_pitcher' : 'statcast_batter'
+        }&season=${season}&limit=10`
+      : `${baseURL}/api/v1/advanced-stats/${
+          isPitching ? 'pitching' : 'batting'
+        }/search?name=${encodeURIComponent(searchTerm)}&season=${season}&limit=10`;
+
+    try {
+      const headers = await getAuthHeaders();
+      const response = await fetch(endpoint, { headers, signal });
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const data = await response.json();
+
+      if (USE_AUTOCOMPLETE_API) {
+        const results = data.results || [];
+        const idKey = isPitching ? 'pitcher_id' : 'batter_id';
+        return results.map((item) => ({
+          [idKey]: item.mlbid,
+          player_name: item.full_name,
+          team: item.team || '',
+        }));
+      }
+      return Array.isArray(data) ? data : [];
+    } catch (error) {
+      if (error.name === 'AbortError') return [];
+      console.error('Statcast 選手検索 API 呼び出しエラー:', error);
+      return [];
+    }
+  };
+
+  // ===== Stuff+ 投手検索 =====
+  // 旧 API: [{pitcher_id, player_name, team, hand}]
+  // 新 API: {results: [...]} → pitcher_id にエイリアス
+  const searchStuffPlusPitchers = async (searchTerm, season, signal) => {
+    const baseURL = getBackendURL();
+    const endpoint = USE_AUTOCOMPLETE_API
+      ? `${baseURL}/api/v1/players/autocomplete?q=${encodeURIComponent(searchTerm)}&context=stuffplus&season=${season}&limit=10`
+      : `${baseURL}/api/v1/stuff-plus/search?name=${encodeURIComponent(searchTerm)}&season=${season}&limit=10`;
+
+    try {
+      const headers = await getAuthHeaders();
+      const response = await fetch(endpoint, { headers, signal });
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const data = await response.json();
+
+      if (USE_AUTOCOMPLETE_API) {
+        const results = data.results || [];
+        return results.map((item) => ({
+          pitcher_id: item.mlbid,
+          player_name: item.full_name,
+          team: item.team || '',
+          hand: item.pitch_hand || '',
+        }));
+      }
+      return Array.isArray(data) ? data : [];
+    } catch (error) {
+      if (error.name === 'AbortError') return [];
+      console.error('Stuff+ 選手検索 API 呼び出しエラー:', error);
       return [];
     }
   };
@@ -188,5 +283,12 @@ export const useBackendAPI = ({ getIdToken, sessionId, setSessionId, isAgentMode
     }
   };
 
-  return { getBackendURL, getAuthHeaders, callBackendAPI, searchPlayers };
+  return {
+    getBackendURL,
+    getAuthHeaders,
+    callBackendAPI,
+    searchPlayers,
+    searchAdvancedStatsPlayers,
+    searchStuffPlusPitchers,
+  };
 };
