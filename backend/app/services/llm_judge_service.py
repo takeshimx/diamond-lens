@@ -6,10 +6,11 @@ LLMを「審判」として使い、パース結果を多次元で意味的に�
 import os
 import json
 import logging
-import requests
 from dataclasses import dataclass, field, asdict
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone
+
+from backend.app.services.llm_gateway_service import call_gemini
 
 logger = logging.getLogger(__name__)
 
@@ -191,23 +192,17 @@ season, limit, order_by, output_format, split_type などの補助パラメー�
             ])
     
     def _call_gemini(self, prompt: str) -> Dict[str, Any]:
-        """Gemini API を呼び出す"""
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:generateContent?key={self.api_key}"
-        headers = {"Content-Type": "application/json"}
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"responseMimeType": "application/json"},
-        }
-
-        response = requests.post(url, headers=headers, data=json.dumps(payload))
-        response.raise_for_status()
-        result = response.json()
-
-        if result.get("candidates"):
-            json_string = result["candidates"][0]["content"]["parts"][0]["text"]
-            return json.loads(json_string)
-        
-        raise ValueError("No candidates in Gemini response")
+        """Gemini API を Gateway 経由で呼び出す"""
+        text = call_gemini(
+            prompt=prompt,
+            model=self.model_name,
+            response_mime_type="application/json",
+            feature="llm_judge",
+            user_id="",  # system-initiated batch job
+        )
+        if not text:
+            raise ValueError("Gateway returned no text from Gemini")
+        return json.loads(text)
         
     def _parse_judge_response(
         self,

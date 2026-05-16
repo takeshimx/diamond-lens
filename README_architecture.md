@@ -846,6 +846,26 @@ python scripts/train_stuff_plus.py --season 2025 --min-pitches 100
 | **Observability** | `autocomplete_build_completed` (entries_loaded / elapsed_query_ms / elapsed_total_ms) and `autocomplete_request` (prefix / context / season / served_from / latency_ms / result_count) via `StructuredLogger`, auto-tagged with Snowflake `trace_id` |
 | **Design Doc** | `docs/plan_docs/SEARCH_AUTOCOMPLETE_PLAN_VOL1.md` |
 
+### 8q. LLM Usage Cost Dashboard
+
+| Property | Value |
+|----------|-------|
+| **Status** | NEW 2026-05, production-ready |
+| **Gateway** | `backend/app/services/llm_gateway_service.py` — `call_gemini()` (sync, REST drop-in) + `LangchainUsageCallback(BaseCallbackHandler)` (LangChain/LangGraph integration) |
+| **BQ Table** | `tksm-dash-test-25.mlb_analytics_dash_25.llm_interaction_logs` extended with `model`, `input_tokens`, `output_tokens`, `cached_tokens`, `estimated_cost_usd`, `feature` |
+| **Row Discrimination** | `WHERE model IS NOT NULL` selects gateway-written rows only |
+| **Pricing** | gemini-2.5-flash ($0.30 / $2.50 / $0.03 per 1M input/output/cached); gemini-2.0-flash ($0.10 / $0.40 / $0.025). Verified at ai.google.dev/gemini-api/docs/pricing |
+| **Endpoint** | `GET /api/v1/usage/dashboard?year=&month=&trend_days=&recent_limit=&force=` |
+| **Service** | `usage_stats_service.py:get_dashboard_all()` — 6 aggregations in a single BQ query via CTE + `ARRAY<STRUCT>`, scan-limited to 90 days |
+| **Cache** | 60s in-memory TTL keyed by `(year, month, trend_days, recent_limit)`; `force=true` bypasses |
+| **Daily Zero-Fill** | `GENERATE_ARRAY` left-joined with aggregated rows for stable N-day chart |
+| **Feature Tags** | `parse_query`, `conversation`, `mlb_data_engine`, `analytics_{base,pitcher,batter}`, `routing_judge`, `reflection_judge`, `synthesizer_judge`, `llm_judge`, `drift_alert_judge`, `supervisor_agent`, `agent_{stream_}?{batter,pitcher,matchup,stats,strategy}`, `strategy_report`, `strategy_tactics`, `game_summary` |
+| **REST Callers Migrated** | 11 services: `ai_service`, `conversation_service`, `mlb_data_engine`, `analytics/{base,pitcher,batter}_*`, `{routing,reflection,synthesizer,llm,drift_alert}_judge_service` |
+| **LangChain Callers Attached** | 6 sites: `supervisor_agent.py`, `ai_agent_service.py` (×2), `game_summary_service.py`, `strategy_report_endpoints.py` (×2) |
+| **Frontend** | `frontend/src/components/UsageDashboard.jsx` (sidebar entry `id="usage"`, icon=`sparkle`). KPI cards + Monthly Budget + Efficiency + Cost-by-Feature + Models Donut + Daily Trend SVG + Recent Invocations |
+| **Design Tokens** | `--ink-*`, `--bg-*`, `--amber`, `--pos`, `--info` from `frontend/src/index.css` (Bloomberg Terminal × ESPN Statcast aesthetic, sharp edges, JetBrains Mono) |
+| **Branch** | `feature/llm-usage-cost-tracker` |
+
 ---
 
 ### 8. Orchestration

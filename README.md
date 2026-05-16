@@ -612,6 +612,18 @@ PrefixCache.put(...)
 
 ---
 
+### 24. LLM Usage Cost Dashboard (Full Stack, NEW 2026-05)
+
+Tracks every LLM invocation across the application and exposes cost / token / latency analytics via a dedicated dashboard.
+
+**Gateway pattern**: All LLM calls route through `llm_gateway_service.py` — REST callers via `call_gemini()`, LangChain via `LangchainUsageCallback(BaseCallbackHandler)` attached to `ChatGoogleGenerativeAI`. Every call records model, tokens, cost, latency, and feature tag to `llm_interaction_logs`. Per-model `PRICING` table calculates USD cost from `usage_metadata`.
+
+**Dashboard**: `GET /api/v1/usage/dashboard` returns 6 aggregations (current/prev month summary, by-model, by-feature, 30-day trend with zero-fill, recent N) in a **single BQ query** (CTE + `ARRAY<STRUCT>`) with 60s in-memory TTL cache. Frontend `UsageDashboard.jsx` renders KPI cards, monthly budget tracker, efficiency metrics, by-feature panel, models donut, daily trend SVG, and recent invocations table — styled with diamond-lens design tokens.
+
+**Technologies**: FastAPI, BigQuery, `google-genai`, `langchain-google-genai` + `langgraph`, React.
+
+---
+
 ### Technical Features
 - **AI-Powered Processing**: Uses Gemini 2.5 Flash for query parsing and response generation
 - **Real-time Interface**: Interactive experience with loading states and live updates

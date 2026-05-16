@@ -606,6 +606,18 @@ PrefixCache.put(...)
 
 ---
 
+### 24. LLM 使用量・コストダッシュボード（フルスタック、NEW 2026-05）
+
+アプリ全体の LLM 呼び出しを全件トラッキングし、コスト・トークン・レイテンシを専用ダッシュボードで可視化する。
+
+**Gateway パターン**: 全 LLM 呼び出しを `llm_gateway_service.py` に集約 — REST 呼び出しは `call_gemini()`、LangChain (`ChatGoogleGenerativeAI`) は `LangchainUsageCallback(BaseCallbackHandler)` を attach。各呼び出しで model / tokens / cost / latency / feature タグを `llm_interaction_logs` に記録。モデル別 `PRICING` テーブルが `usage_metadata` から USD コストを算出する。
+
+**ダッシュボード**: `GET /api/v1/usage/dashboard` が 6 種類の集計（当月/前月サマリ、モデル別、feature 別、直近 30 日トレンド（欠損日 0 埋め）、直近 N 件履歴）を**単一 BQ クエリ**（CTE + `ARRAY<STRUCT>`）で返却、60 秒インメモリ TTL キャッシュ付き。フロントエンド `UsageDashboard.jsx` は KPI カード、月次予算トラッカー、効率指標、feature 別パネル、モデル別ドーナツ、日次トレンド SVG、直近呼び出しテーブルを diamond-lens のデザイントークンで描画。
+
+**技術**: FastAPI、BigQuery、`google-genai`、`langchain-google-genai` + `langgraph`、React
+
+---
+
 ### 技術機能
 - **AI搭載処理**: Gemini 2.5 Flashを使用したクエリ解析とレスポンス生成
 - **リアルタイムインターフェース**: ローディング状態とライブ更新付きのインタラクティブ体験

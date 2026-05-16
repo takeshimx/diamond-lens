@@ -18,6 +18,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 from backend.app.config.settings import get_settings
 from backend.app.services.live_game_service import LiveGameService
+from backend.app.services.llm_gateway_service import LangchainUsageCallback
 
 settings = get_settings()
 
@@ -32,6 +33,7 @@ class GameSummaryService:
             model=settings.gemini_model,
             google_api_key=settings.gemini_api_key,
             temperature=0.7,
+            callbacks=[LangchainUsageCallback(feature="game_summary", model=settings.gemini_model)],
         )
         self.gcs_client = storage.Client()
         self.bucket = self.gcs_client.bucket(settings.gcs_bucket_name)

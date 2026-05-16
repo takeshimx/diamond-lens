@@ -64,6 +64,13 @@ class LLMLogEntry:
         self.reflection_post_query: Optional[str] = None
         # Synthesizer fields
         self.synthesizer_source_data: Optional[str] = None
+        # LLM Usage / Cost tracking
+        self.model: Optional[str] = None
+        self.input_tokens: Optional[int] = None
+        self.output_tokens: Optional[int] = None
+        self.cached_tokens: Optional[int] = None
+        self.estimated_cost_usd: Optional[float] = None
+        self.feature: Optional[str] = None  # アプリ機能区分（gateway 由来。prompt_name とは別概念）
     
     def _resolve_response_answer(self) -> Optional[str]:
         """
@@ -122,6 +129,13 @@ class LLMLogEntry:
             "reflection_post_query": self.reflection_post_query,
             # Synthesizer fields
             "synthesizer_source_data": self.synthesizer_source_data,
+            # LLM Usage / Cost tracking
+            "model": self.model,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "cached_tokens": self.cached_tokens,
+            "estimated_cost_usd": self.estimated_cost_usd,
+            "feature": self.feature,
         }
 
 

@@ -9,6 +9,7 @@ from typing import Annotated, TypedDict, List, Dict, Any, Union, Optional, Async
 from operator import add
 import pandas as pd
 from .simple_chart_service import enhance_response_with_simple_chart
+from .llm_gateway_service import LangchainUsageCallback
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
@@ -1248,7 +1249,8 @@ def run_mlb_agent(query: str) -> dict:
     model = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash",
         google_api_key=os.getenv("GEMINI_API_KEY_V2"),
-        temperature=0 # 分析精度を高めるため、ランダム性を排除
+        temperature=0, # 分析精度を高めるため、ランダム性を排除
+        callbacks=[LangchainUsageCallback(feature=f"agent_{agent_type}", model="gemini-2.5-flash")],
     )
 
     # Step 4: Select and initialize agent
@@ -1361,7 +1363,8 @@ async def run_mlb_agent_stream(
     model = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash",
         google_api_key=os.getenv("GEMINI_API_KEY_V2"),
-        temperature=0
+        temperature=0,
+        callbacks=[LangchainUsageCallback(feature=f"agent_stream_{agent_type}", model="gemini-2.5-flash")],
     )
 
     # Step 4: Select and initialize agent

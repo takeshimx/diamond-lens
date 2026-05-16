@@ -5,12 +5,12 @@ from google.cloud.exceptions import GoogleCloudError
 import pandas as pd
 import os
 import json
-import requests
 import re
 from dotenv import load_dotenv
 # from functools import lru_cache
 from datetime import datetime
 from ..bigquery_service import client
+from ..llm_gateway_service import call_gemini
 import logging
 from ..conversation_service import get_conversation_service
 from .base_engine import BaseEngine
@@ -108,33 +108,28 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
         prev_year=current_year - 1
     )
 
-    GEMINI_API_URL=f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"responseMimeType": "application/json"}
-    }
-
-    try:
-        response = requests.post(GEMINI_API_URL, headers=headers, data=json.dumps(payload))
-        response.raise_for_status()
-        result = response.json()
-        if result.get("candidates"):
-            json_string = result["candidates"][0]["content"]["parts"][0]["text"]
-            logger.info(f"LLM raw response: {json_string}")
-
-            params = json.loads(json_string)
-            logger.info(f"Parsed parameters: {params}")
-
-            # seasonパラメータが渡されており、かつLLMがseasonを設定していない場合、強制的に設定
-            if season and (not params.get('season') or params.get('season') is None):
-                logger.info(f"Overriding season from context: {season}")
-                params['season'] = season
-
-            return params
+    text = call_gemini(
+        prompt=prompt,
+        model="gemini-2.5-flash",
+        response_mime_type="application/json",
+        feature="analytics_batter",
+        user_id="",
+    )
+    if not text:
         return None
-    except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
-        logger.error(f"Error during LLM query parsing: {e}", exc_info=True)
+    try:
+        logger.info(f"LLM raw response: {text}")
+        params = json.loads(text)
+        logger.info(f"Parsed parameters: {params}")
+
+        # seasonパラメータが渡されており、かつLLMがseasonを設定していない場合、強制的に設定
+        if season and (not params.get('season') or params.get('season') is None):
+            logger.info(f"Overriding season from context: {season}")
+            params['season'] = season
+
+        return params
+    except json.JSONDecodeError as e:
+        logger.error(f"Error parsing LLM JSON output: {e}", exc_info=True)
         return None
 
 

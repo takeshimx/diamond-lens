@@ -2,6 +2,7 @@ import os
 from langchain_google_genai import ChatGoogleGenerativeAI
 from typing import Literal
 from backend.app.config.prompt_registry import get_prompt, get_prompt_version
+from backend.app.services.llm_gateway_service import LangchainUsageCallback
 from backend.app.utils.structured_logger import get_logger
 
 logger = get_logger("supervisor-agent")
@@ -16,7 +17,8 @@ class SupervisorAgent:
         self.model = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
             google_api_key=os.getenv("GEMINI_API_KEY_V2"),
-            temperature=0.0 # Deterministic routing
+            temperature=0.0, # Deterministic routing
+            callbacks=[LangchainUsageCallback(feature="supervisor_agent", model="gemini-2.5-flash")],
         )
     
 
