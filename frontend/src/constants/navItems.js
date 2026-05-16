@@ -11,4 +11,5 @@ export const NAV_ITEMS = [
   { id: "standings", icon: "medal",  code: "STD", jp: "順位表",          en: "STAND"      },
   { id: "team",      icon: "grid",   code: "TM",  jp: "チームスタッツ",  en: "TEAM"       },
   { id: "profile",   icon: "user",   code: "PRF", jp: "選手プロフィール", en: "PLAYER"    },
+  { id: "usage",     icon: "sparkle", code: "USG", jp: "LLMコスト",       en: "USAGE"      },
 ];

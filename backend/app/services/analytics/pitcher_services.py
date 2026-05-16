@@ -5,12 +5,12 @@ from google.cloud.exceptions import GoogleCloudError
 import pandas as pd
 import os
 import json
-import requests
 import re
 from dotenv import load_dotenv
 # from functools import lru_cache
 from datetime import datetime
 from ..bigquery_service import client
+from ..llm_gateway_service import call_gemini
 import logging
 from ..conversation_service import get_conversation_service
 from .base_engine import BaseEngine
@@ -125,29 +125,23 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
     JSON:
     """
 
-    GEMINI_API_URL=f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"responseMimeType": "application/json"}
-    }
-
-    try:
-        response = requests.post(GEMINI_API_URL, headers=headers, data=json.dumps(payload))
-        response.raise_for_status()
-        result = response.json()
-        if result.get("candidates"):
-            json_string = result["candidates"][0]["content"]["parts"][0]["text"]
-            params = json.loads(json_string)
-
-            logger.info(f"Parsed parameters: {params}")
-
-            if season and 'season' not in params:
-                params['season'] = season
-            return params
+    text = call_gemini(
+        prompt=prompt,
+        model="gemini-2.5-flash",
+        response_mime_type="application/json",
+        feature="analytics_pitcher",
+        user_id="",
+    )
+    if not text:
         return None
-    except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
-        logger.error(f"Error during LLM query parsing: {e}", exc_info=True)
+    try:
+        params = json.loads(text)
+        logger.info(f"Parsed parameters: {params}")
+        if season and 'season' not in params:
+            params['season'] = season
+        return params
+    except json.JSONDecodeError as e:
+        logger.error(f"Error parsing LLM JSON output: {e}", exc_info=True)
         return None
 
 

@@ -7,6 +7,7 @@ google-cloud-bigquery
 google-cloud-bigquery-storage # BigQuery Storage API for fast to_dataframe()
 google-cloud-storage
 google-cloud-monitoring
+google-genai
 google-cloud-speech # For speech to text
 google-cloud-aiplatform # For Vertex AI Endpoint
 scikit-learn

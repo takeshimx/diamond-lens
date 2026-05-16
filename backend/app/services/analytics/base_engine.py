@@ -4,8 +4,6 @@ from typing import Optional, List, Dict, Any
 from google.cloud.exceptions import GoogleCloudError
 import pandas as pd
 import os
-import json
-import requests
 import re
 from dotenv import load_dotenv
 # from functools import lru_cache
@@ -27,6 +25,7 @@ try:
         MAIN_BATTING_BY_GAME_SCORE_SITUATIONS_STATS
     )
     from app.config.statcast_query import KEY_METRICS_QUERY_SELECT
+    from app.services.llm_gateway_service import call_gemini
 except ImportError:
     # 本番実行時の絶対インポート
     from backend.app.config.query_maps import (
@@ -41,6 +40,7 @@ except ImportError:
         MAIN_BATTING_BY_GAME_SCORE_SITUATIONS_STATS
     )
     from backend.app.config.statcast_query import KEY_METRICS_QUERY_SELECT
+    from backend.app.services.llm_gateway_service import call_gemini
 # from .simple_chart_service import enhance_response_with_simple_chart, should_show_simple_chart # For Development, add backend. path
 
 # ロガーの設定
@@ -623,18 +623,13 @@ class BaseEngine:
         ---
         回答:
         """
-        GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
-        headers = {"Content-Type": "application/json"}
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
-
-        try:
-            response = requests.post(GEMINI_API_URL, headers=headers, data=json.dumps(payload))
-            response.raise_for_status()
-            result = response.json()
-            if result.get("candidates"):
-                generated_text = result["candidates"][0]["content"]["parts"][0]["text"]
-                return generated_text.replace('\n', '<br>')
+        text = call_gemini(
+            prompt=prompt,
+            model="gemini-2.5-flash",
+            response_mime_type="text/plain",
+            feature="analytics_base",
+            user_id="",
+        )
+        if not text:
             return "AIによる回答を生成できませんでした。"
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error calling Gemini API for final response: {e}", exc_info=True)
-            return "AIによる回答生成中にエラーが発生しました。"
+        return text.replace('\n', '<br>')

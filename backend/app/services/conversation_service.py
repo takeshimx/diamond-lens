@@ -6,7 +6,8 @@ import json
 import logging
 from datetime import datetime
 import os
-import requests
+
+from backend.app.services.llm_gateway_service import call_gemini
 
 logger = logging.getLogger(__name__)
 
@@ -173,31 +174,19 @@ class ConversationService:
         """
 
         try:
-            # Call Gemini API (requests方式)
-            GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={self.gemini_api_key}"
-            headers = {"Content-Type": "application/json"}
-            payload = {
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"responseMimeType": "application/json"}
-            }
+            text = call_gemini(
+                prompt=prompt,
+                model="gemini-2.5-flash",
+                response_mime_type="application/json",
+                feature="conversation",
+                user_id="",
+            )
+            if not text:
+                return {"resolved_query": current_query, "context_used": False}
 
-            response = requests.post(GEMINI_API_URL, headers=headers, data=json.dumps(payload))
-            response.raise_for_status()
-            result_json = response.json()
-
-            if result_json.get("candidates"):
-                json_string = result_json["candidates"][0]["content"]["parts"][0]["text"]
-                result = json.loads(json_string)
-                logger.info(f"✅ Context resolved: '{current_query}' → '{result['resolved_query']}'")
-                return result
-
-            return {"resolved_query": current_query, "context_used": False}
-
-            # LlamaIndex版（将来使用する可能性あり）
-            # response = self.llm.complete(prompt)
-            # result = json.loads(response.text)
-            # logger.info(f"Context resolved: '{current_query}' → '{result['resolved_query']}'")
-            # return result
+            result = json.loads(text)
+            logger.info(f"✅ Context resolved: '{current_query}' → '{result['resolved_query']}'")
+            return result
 
         except Exception as e:
             logger.error(f"❌ Context resolution failed: {e}")

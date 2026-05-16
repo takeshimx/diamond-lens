@@ -75,11 +75,13 @@ async def generate_strategy_report_endpoint(
         import os
 
         from backend.app.services.agents.strategy_agent import StrategyAgent
+        from backend.app.services.llm_gateway_service import LangchainUsageCallback
 
         model = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
             google_api_key=os.getenv("GEMINI_API_KEY_V2"),
             temperature=0,
+            callbacks=[LangchainUsageCallback(feature="strategy_report", model="gemini-2.5-flash")],
         )
         agent = StrategyAgent(model=model)
         result = agent.run_structured(
@@ -1531,10 +1533,12 @@ target, alert, users, bolt, shield, crosshair
         api_key = os.getenv("GEMINI_API_KEY_V2")
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY_V2 が設定されていません")
+        from backend.app.services.llm_gateway_service import LangchainUsageCallback
         llm = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
             google_api_key=api_key,
             temperature=0,
+            callbacks=[LangchainUsageCallback(feature="strategy_tactics", model="gemini-2.5-flash")],
         )
         structured_llm = llm.with_structured_output(TacticsResponse)
 

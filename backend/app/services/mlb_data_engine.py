@@ -2,7 +2,6 @@ import os
 import json
 import re
 import logging
-import requests
 import pandas as pd
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -10,10 +9,11 @@ from google.cloud.exceptions import GoogleCloudError
 from google.cloud.bigquery import QueryJobConfig, ScalarQueryParameter, ArrayQueryParameter
 
 from .bigquery_service import client
+from .llm_gateway_service import call_gemini
 from ..config.query_maps import (
     QUERY_TYPE_CONFIG, METRIC_MAP, DECIMAL_FORMAT_COLUMNS,
     MAIN_BATTING_STATS, MAIN_PITCHING_STATS, MAIN_CAREER_BATTING_STATS,
-    MAIN_RISP_BATTING_STATS, MAIN_BASES_LOADED_BATTING_STATS, 
+    MAIN_RISP_BATTING_STATS, MAIN_BASES_LOADED_BATTING_STATS,
     MAIN_RUNNER_ON_1B_BATTING_STATS, MAIN_INNING_BATTING_STATS,
     MAIN_BATTING_BY_PITCHING_THROWS_STATS, MAIN_BATTING_BY_PITCH_TYPE_STATS,
     MAIN_BATTING_BY_GAME_SCORE_SITUATIONS_STATS
@@ -126,29 +126,23 @@ class MLBDataEngine:
         JSON:
         """
 
-        GEMINI_API_URL=f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
-        headers = {"Content-Type": "application/json"}
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"responseMimeType": "application/json"}
-        }
-
-        try:
-            response = requests.post(GEMINI_API_URL, headers=headers, data=json.dumps(payload))
-            response.raise_for_status()
-            result = response.json()
-            if result.get("candidates"):
-                json_string = result["candidates"][0]["content"]["parts"][0]["text"]
-                params = json.loads(json_string)
-
-                logger.info(f"Parsed parameters: {params}")
-
-                if season and 'season' not in params:
-                    params['season'] = season
-                return params
+        text = call_gemini(
+            prompt=prompt,
+            model="gemini-2.0-flash",
+            response_mime_type="application/json",
+            feature="mlb_data_engine",
+            user_id="",
+        )
+        if not text:
             return None
-        except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
-            logger.error(f"Error during LLM query parsing: {e}", exc_info=True)
+        try:
+            params = json.loads(text)
+            logger.info(f"Parsed parameters: {params}")
+            if season and 'season' not in params:
+                params['season'] = season
+            return params
+        except json.JSONDecodeError as e:
+            logger.error(f"Error parsing LLM JSON output: {e}", exc_info=True)
             return None
     
     def _validate_query_params(self, params: Dict[str, Any]) -> bool:

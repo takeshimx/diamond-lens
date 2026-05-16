@@ -18,6 +18,7 @@ from .live_game_endpoints import router as live_game_router
 from .summary_endpoints import router as summary_router
 from .hot_slump_endpoints import router as hot_slump_router
 from .strategy_report_endpoints import router as strategy_report_router
+from .usage_endpoints import router as usage_router
 # RAG機能は一時無効化（イメージサイズ削減のため）
 # from .rag_endpoints import router as rag_router
 
@@ -42,5 +43,6 @@ api_router.include_router(live_game_router)
 api_router.include_router(summary_router)
 api_router.include_router(hot_slump_router)
 api_router.include_router(strategy_report_router)
+api_router.include_router(usage_router)
 # api_router.include_router(rag_router)
 # api_router.include_router(pitcher_prediction_router)
