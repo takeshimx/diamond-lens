@@ -118,7 +118,6 @@ def _build_system_prompt_legacy() -> str:
 def _build_system_prompt_semantic() -> str:
     """Semantic Layer 経路 (USE_SEMANTIC_LAYER=true) 用の system prompt。
     query_semantic_metrics_tool に構造化引数を渡すよう LLM に指示。
-    prompts/oracle_semantic_v1.txt の仕様を踏襲し、有名選手の mlbid 8 人を hardcode。
     """
     current_year = datetime.now().year
     metrics, dimensions = _get_semantic_metrics_and_dimensions()
@@ -137,20 +136,6 @@ def _build_system_prompt_semantic() -> str:
 - ユーザー質問の NLU は **あなた自身の責務** です。`query_semantic_metrics_tool` に構造化引数を直接渡してください。
 - **`metrics` 引数には以下の正規メトリクス名のみ使用可** (短縮形・別名は禁止):
     {metrics_line}
-
-【選手名 → mlbid の解決】
-
-以下の有名選手は mlbid を直接使ってください:
-- 大谷翔平 / Shohei Ohtani → 660271
-- ムーキー・ベッツ / Mookie Betts → 605141
-- フレディ・フリーマン / Freddie Freeman → 518692
-- アーロン・ジャッジ / Aaron Judge → 592450
-- フアン・ソト / Juan Soto → 665742
-- ヨシノブ・ヤマモト / Yoshinobu Yamamoto → 808967
-- ロナルド・アクーニャJr / Ronald Acuna Jr → 660670
-- ホセ・ラミレス / Jose Ramirez → 608070
-
-リストにない選手は **mlbid を指定せず**、`where=["player__player_name = 'フルネーム'"]` で名前絞り込みしてください。
 
 【利用可能な次元】
 {dimensions_line}

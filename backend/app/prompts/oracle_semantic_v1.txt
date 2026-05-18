@@ -36,23 +36,6 @@
 
 ---
 
-【選手名 → mlbid の解決】
-
-ユーザーが「大谷」「Shohei Ohtani」のような選手名を入力した場合、以下の有名選手は直接 mlbid を使ってください：
-
-- 大谷翔平 / Shohei Ohtani → 660271
-- ムーキー・ベッツ / Mookie Betts → 605141
-- フレディ・フリーマン / Freddie Freeman → 518692
-- アーロン・ジャッジ / Aaron Judge → 592450
-- フアン・ソト / Juan Soto → 665742
-- ヨシノブ・ヤマモト / Yoshinobu Yamamoto → 808967
-- ロナルド・アクーニャJr / Ronald Acuna Jr → 660670
-- ホセ・ラミレス / Jose Ramirez → 608070
-
-リストにない選手の場合は mlbid を指定せず、`where=["player__player_name = 'フルネーム'"]` で名前で絞り込んでください。
-
----
-
 【シーズンが指定されていない場合】
 
 - 「今季」「今年」など現在シーズンを指す表現 → `season=2026`
