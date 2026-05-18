@@ -154,3 +154,30 @@ async def list_dimensions():
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/_debug/manifest")
+async def debug_manifest():
+    """semantic_manifest.json の中身を直接確認するデバッグ用 endpoint。
+    vocab 不整合 (yml にあるのに bot が知らない 等) の切り分け用。"""
+    try:
+        manifest = await asyncio.to_thread(_load_semantic_manifest)
+        metric_names = sorted([m["name"] for m in manifest.get("metrics", []) if m.get("name")])
+        sm_names = sorted([sm["name"] for sm in manifest.get("semantic_models", []) if sm.get("name")])
+        dim_names = sorted({
+            d["name"]
+            for sm in manifest.get("semantic_models", [])
+            for d in sm.get("dimensions", [])
+            if d.get("name")
+        })
+        return {
+            "metric_count": len(metric_names),
+            "metric_names": metric_names,
+            "semantic_model_count": len(sm_names),
+            "semantic_model_names": sm_names,
+            "dimension_count": len(dim_names),
+            "dimension_names": dim_names,
+        }
+    except Exception as e:
+        print(f"[manifest-error] /_debug/manifest failed: {e}", flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
