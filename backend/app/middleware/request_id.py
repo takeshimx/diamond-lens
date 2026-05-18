@@ -1,6 +1,7 @@
 import uuid
 from backend.app.middleware.request_context import (
     get_request_id,  # noqa: F401  re-exported for backward compat
+    set_endpoint,
     set_request_id,
     set_trace_id,
 )
@@ -42,6 +43,7 @@ class RequestIDMiddleware:
         # ContextVar にセット → 同一リクエスト内のどこからでも取得可能
         set_request_id(request_id)
         set_trace_id(trace_id)
+        set_endpoint(scope.get("path", ""))
 
         # レスポンスヘッダに両方付与
         async def send_with_ids(message):

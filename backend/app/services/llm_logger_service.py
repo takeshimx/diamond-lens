@@ -13,7 +13,13 @@ from google.cloud import bigquery
 import json
 import logging
 
-from backend.app.middleware.request_context import get_trace_id
+from backend.app.middleware.request_context import (
+    get_endpoint,
+    get_request_id,
+    get_session_id,
+    get_trace_id,
+    get_user_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,12 +34,14 @@ class LLMLogEntry:
 
     def __init__(self):
         self.log_id = str(uuid.uuid4())
-        self.user_id: str = ""
+        # ContextVar からの auto-populate（caller が明示セットすれば上書きされる）
+        # request middleware / firebase_auth / endpoint で set 済みの値を流用し、
+        # 全 LLM 呼び出しログに横断的なトレース情報を埋める。
+        self.user_id: str = get_user_id() or ""
         self.timestamp = datetime.now(timezone.utc).isoformat()
-        self.request_id: Optional[str] = None
-        # Snowflake-style 横断的 trace id（ContextVar から自動取得、明示セットで上書き可）
+        self.request_id: Optional[str] = get_request_id() or None
         self.trace_id: Optional[str] = get_trace_id() or None
-        self.session_id: Optional[str] = None
+        self.session_id: Optional[str] = get_session_id() or None
         self.user_query: str = ""
         self.resolved_query: Optional[str] = None
         self.prompt_name: Optional[str] = None
@@ -52,7 +60,7 @@ class LLMLogEntry:
         self.llm_latency_ms: Optional[float] = None
         self.total_latency_ms: Optional[float] = None
         self.bigquery_latency_ms: Optional[float] = None
-        self.endpoint: Optional[str] = None
+        self.endpoint: Optional[str] = get_endpoint() or None
         self.user_rating: Optional[str] = None
         self.feedback_category: Optional[str] = None
         self.feedback_reason: Optional[str] = None

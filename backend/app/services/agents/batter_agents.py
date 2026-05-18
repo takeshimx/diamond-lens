@@ -37,7 +37,7 @@ class BatterAgent:
             )
         else:
             # 既存パス（query_maps.py 経由）
-            from ..ai_agent_service import get_batter_stats_tool
+            from ..tools import get_batter_stats_tool
             self.tools = [get_batter_stats_tool]
             self._semantic_tool_name = None
             self._metric_metadata = None
@@ -183,7 +183,7 @@ class BatterAgent:
                     args["output_format"] = "table"
                 result = query_semantic_metrics_tool.invoke(args)
             else:
-                from ..ai_agent_service import get_batter_stats_tool
+                from ..tools import get_batter_stats_tool
                 if force_table and tool_name == "get_batter_stats_tool":
                     args["output_format"] = "table"
                 result = get_batter_stats_tool.invoke(args)

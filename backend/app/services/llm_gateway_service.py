@@ -14,7 +14,7 @@ import os
 import time
 import logging
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Callable, Dict, Optional
 
 from dotenv import load_dotenv
 from google import genai
@@ -96,7 +96,11 @@ def call_gemini(
     user_id: str = "",
     endpoint: Optional[str] = None,
     request_id: Optional[str] = None,
+    prompt_name: Optional[str] = None,
     prompt_version: Optional[str] = None,
+    user_query: Optional[str] = None,
+    resolved_query: Optional[str] = None,
+    post_response_hook: Optional[Callable[[str, LLMLogEntry], None]] = None,
 ) -> Optional[str]:
     """
     Gemini テキスト生成の単一窓口。
@@ -106,22 +110,36 @@ def call_gemini(
         model: gemini-2.5-flash / gemini-2.0-flash 等
         response_mime_type: "text/plain" or "application/json"
         feature: ダッシュボード集計用タグ (例 "ai_summary", "routing_judge")
-        user_id: Firebase UID 等 (集計用に caller から伝搬)
-        endpoint: 呼び出し元 API パス (任意)
-        request_id: HTTP リクエスト ID (任意)
+        user_id: Firebase UID 等 (省略時は ContextVar から auto-populate)
+        endpoint: 呼び出し元 API パス (省略時は ContextVar から auto-populate)
+        request_id: HTTP リクエスト ID (省略時は ContextVar から auto-populate)
+        prompt_name: prompt registry のキー名 (任意)
         prompt_version: prompt registry から取得した version (任意)
+        user_query: BQ ログの user_query カラムに記録する真のユーザー入力文。
+                    省略時は空文字を記録する (プロンプト本文は記録しない)。
+        resolved_query: 会話履歴コンテキスト解決後のクエリ (任意)
+        post_response_hook: LLM 応答受信後、ログ書き込み前に呼ばれるフック。
+                            caller が parsed_query_type / parsed_metrics 等の
+                            派生フィールドを log entry に詰めるために使う。
+                            シグネチャ: (response_text: str, entry: LLMLogEntry) -> None
 
     Returns:
         生成テキスト、または失敗時 None (既存 _make_request と互換)
     """
     entry = LLMLogEntry()
-    entry.user_id = user_id
+    # 明示引数は ContextVar auto-populate を上書きする (auto は __init__ 内)
+    if user_id:
+        entry.user_id = user_id
+    if endpoint is not None:
+        entry.endpoint = endpoint
+    if request_id is not None:
+        entry.request_id = request_id
     entry.model = model
-    entry.endpoint = endpoint
-    entry.request_id = request_id
     entry.feature = feature
+    entry.prompt_name = prompt_name
     entry.prompt_version = prompt_version
-    entry.user_query = prompt[:500]  # プロンプト先頭500文字（全文は冗長）
+    entry.user_query = (user_query or "")[:500]
+    entry.resolved_query = resolved_query
 
     text: Optional[str] = None
     t0 = time.time()
@@ -159,6 +177,14 @@ def call_gemini(
             logger.warning("Gemini SDK returned no text")
         else:
             entry.success = True
+            entry.response_answer = text
+            # caller が derived field (parsed_*) を log entry に書き込めるフック。
+            # フック内例外は本処理に伝播させない (ロギングは best-effort)。
+            if post_response_hook is not None:
+                try:
+                    post_response_hook(text, entry)
+                except Exception as e:
+                    logger.warning(f"post_response_hook failed (suppressed): {e}")
 
     except Exception as e:
         entry.success = False
@@ -207,12 +233,19 @@ class LangchainUsageCallback(BaseCallbackHandler):
         model: str,
         user_id: str = "",
         endpoint: Optional[str] = None,
+        pool: str = "chat",
     ):
+        """
+        Args:
+            pool: Phase 3-A 用。"chat" または "report"。
+                  StrategyAgent / strategy-report 系は "report" を指定すること。
+        """
         super().__init__() if _LANGCHAIN_AVAILABLE else None
         self.feature = feature
         self.model = model
         self.user_id = user_id
         self.endpoint = endpoint
+        self.pool = pool
         self._start_time: Optional[float] = None
 
     # LangChain は chat-style では on_chat_model_start を呼ぶ
@@ -273,6 +306,15 @@ class LangchainUsageCallback(BaseCallbackHandler):
             get_llm_logger().log(entry)
         except Exception as e:
             logger.error(f"LangchainUsageCallback: log failed: {e}")
+
+        # Phase 3-A: プール別に使用量を計上
+        try:
+            from backend.app.services.token_budget_service import get_token_budget_service
+            total_tokens = (entry.input_tokens or 0) + (entry.output_tokens or 0)
+            if total_tokens > 0 and self.pool in ("chat", "report"):
+                get_token_budget_service().record_usage(total_tokens, pool=self.pool)
+        except Exception as e:
+            logger.warning(f"LangchainUsageCallback: budget record failed (suppressed): {e}")
 
     def on_llm_error(self, error, **kwargs):
         entry = LLMLogEntry()

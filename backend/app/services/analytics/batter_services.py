@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 from datetime import datetime
 from ..bigquery_service import client
 from ..llm_gateway_service import call_gemini
+from backend.app.config.prompt_registry import get_prompt_version
+from backend.app.middleware.request_context import add_bq_latency_ms
 import logging
 from ..conversation_service import get_conversation_service
 from .base_engine import BaseEngine
@@ -84,10 +86,19 @@ def _load_prompt_template(template_name: str) -> str:
         raise
 
 
-def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[str, Any]]:
+def _parse_query_with_llm(
+    query: str,
+    season: Optional[int],
+    original_query: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
     """
-    [ステップ1] LLMを使い、質問からパラメータを抽出します。この関数はLLMの役割を果たします。ユーザーの質問を解析し、「意図」を汲み取り、
-    データベースで検索するためのパラメータをJSON形式で抽出します。
+    [ステップ1] LLMを使い、質問からパラメータを抽出します。
+
+    Args:
+        query: 会話コンテキスト解決後のクエリ (LLM に投げる本文)
+        season: 補助のシーズンヒント
+        original_query: ユーザーが実際に入力したオリジナル文 (BQ ログ用)。
+                        指定なければ query をそのまま使う。
     """
     if not GEMINI_API_KEY:
         logger.error("GEMINI_API_KEY_V2 is not set.")
@@ -108,12 +119,33 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
         prev_year=current_year - 1
     )
 
+    # LLM の JSON 応答から parsed_* フィールドを log entry に転記するフック。
+    # call_gemini 内で text 受信後・log 書き込み前に呼ばれる。
+    def _hook(text: str, entry):
+        try:
+            parsed = json.loads(text)
+            entry.parsed_query_type = parsed.get("query_type")
+            metrics = parsed.get("metrics")
+            entry.parsed_metrics = (
+                json.dumps(metrics, ensure_ascii=False) if metrics is not None else None
+            )
+            entry.parsed_player_name = parsed.get("name")
+            parsed_season = parsed.get("season")
+            entry.parsed_season = int(parsed_season) if parsed_season is not None else None
+        except (json.JSONDecodeError, TypeError, ValueError):
+            # ロギング失敗は本処理に影響させない
+            pass
+
     text = call_gemini(
         prompt=prompt,
         model="gemini-2.5-flash",
         response_mime_type="application/json",
         feature="analytics_batter",
-        user_id="",
+        prompt_name="parse_query",
+        prompt_version=get_prompt_version("parse_query"),
+        user_query=original_query or query,
+        resolved_query=query if (original_query and original_query != query) else None,
+        post_response_hook=_hook,
     )
     if not text:
         return None
@@ -134,14 +166,22 @@ def _parse_query_with_llm(query: str, season: Optional[int]) -> Optional[Dict[st
 
 
 def get_ai_response_for_batter_stats(
-        query: str,
+        query: Optional[str] = None,
         season: Optional[int] = None,
         session_id: Optional[str] = None,
-        output_format: Optional[str] = None  # 呼び出し元から明示的に指定された場合にLLM解析結果を上書き
+        output_format: Optional[str] = None,  # 呼び出し元から明示的に指定された場合にLLM解析結果を上書き
+        structured_params: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
     """
     【打撃リーダーボード特化版】
     ユーザーの"打撃リーダーボード"に関する質問を処理します。
+
+    2 つのモード:
+      A) structured_params が渡された場合 (推奨/新方式):
+         ChatOrchestrator の外側 LLM が既に NLU を済ませている前提。
+         ツール内 NLU をスキップして直接 SQL を組み立てる。
+      B) query (自然文) が渡された場合 (後方互換):
+         ツール内で _parse_query_with_llm を呼んで NLU を実行する旧フロー。
     """
 
     # Step 0: Resolve conversation context (会話コンテキストの解決 == 直前の履歴から情報を補完)
@@ -149,7 +189,7 @@ def get_ai_response_for_batter_stats(
     resolved_query = query
     context_used = False
 
-    if session_id:
+    if session_id and query:
         logger.info(f"Resolving conversation context for session_id: {session_id}")
         context_result = conv_service.resolve_context(query, session_id)
         resolved_query = context_result["resolved_query"]
@@ -159,28 +199,40 @@ def get_ai_response_for_batter_stats(
         if not season and context_result.get("season"):
             season = int(context_result["season"])
             logger.info(f"Season {season} inferred from conversation context")
-        
+
         if context_used:
             logger.info(f"Query resolved: '{query}' → '{resolved_query}'")
-        
+
         # ユーザーメッセージを会話履歴に保存。次の質問で「さっきの質問をもう一度」などの文脈が使えるようにする。
         conv_service.add_message(session_id, "user", query)
 
-    # Step 1: LLMで質問を解析（解決後のクエリを使用）
-    query_params = _parse_query_with_llm(resolved_query, season)
-    if not query_params:
-        logger.warning("Could not extract parameters from the query.")
-        error_response = {
-            "answer": "質問を理解できませんでした。打撃成績のランキングについて質問してください。（例：2024年のホームラン王は誰？）",
-            "isTable": False
-        }
+    # Step 1: query_params を決定 (structured_params 優先、なければ NLU)
+    if structured_params and (
+        structured_params.get("query_type")
+        or structured_params.get("name")
+        or structured_params.get("metrics")
+    ):
+        # モード A: 外側 LLM が解析済み → NLU をスキップ
+        logger.info(f"Skipping NLU; using structured_params: {structured_params}")
+        query_params = {k: v for k, v in structured_params.items() if v is not None}
+    else:
+        # モード B: 自然文を NLU
+        if not query:
+            return {
+                "answer": "クエリ引数が不足しています (query または structured_params のいずれかが必須)。",
+                "isTable": False,
+            }
+        query_params = _parse_query_with_llm(resolved_query, season, original_query=query)
+        if not query_params:
+            logger.warning("Could not extract parameters from the query.")
+            error_response = {
+                "answer": "質問を理解できませんでした。打撃成績のランキングについて質問してください。（例：2024年のホームラン王は誰？）",
+                "isTable": False,
+            }
+            if session_id:
+                conv_service.add_message(session_id, "assistant", error_response["answer"])
+            return error_response
 
-        # エラーレスポンスも会話履歴に保存
-        if session_id:
-            conv_service.add_message(session_id, "assistant", error_response["answer"])
-        
-        return error_response
-    
     logger.info(f"Parsed query parameters: {query_params}")
 
     # 呼び出し元から output_format が明示指定されていれば LLM 解析結果を上書き
@@ -260,6 +312,8 @@ def get_ai_response_for_batter_stats(
         query_start = datetime.now()
         results_df = client.query(sql_query, job_config=job_config).to_dataframe()
         query_duration = (datetime.now() - query_start).total_seconds()
+        # BQ 累計時間を ContextVar に加算 (エンドポイントが最後に log_entry に書く)
+        add_bq_latency_ms(query_duration * 1000)
 
         logger.info(f"Query completed in {query_duration:.2f}s, fetched {len(results_df)} rows")
 
@@ -290,7 +344,23 @@ def get_ai_response_for_batter_stats(
     # Step 4: Format response
     total_duration = (datetime.now() - query_start).total_seconds()
     logger.info(f"Total request processing time: {total_duration:.2f}s")
-    
+
+    # output_format='data': 生データを返し、ツール内の最終 LLM 生成をスキップする。
+    # ChatOrchestrator の外側 LLM がこのデータを受け取って応答合成する想定。
+    if query_params.get("output_format") == "data":
+        logger.info(f"output_format=data: returning raw rows ({len(results_df)} rows), skipping LLM narrative")
+        rows = results_df.to_dict("records")
+        return {
+            "isTable": False,
+            "isChart": False,
+            "data": rows,
+            "row_count": len(rows),
+            "columns": list(results_df.columns),
+            "parameters": query_params,
+            # ContextVar 経由ではなく戻り値で BQ 時間を伝搬 (StreamingResponse 配下で ContextVar が伝わらない問題回避)
+            "bigquery_latency_ms": query_duration * 1000,
+        }
+
     # if output format is table
     if query_params.get("output_format") == "table":
         # Debug logging

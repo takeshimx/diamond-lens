@@ -36,7 +36,7 @@ class PitcherAgent:
             )
         else:
             # 既存パス
-            from ..ai_agent_service import get_pitcher_stats_tool
+            from ..tools import get_pitcher_stats_tool
             self.tools = [get_pitcher_stats_tool]
             self._metric_metadata = None
 
@@ -187,7 +187,7 @@ class PitcherAgent:
                     args["output_format"] = "table"
                 result = query_semantic_metrics_tool.invoke(args)
             else:
-                from ..ai_agent_service import get_pitcher_stats_tool
+                from ..tools import get_pitcher_stats_tool
                 result = get_pitcher_stats_tool.invoke(tool_call["args"])
 
             # ===== エラー/空結果の検出 =====

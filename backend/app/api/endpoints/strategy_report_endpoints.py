@@ -51,7 +51,7 @@ async def generate_strategy_report_endpoint(
     request_id = str(uuid4())
 
     token_budget = get_token_budget_service()
-    if token_budget.is_budget_exceeded():
+    if token_budget.is_budget_exceeded("report"):
         return {
             "request_id": request_id,
             "final_answer": "本日のAI分析サービスの利用上限に達しました。明日以降に再度お試しください。",
@@ -81,7 +81,7 @@ async def generate_strategy_report_endpoint(
             model="gemini-2.5-flash",
             google_api_key=os.getenv("GEMINI_API_KEY_V2"),
             temperature=0,
-            callbacks=[LangchainUsageCallback(feature="strategy_report", model="gemini-2.5-flash")],
+            callbacks=[LangchainUsageCallback(feature="strategy_report", model="gemini-2.5-flash", pool="report")],
         )
         agent = StrategyAgent(model=model)
         result = agent.run_structured(
@@ -1385,7 +1385,7 @@ async def get_tactics_endpoint(
 
     # Token budget
     token_budget = get_token_budget_service()
-    if token_budget.is_budget_exceeded():
+    if token_budget.is_budget_exceeded("report"):
         return {
             "request_id":   request_id,
             "side":         side,
@@ -1538,7 +1538,7 @@ target, alert, users, bolt, shield, crosshair
             model="gemini-2.5-flash",
             google_api_key=api_key,
             temperature=0,
-            callbacks=[LangchainUsageCallback(feature="strategy_tactics", model="gemini-2.5-flash")],
+            callbacks=[LangchainUsageCallback(feature="strategy_tactics", model="gemini-2.5-flash", pool="report")],
         )
         structured_llm = llm.with_structured_output(TacticsResponse)
 
