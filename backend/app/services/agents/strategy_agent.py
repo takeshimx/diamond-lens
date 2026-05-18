@@ -148,9 +148,34 @@ class StrategyAgent:
         logger.info("Planner node started", node="planner")
 
         system_prompt = get_prompt("strategy_planner")
-        prompt = [SystemMessage(content=system_prompt)] + state["messages"]
+
+        # Context Caching: strategy_planner は静的 system prompt のため、
+        # cached_content 経由で input billing を削減する。1,024 tok 未満で
+        # caches.create() が失敗した場合や invoke が落ちた場合は無音で
+        # 非キャッシュ経路にフォールバックする (batter_agents.oracle_node と同一パターン)。
+        cache_name = None
+        try:
+            from backend.app.config.prompt_registry import get_prompt_version
+            from backend.app.services.prompt_cache_service import get_or_create_cache
+            cache_name = get_or_create_cache(
+                prompt_name="strategy_planner",
+                prompt_version=get_prompt_version("strategy_planner"),
+                prefix_text=system_prompt,
+                as_system_instruction=True,
+            )
+        except Exception as e:
+            logger.warning(f"strategy_planner cache lookup failed: {e}")
 
         try:
+            if cache_name:
+                try:
+                    cached_model = self.raw_model.bind(cached_content=cache_name).bind_tools(self.tools)
+                    response = cached_model.invoke(state["messages"])
+                    return {"messages": [response]}
+                except Exception as e:
+                    logger.warning(f"cached planner invoke failed, fallback to non-cached: {e}")
+
+            prompt = [SystemMessage(content=system_prompt)] + state["messages"]
             response = self.model.invoke(prompt)
             return {"messages": [response]}
         except Exception as e:
@@ -295,11 +320,41 @@ class StrategyAgent:
         logger.info("Strategist node started", node="strategist")
 
         system_prompt = get_prompt("strategy_synthesizer")
-        prompt = [SystemMessage(content=system_prompt)] + state["messages"] + [
-            HumanMessage(content="それでは、戦略分析レポートを作成してください。必ず主語から始まる完全な文章で開始すること。")
-        ]
+        human_msg = HumanMessage(
+            content="それでは、戦略分析レポートを作成してください。必ず主語から始まる完全な文章で開始すること。"
+        )
+
+        # Context Caching: strategy_synthesizer は静的 system prompt のため
+        # cached_content 経由で input billing を削減する。tools 不要のため
+        # planner_node より単純な .bind(cached_content=...) のみ。
+        # 1,024 tok 未満で失敗する場合は非キャッシュ経路にフォールバック。
+        cache_name = None
+        try:
+            from backend.app.config.prompt_registry import get_prompt_version
+            from backend.app.services.prompt_cache_service import get_or_create_cache
+            cache_name = get_or_create_cache(
+                prompt_name="strategy_synthesizer",
+                prompt_version=get_prompt_version("strategy_synthesizer"),
+                prefix_text=system_prompt,
+                as_system_instruction=True,
+            )
+        except Exception as e:
+            logger.warning(f"strategy_synthesizer cache lookup failed: {e}")
 
         try:
+            if cache_name:
+                try:
+                    cached_model = self.raw_model.bind(cached_content=cache_name)
+                    response = cached_model.invoke(state["messages"] + [human_msg])
+                    logger.info(f"Strategist response length (cached): {len(response.content)}")
+                    return {
+                        "final_answer": response.content,
+                        "messages": [response]
+                    }
+                except Exception as e:
+                    logger.warning(f"cached strategist invoke failed, fallback to non-cached: {e}")
+
+            prompt = [SystemMessage(content=system_prompt)] + state["messages"] + [human_msg]
             response = self.raw_model.invoke(prompt)
             logger.info(f"Strategist response length: {len(response.content)}")
             return {
