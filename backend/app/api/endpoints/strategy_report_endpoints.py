@@ -1377,10 +1377,12 @@ async def get_tactics_endpoint(
     import asyncio
     import json
     import os
+    import time as _time
     from langchain_google_genai import ChatGoogleGenerativeAI
     from pydantic import BaseModel, Field
     from typing import List, Literal
 
+    _tactics_start_ts = _time.time()
     request_id = str(uuid4())
 
     # Token budget
@@ -1538,7 +1540,16 @@ target, alert, users, bolt, shield, crosshair
             model="gemini-2.5-flash",
             google_api_key=api_key,
             temperature=0,
-            callbacks=[LangchainUsageCallback(feature="strategy_tactics", model="gemini-2.5-flash", pool="report")],
+            callbacks=[LangchainUsageCallback(
+                feature="strategy_tactics",
+                model="gemini-2.5-flash",
+                pool="report",
+                prompt_name="strategy_tactics",
+                prompt_version="v1",
+                user_query=user_prompt[:500],
+                request_id=request_id,
+                request_start_time=_tactics_start_ts,
+            )],
         )
         structured_llm = llm.with_structured_output(TacticsResponse)
 

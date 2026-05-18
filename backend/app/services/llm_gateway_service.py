@@ -245,18 +245,61 @@ class LangchainUsageCallback(BaseCallbackHandler):
         user_id: str = "",
         endpoint: Optional[str] = None,
         pool: str = "chat",
+        prompt_name: Optional[str] = None,
+        prompt_version: Optional[str] = None,
+        user_query: Optional[str] = None,
+        session_id: Optional[str] = None,
+        request_id: Optional[str] = None,
+        trace_id: Optional[str] = None,
+        request_start_time: Optional[float] = None,
     ):
         """
         Args:
             pool: Phase 3-A 用。"chat" または "report"。
                   StrategyAgent / strategy-report 系は "report" を指定すること。
+            prompt_name: BQ log の prompt_name カラム用。例: "strategy_tactics"。
+            prompt_version: BQ log の prompt_version カラム用。例: "v1"。
+            user_query: BQ log の user_query カラム用 (先頭 500 文字に切り詰め)。
+            session_id / request_id / trace_id: 明示指定が無ければ __init__ 時点で
+                ContextVar からスナップショットする。`asyncio.to_thread` 経由で
+                callback が別スレッドで実行された際、ContextVar が伝搬せず null に
+                落ちる問題を回避するため。
+            request_start_time: BQ log の total_latency_ms 算出用の起点 time.time()。
+                明示無し時は __init__ 呼び出し時刻を使う。
         """
         super().__init__() if _LANGCHAIN_AVAILABLE else None
         self.feature = feature
         self.model = model
-        self.user_id = user_id
-        self.endpoint = endpoint
         self.pool = pool
+        self.prompt_name = prompt_name
+        self.prompt_version = prompt_version
+        self.user_query = user_query
+        # ── ContextVar スナップショット (caller が明示値を渡せばそちらを優先) ──
+        # __init__ は request の async context 内で呼ばれるので ContextVar が見える。
+        # on_llm_end は to_thread で別スレッド実行され ContextVar が空になるため、
+        # ここで snapshot しないと session_id / endpoint / user_id 等が null になる。
+        try:
+            from backend.app.middleware.request_context import (
+                get_endpoint as _ctx_endpoint,
+                get_request_id as _ctx_request_id,
+                get_session_id as _ctx_session_id,
+                get_trace_id as _ctx_trace_id,
+                get_user_id as _ctx_user_id,
+            )
+            self.user_id = user_id or _ctx_user_id() or ""
+            self.endpoint = endpoint or _ctx_endpoint() or None
+            self.session_id = session_id or _ctx_session_id() or None
+            self.request_id = request_id or _ctx_request_id() or None
+            self.trace_id = trace_id or _ctx_trace_id() or None
+        except Exception:
+            self.user_id = user_id or ""
+            self.endpoint = endpoint
+            self.session_id = session_id
+            self.request_id = request_id
+            self.trace_id = trace_id
+        # total_latency_ms 算出用 (callback 生成から on_llm_end までの経過)。
+        # caller が request 受信時刻を渡せばそちらを優先。
+        self._request_start_time: float = request_start_time or time.time()
         self._start_time: Optional[float] = None
 
     # LangChain は chat-style では on_chat_model_start を呼ぶ
@@ -307,12 +350,59 @@ class LangchainUsageCallback(BaseCallbackHandler):
             "cached_tokens": int(cached_t or 0),
         }
 
+    def _extract_response_text(self, response) -> Optional[str]:
+        """LangChain LLMResult から response テキストを抽出。
+        structured_output 経路 (tool_calls) と通常テキスト経路の両方をカバー。"""
+        try:
+            gens = getattr(response, "generations", None) or []
+            if not gens or not gens[0]:
+                return None
+            first = gens[0][0]
+            msg = getattr(first, "message", None)
+            if msg:
+                content = getattr(msg, "content", None)
+                if isinstance(content, str) and content.strip():
+                    return content[:1000]
+                if isinstance(content, list):
+                    joined = " ".join(str(p) for p in content if p)
+                    if joined.strip():
+                        return joined[:1000]
+                tool_calls = getattr(msg, "tool_calls", None) or []
+                if tool_calls:
+                    import json as _json
+                    args = tool_calls[0].get("args", {}) if isinstance(tool_calls[0], dict) else getattr(tool_calls[0], "args", {})
+                    return _json.dumps(args, ensure_ascii=False)[:1000]
+            text = getattr(first, "text", None)
+            if text and str(text).strip():
+                return str(text)[:1000]
+        except Exception as e:
+            logger.warning(f"LangchainUsageCallback: failed to extract response text: {e}")
+        return None
+
     def on_llm_end(self, response, **kwargs):
         entry = LLMLogEntry()
         entry.user_id = self.user_id
         entry.feature = self.feature
         entry.endpoint = self.endpoint
         entry.model = self.model
+        # ContextVar が asyncio.to_thread 経由で伝搬しないケースに備え、
+        # __init__ snapshot 値で上書き (LLMLogEntry.__init__ 内の ContextVar 読み込みは
+        # 別スレッドだと空になる)。
+        if self.session_id:
+            entry.session_id = self.session_id
+        if self.request_id:
+            entry.request_id = self.request_id
+        if self.trace_id:
+            entry.trace_id = self.trace_id
+        # chat_orchestrator パターン踏襲: prompt_name / prompt_version / user_query を明示セット
+        entry.prompt_name = self.prompt_name
+        entry.prompt_version = self.prompt_version
+        if self.user_query:
+            entry.user_query = str(self.user_query)[:500]
+        # 応答本文を抽出 (structured_output 経路含む)
+        resp_text = self._extract_response_text(response)
+        if resp_text:
+            entry.response_answer = resp_text
 
         usage = self._extract_usage(response)
         entry.input_tokens = usage["input_tokens"]
@@ -326,6 +416,8 @@ class LangchainUsageCallback(BaseCallbackHandler):
         )
         if self._start_time:
             entry.llm_latency_ms = (time.time() - self._start_time) * 1000.0
+        # total_latency_ms: __init__ (または caller 指定の request_start_time) からの累計
+        entry.total_latency_ms = (time.time() - self._request_start_time) * 1000.0
         entry.success = True
 
         try:
@@ -348,11 +440,22 @@ class LangchainUsageCallback(BaseCallbackHandler):
         entry.feature = self.feature
         entry.endpoint = self.endpoint
         entry.model = self.model
+        if self.session_id:
+            entry.session_id = self.session_id
+        if self.request_id:
+            entry.request_id = self.request_id
+        if self.trace_id:
+            entry.trace_id = self.trace_id
+        entry.prompt_name = self.prompt_name
+        entry.prompt_version = self.prompt_version
+        if self.user_query:
+            entry.user_query = str(self.user_query)[:500]
         entry.success = False
         entry.error_type = type(error).__name__
         entry.error_message = str(error)[:500]
         if self._start_time:
             entry.llm_latency_ms = (time.time() - self._start_time) * 1000.0
+        entry.total_latency_ms = (time.time() - self._request_start_time) * 1000.0
         try:
             get_llm_logger().log(entry)
         except Exception as e:
