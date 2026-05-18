@@ -146,7 +146,15 @@ def _load_semantic_manifest() -> dict:
 async def list_metrics():
     try:
         manifest = await asyncio.to_thread(_load_semantic_manifest)
-        names = sorted({m["name"] for m in manifest.get("metrics", []) if m.get("name")})
+        # `fg_*` プレフィックスは FanGraphs 生スタッツの内部用 metric (49 件)。
+        # LLM 経路では canonical (home_runs_total 等) を使わせたいため、vocab から除外。
+        # alphabetical で fg_* が中盤を占有して LLM が canonical metric を見落とす
+        # ("lost in the middle") のを回避する。
+        names = sorted({
+            m["name"]
+            for m in manifest.get("metrics", [])
+            if m.get("name") and not m["name"].startswith("fg_")
+        })
         return {"metrics": names}
     except Exception as e:
         print(f"[manifest-error] /metrics failed: {e}", flush=True)
