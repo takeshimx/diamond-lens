@@ -135,7 +135,7 @@ class PitcherAgent:
 
     def oracle_node(self, state):
         if self.use_semantic:
-            from backend.app.config.prompt_registry import get_prompt
+            from backend.app.config.prompt_registry import get_prompt, get_prompt_version
             available_metrics = ", ".join(self._metric_metadata.get("metrics", [])) or "(取得不可)"
             available_dimensions = ", ".join(self._metric_metadata.get("dimensions", [])) or "(取得不可)"
             system_prompt = get_prompt(
@@ -143,6 +143,28 @@ class PitcherAgent:
                 available_metrics=available_metrics,
                 available_dimensions=available_dimensions,
             )
+
+            # Context Caching: system prompt は metric/dimension vocab を含むが
+            # vocab 変更頻度が低いため cache 効率が高い。LangChain `.bind()` 経由で
+            # cached_content を per-invoke 注入し、失敗時は非キャッシュ経路に倒す。
+            cache_name = None
+            try:
+                from backend.app.services.prompt_cache_service import get_or_create_cache
+                cache_name = get_or_create_cache(
+                    prompt_name="oracle_semantic",
+                    prompt_version=get_prompt_version("oracle_semantic"),
+                    prefix_text=system_prompt,
+                    as_system_instruction=True,
+                )
+            except Exception as e:
+                logger.warning(f"oracle_semantic cache lookup failed: {e}")
+
+            if cache_name:
+                try:
+                    cached_model = self.raw_model.bind(cached_content=cache_name).bind_tools(self.tools)
+                    return {"messages": [cached_model.invoke(state["messages"])]}
+                except Exception as e:
+                    logger.warning(f"cached invoke failed, fallback to non-cached: {e}")
         else:
             system_prompt = """あなたはMLB投球データの専門家です。
 

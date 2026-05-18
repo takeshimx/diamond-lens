@@ -482,8 +482,9 @@ sequenceDiagram
 |----------|-------|
 | **Prompt Versioning** | Externalized prompts as versioned text files (`parse_query_v1.txt`, `routing_v1.txt`) |
 | **Prompt Registry** | `prompt_registry.py` manages prompt loading and version switching |
+| **Context Caching** | `prompt_cache_service.py` registers long fixed prefixes (`parse_query_v1`, `oracle_semantic_v1`) via `client.caches.create()`; reduces Gemini input billing from ~$0.30/M to ~$0.03/M tokens (~1/10). Per-instance in-memory registry with 1-hour TTL and fail-open fallback |
 | **LLM I/O Logging** | `llm_logger_service.py` logs all LLM interactions to BigQuery asynchronously |
-| **Logged Fields** | User query, parsed result, prompt version, latency, errors, routing result, user feedback, reflection loop metadata (is_retry, retry_count, retry_reason) |
+| **Logged Fields** | User query, parsed result, prompt version, latency, errors, routing result, user feedback, reflection loop metadata (is_retry, retry_count, retry_reason), cached_tokens (Context Caching hit ratio) |
 | **Evaluation Gate** | `evaluate_llm_accuracy.py` runs LLM against golden dataset in CI/CD |
 | **Golden Dataset** | `golden_dataset.json` with test cases covering batting, pitching, splits, career (expandable via HITL) |
 | **Pass Threshold** | 80% accuracy required to proceed with deployment |

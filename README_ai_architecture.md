@@ -11,6 +11,7 @@
 |---|---|
 | [1. 全体像](#1-全体像) | AI コアと harness 層の俯瞰図 |
 | [2. LLM Gateway](#2-llm-gateway-層) | 全 LLM 呼び出しの単一窓口 |
+| [2.5. Context Caching](#25-context-caching) | Gemini Context Caching で input トークン課金を ~1/10 に削減 |
 | [3. Logging & Cost Tracking](#3-logging--cost-tracking-層) | BigQuery への観測ログ |
 | [4. Prompt Registry](#4-prompt-registry-層) | プロンプト版管理（active / shadow） |
 | [5. Judge Layer](#5-judge-layer-llm-as-a-judge) | 5 種の LLM Judge |
@@ -137,6 +138,59 @@ flowchart LR
 ```
 
 LangChain は SDK ラッパー越しに呼ぶため `call_gemini()` を経由いたしません。同等の観測性を保つため `LangchainUsageCallback` を別途用意し、`on_llm_end` で `usage_metadata` を抽出いたします。
+
+---
+
+## 2.5. Context Caching
+
+ファイル: [backend/app/services/prompt_cache_service.py](backend/app/services/prompt_cache_service.py)
+
+### 役割
+
+Gemini Context Caching (`client.caches.create()`) を用いて、**長い固定プレフィックスをサーバ側に保持**し、リクエストでは動的サフィックスのみ送信する。`cached_per_1m_usd = $0.03` を活用し、input トークン課金を **~$0.30/M → ~$0.03/M (約 1/10)** に削減。
+
+### 設計
+
+| 機能 | 実装 |
+|---|---|
+| Cache 取得 | `get_or_create_cache(prompt_name, prompt_version, prefix_text, as_system_instruction=...)` |
+| 一意キー | `(prompt_name, version, model, mode_tag, sha256(prefix_text)[:16])` |
+| 二重作成防止 | `threading.Lock` で同時初回作成を直列化 |
+| TTL 管理 | デフォルト 3600 秒。残り 5 分を切ったら自動再作成 |
+| Fail-open | 作成失敗時は `None` を返し、caller は非キャッシュ経路にフォールバック |
+| 登録モード 2 系統 | `as_system_instruction=False` (user contents) / `True` (system instruction) |
+
+### 適用箇所
+
+| 経路 | プロンプト | 登録モード | トークン数 | 削減効果 |
+|---|---|---|---:|---|
+| `_parse_query_with_llm` ([batter_services.py](backend/app/services/analytics/batter_services.py)) | `parse_query_v1.txt` の `# 本番` マーカー前 (instructions + examples) | user contents | ~2,250 tok | input ~97% がキャッシュヒット |
+| `oracle_node` (Semantic Layer 経路、[batter_agents.py](backend/app/services/agents/batter_agents.py) / [pitcher_agents.py](backend/app/services/agents/pitcher_agents.py)) | `oracle_semantic_v1.txt` に metric/dimension vocab を baked in | system instruction | ~1,100-2,000 tok | 同上 (LangChain `.bind(cached_content=...)` 経由) |
+
+### プロンプト分割パターン
+
+```
+parse_query_v1.txt:
+  ┌──────────────────────────────┐
+  │ instructions + JSON schema + │ ← cacheable prefix (>1,024 token)
+  │ examples (10 個)              │   {current_year} は year 単位で baked in
+  ├──────────────────────────────┤ ← `# 本番` マーカー (split 位置)
+  │ # 本番                        │ ← dynamic suffix
+  │ 質問: 「{query}」             │   毎リクエスト送信
+  │ JSON:                         │
+  └──────────────────────────────┘
+```
+
+### 制約
+
+- **最小トークン数**: Gemini 2.5 Flash で 1,024 token、Pro で 2,048 token を下回ると `caches.create()` が拒否される
+- **キャッシュストレージ料金**: $1.00/M token/hour (例: 2,250 tok × $1/M/hr ≈ $0.054/day)
+- **In-memory dict**: Cloud Run の各インスタンスが個別にキャッシュを作成 (インスタンス間で共有しない)
+- **`USE_SEMANTIC_LAYER=true`** 時のみ oracle 経路のキャッシュが発火 (= Cloud Run 本番)
+
+### 計測
+
+`llm_interaction_logs.cached_tokens` カラムに記録 (`call_gemini` 経路は `usage_metadata.cached_content_token_count` から、LangChain 経路は `LangchainUsageCallback._extract_usage` の `input_token_details.cache_read` から抽出)。
 
 ---
 
