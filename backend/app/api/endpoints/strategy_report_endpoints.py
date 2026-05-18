@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from backend.app.api.rate_limit import limiter
 from backend.app.config.settings import get_settings
+from backend.app.middleware.request_context import set_session_id
 from backend.app.utils.structured_logger import get_logger
 from backend.app.services.token_budget_service import get_token_budget_service
 
@@ -1373,6 +1374,7 @@ async def get_tactics_endpoint(
     season: int = Query(2026, ge=2015, le=2030),
     side: str = Query(..., pattern="^(batter|pitcher)$",
                       description="batter: 打者戦術 / pitcher: 投手戦術"),
+    session_id: Optional[str] = Query(None, description="会話セッション ID。未指定なら新規発行。"),
 ) -> Dict[str, Any]:
     import asyncio
     import json
@@ -1384,6 +1386,11 @@ async def get_tactics_endpoint(
 
     _tactics_start_ts = _time.time()
     request_id = str(uuid4())
+    # session_id: フロントから渡って来なければローカル発行し ContextVar にも反映
+    # (LangchainUsageCallback の snapshot とは別経路で他のロガーが ContextVar 経由で
+    # 取得できるようにするため)。
+    session_id = session_id or str(uuid4())
+    set_session_id(session_id)
 
     # Token budget
     token_budget = get_token_budget_service()
@@ -1548,6 +1555,7 @@ target, alert, users, bolt, shield, crosshair
                 prompt_version="v1",
                 user_query=user_prompt[:500],
                 request_id=request_id,
+                session_id=session_id,
                 request_start_time=_tactics_start_ts,
             )],
         )
