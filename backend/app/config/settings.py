@@ -171,7 +171,7 @@ class Settings(BaseSettings):
     # False → 新 ChatOrchestrator (素の Gemini SDK + tool_use loop) を使用
     # 段階リリース完了後（Phase 2-G）にこのフラグごと削除予定。
     use_legacy_chat_agent: bool = Field(
-        default=True, # 安全側: デフォルトは旧実装
+        default=False,  # Phase 2.5 移行完了。ChatOrchestrator が標準経路。
         description="Phase 2 移行期間中のみ使用する切替フラグ。Phase 2-G 完了で削除。",
     )
 
