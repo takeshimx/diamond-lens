@@ -163,7 +163,7 @@ QUERY_SEMANTIC_METRICS_DECL = types.FunctionDeclaration(
         "**USE_SEMANTIC_LAYER=true** 時の唯一のデータ取得経路。"
         "**呼び出し元の LLM が ユーザー質問を解析し、ここに構造化引数を直接渡すこと**。"
         "metrics 名は Semantic Layer 登録済みの正規名のみ使用可。"
-        "選手フィルタは mlbid (整数) または where=[\"player__player_name = 'フルネーム'\"] のいずれか。"
+        "選手フィルタは player_name (英語フルネーム文字列) を渡せば backend 側で Jinja に展開する。"
     ),
     parameters={
         "type": "OBJECT",
@@ -185,9 +185,15 @@ QUERY_SEMANTIC_METRICS_DECL = types.FunctionDeclaration(
             "mlbid": {
                 "type": "INTEGER",
                 "description": (
-                    "MLB ID (例: 大谷=660271, ジャッジ=592450, ベッツ=605141, "
-                    "フリーマン=518692, ソト=665742, 山本=808967, アクーニャ=660670, ラミレス=608070)。"
-                    "リストにない選手は省略し、where 句で player__player_name で絞り込む。"
+                    "MLB ID (整数)。確実に判っている場合のみ指定。"
+                    "判らない場合は省略し、代わりに player_name (英語フルネーム) を渡すこと。"
+                ),
+            },
+            "player_name": {
+                "type": "STRING",
+                "description": (
+                    "選手名 (英語フルネーム、例: 'Shohei Ohtani', 'Mike Trout', 'Seiya Suzuki')。"
+                    "mlbid が判らない場合はこちらで指定する。backend 側で Jinja templated where 句に展開する。"
                 ),
             },
             "season": {
@@ -208,7 +214,8 @@ QUERY_SEMANTIC_METRICS_DECL = types.FunctionDeclaration(
                 "items": {"type": "STRING"},
                 "description": (
                     "追加 WHERE 句 (MetricFlow Jinja 構文)。"
-                    "選手名で絞り込む場合: [\"player__player_name = 'Shohei Ohtani'\"]"
+                    "例: [\"{{ Dimension('player__season_year') }} >= 2023\"]。"
+                    "選手名フィルタは player_name 引数を使うこと (raw SQL 形式は禁止)。"
                 ),
             },
             "order_by": {

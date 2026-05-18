@@ -636,6 +636,7 @@ def query_semantic_metrics_tool(
     metrics: List[str],
     entity_type: str = "player",
     mlbid: Optional[int] = None,
+    player_name: Optional[str] = None,
     season: Optional[int] = None,
     team: Optional[str] = None,
     group_by: Optional[List[str]] = None,
@@ -660,11 +661,13 @@ def query_semantic_metrics_tool(
     Args:
         metrics: 取得するメトリクス名のリスト（例: ["batting_average", "ops_metric"]）
         entity_type: "player"（打者用 batter_season）または "pitcher"（投手用 pitcher_season）
-        mlbid:   MLB ID（例: 660271 = Ohtani）
+        mlbid:   MLB ID（例: 660271 = Ohtani）。判らない場合は省略し player_name を渡す。
+        player_name: 選手名（英語フルネーム、例: "Mike Trout"）。backend 側で
+                     `{{ Dimension('<entity>__player_name') }} = '...'` に展開する。
         season:  対象シーズン（例: 2026）
         team:    チーム略称（例: "LAD"）
         group_by: 集計次元
-        where:   追加のWHERE句リスト（生のMetricFlow構文）
+        where:   追加 WHERE 句リスト（MetricFlow Jinja 構文）。選手名は player_name 引数を使うこと。
         order_by: ソート対象
         limit:    取得行数上限
         output_format: "sentence"（デフォルト、文章で返す）または "table"。
@@ -697,6 +700,11 @@ def query_semantic_metrics_tool(
     # 内部 subquery に正しく SELECT してくれる。生カラム名だと未解決になる。
     if mlbid is not None:
         where_clauses.append(f"{{{{ Entity('{primary_entity}') }}}} = {int(mlbid)}")
+    if player_name:
+        name_safe = str(player_name).replace("'", "''")
+        where_clauses.append(
+            f"{{{{ Dimension('{primary_entity}__player_name') }}}} = '{name_safe}'"
+        )
     if season is not None:
         where_clauses.append(f"{{{{ Dimension('{primary_entity}__season_year') }}}} = {int(season)}")
     if team:
