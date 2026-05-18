@@ -352,6 +352,10 @@ class ChatOrchestrator:
         # ~1,900 tokens (>1,024 閾値) となり caching の対象。1 リクエストで tool_use loop
         # を複数回まわすため、削減効果は iteration 数だけ倍加する。
         # 失敗時 (閾値未満・SDK エラー等) は無音で従来 (system_instruction) 経路にフォールバック。
+        #
+        # Gemini API の制約: cached_content を使う generate_content には
+        # system_instruction / tools / tool_config を渡せない。tool_use ループも
+        # Cache する場合は tools を Cache 側に含め、generate_content 側からは外す。
         cache_name: Optional[str] = None
         try:
             from backend.app.services.prompt_cache_service import get_or_create_cache
@@ -360,13 +364,13 @@ class ChatOrchestrator:
                 prompt_version=get_prompt_version("chat_orchestrator_system"),
                 prefix_text=system_prompt,
                 as_system_instruction=True,
+                tools=[self._tools_config],
             )
         except Exception as e:
             logger.warning(f"chat_orchestrator_system cache lookup failed: {e}")
 
         if cache_name:
             self._gen_config = types.GenerateContentConfig(
-                tools=[self._tools_config],
                 cached_content=cache_name,
                 temperature=0,
             )

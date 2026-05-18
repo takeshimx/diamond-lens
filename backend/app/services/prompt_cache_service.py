@@ -50,6 +50,7 @@ def get_or_create_cache(
     model: str = "gemini-2.5-flash",
     ttl_seconds: int = DEFAULT_TTL_SECONDS,
     as_system_instruction: bool = False,
+    tools: Optional[list] = None,
 ) -> Optional[str]:
     """プレフィックスに対応する CachedContent name を返す。失敗時 None。
 
@@ -57,9 +58,14 @@ def get_or_create_cache(
         as_system_instruction: True なら system_instruction として登録 (oracle_semantic 等の
                                system prompt 用途)。False (デフォルト) なら user contents として登録
                                (parse_query 等のインライン prompt 用途)。
+        tools: tool 宣言 (list[types.Tool])。Gemini API の制約で、cached_content を使う
+               generate_content では system_instruction / tools / tool_config を渡せない。
+               tool_use ループを Cache する場合は必ずここに tools を渡し、generate_content
+               側からは外す必要がある。
     """
     mode_tag = "sys" if as_system_instruction else "usr"
-    key = f"{prompt_name}|{prompt_version or 'none'}|{model}|{mode_tag}|{_hash(prefix_text)}"
+    tools_tag = "t1" if tools else "t0"
+    key = f"{prompt_name}|{prompt_version or 'none'}|{model}|{mode_tag}|{tools_tag}|{_hash(prefix_text)}"
 
     with _lock:
         entry = _registry.get(key)
@@ -81,6 +87,8 @@ def get_or_create_cache(
                     role="user",
                     parts=[types.Part(text=prefix_text)],
                 )]
+            if tools:
+                config_kwargs["tools"] = tools
             cache = client.caches.create(
                 model=model,
                 config=types.CreateCachedContentConfig(**config_kwargs),
