@@ -49,14 +49,11 @@ subgraph "Application Layer - Cloud Run"
         Frontend[mlb-diamond-lens-frontend<br/>React + Vite<br/>User dashboard]
         MCPServer[MCP Server<br/>Model Context Protocol<br/>Claude Desktop/Cursor]
         
-        subgraph "AI Core"
+        subgraph "AI Core (Refactored 2026-05-17)"
             StandardAI[Standard AI Service<br/>Gemini 2.5 Flash<br/>Simple Q&A]
-            subgraph "Multi-Agent System"
-                Supervisor[SupervisorAgent<br/>Query Routing]
-                StatsAgent[StatsAgent<br/>Season Analytics]
-                MatchupAgent[MatchupAgent<br/>Matchup History]
-                StrategyAgent[StrategyAgent<br/>Strategy Analysis<br/>Parallel Fan-Out]
-            end
+            ChatOrch[ChatOrchestrator<br/>素の Gemini SDK + tool_use loop<br/>LLM 1 回 (synthesize_response=False)]
+            StrategyAgent[StrategyAgent<br/>LangGraph: Planner→ParallelExec→Aggregator→Reflection→Strategist]
+            CommonTools[Common Tools<br/>backend/app/services/tools/<br/>batter/pitcher/matchup × 2]
         end
     end
 
@@ -92,14 +89,13 @@ subgraph "Application Layer - Cloud Run"
     Frontend --> FirebaseAuth
     FirebaseAuth --> Backend
     Backend --> StandardAI
-    Backend --> Supervisor
+    Backend --> ChatOrch
+    Backend --> StrategyAgent
     MCPServer --> StandardAI
-    Supervisor --> StatsAgent
-    Supervisor --> MatchupAgent
-    Supervisor --> StrategyAgent
+    ChatOrch --> CommonTools
+    StrategyAgent --> CommonTools
     StandardAI --> Frontend
-    StatsAgent --> Frontend
-    MatchupAgent --> Frontend
+    ChatOrch --> Frontend
     StrategyAgent --> Frontend
 
     subgraph "ML Model Architecture (3-Layer Separation)"
@@ -235,7 +231,8 @@ predictions = await self._predict_with_vertex_ai(endpoint_id, instances)
 | **Backend** | FastAPI, Cloud Run | REST API for analytics |
 | **Frontend** | React + Vite, Cloud Run | User interface |
 | **MCP Server** | Model Context Protocol | Claude Desktop/Cursor integration |
-| **AI Agent** | LangGraph, Gemini 2.5 Flash | Multi-step reasoning & Tool use |
+| **AI Agent (Chat)** | ChatOrchestrator (raw `google-genai` SDK + tool_use loop), Gemini 2.5 Flash | Single-LLM-call chat (`synthesize_response=False`) |
+| **AI Agent (Strategy)** | LangGraph (StateGraph), Gemini 2.5 Flash | Plan-and-Execute + Parallel Fan-Out for strategy reports |
 | **MLOps** | Prompt Registry, Golden Dataset, BigQuery Logging | Prompt versioning, LLM evaluation gate, I/O observability |
 | **ML Monitoring** | Data Drift Service, Model Registry, GCS, BigQuery | Data drift detection (PSI/KS), model versioning & auto-baseline CI/CD gate |
 | **Stuff+/Pitching+/Pitching++** | XGBoost, Model Registry, BigQuery | Pitch quality evaluation, sequence context modeling, pre-computed rankings, real-time inference |
@@ -365,34 +362,51 @@ predictions = await self._predict_with_vertex_ai(endpoint_id, instances)
 
 **Why a separate Cloud Run service**: Keeps heavy dbt + MetricFlow dependencies out of the main backend image; lets the dbt project version (submodule SHA) be advanced independently of backend code releases; can be scaled, monitored, and IAM-restricted independently.
 
-### 6. Agentic AI System (Supervisor + LangGraph)
+### 6. Agentic AI System (ChatOrchestrator + StrategyAgent)
+
+> **2026-05-17 Refactored**: Chat path migrated from `SupervisorAgent` + 4 LangGraph sub-agents to a **single `ChatOrchestrator`** built on raw `google-genai` SDK with tool_use loop. Reduces LLM calls per chat request from 4 to 1 (`synthesize_response=False` default). `StrategyAgent` retains LangGraph.
+
+#### Chat Path (`ChatOrchestrator`)
 
 | Property | Value |
 |----------|-------|
-| **Architecture** | Supervisor + Specialized Agents |
-| **Core Engine** | LangGraph (StateGraph) |
-| **LLM Model** | Gemini 2.0/2.5 Flash |
-| **Supervisor** | `SupervisorAgent` - Parses intent and routes to Stats or Matchup |
-| **Specialized Agents** | `StatsAgent` (Season/Trend), `MatchupAgent` (Head-to-Head) |
-| **State Management** | `AgentState` (TypedDict with message history, UI meta, and specialized analytics data) |
-| **Nodes per Agent** | Oracle (Planning), Executor (Tool Execution), Reflection (Self-Correction), Synthesizer (Reporting) |
-| **Reflection Loop** | Detects SQL errors and empty results in Executor, feeds diagnostic context to LLM for self-correction (max 2 retries). Classifies errors as retryable (syntax, empty result) vs non-retryable (permission, timeout, schema) |
-| **Capabilities** | Intelligently handles complex vs specific queries, automated visualization, professional analyst reports, and autonomous error recovery |
-| **Frontend Sync** | Structured `matchupData` or `chartData` triggers specialized UI components |
-| **Streaming Mode** | Server-Sent Events (SSE) with real-time token and state updates via `/api/v1/qa/agentic-stats-stream` |
+| **Architecture** | Single Orchestrator + Common Tools (no sub-agents, no LangGraph) |
+| **Core Engine** | Raw `google-genai` SDK with `tool_use` loop (`MAX_TOOL_ITERATIONS=6`) |
+| **LLM Model** | Gemini 2.5 Flash |
+| **NLU** | Orchestrator's outer LLM extracts structured args via `tool_use` directly (no internal NLU LLM call) |
+| **Tool Set** | `backend/app/services/tools/`: `get_batter_stats_tool`, `get_pitcher_stats_tool`, `mlb_matchup_history_tool`, `mlb_matchup_analytics_tool` (legacy METRIC_MAP path) |
+| **Semantic Layer Path** | When `USE_SEMANTIC_LAYER=true`: swaps to `query_semantic_metrics_tool` (dbt MetricFlow). Cloud Run only (local lacks SA auth) |
+| **Tool Output Mode** | `output_format='data'` default — tool returns raw rows without internal LLM narration |
+| **Response Synthesis** | `synthesize_response=False` default — orchestrator returns Markdown-formatted tool data directly. `True` enables an extra LLM call to compose natural language |
+| **Token Budget Pool** | `chat` (Phase 3-A) |
+| **Capabilities** | Single-LLM-call chat, complex query routing via tool_use, automated visualization, table/chart/matchup card structured output |
+| **Streaming Mode** | Server-Sent Events (SSE) via `/api/v1/qa/agentic-stats-stream`. Maintains the legacy event contract (`routing`, `state_update`, `tool_start`, `tool_end`, `token`, `final_answer`) for frontend compatibility |
+
+#### Strategy Path (`StrategyAgent`, unchanged)
+
+| Property | Value |
+|----------|-------|
+| **Architecture** | LangGraph StateGraph (5 nodes) |
+| **Nodes** | Planner → ParallelExecutor → Aggregator → Reflection → Strategist |
+| **Reflection Loop** | Active. Detects empty results / SQL errors, rewrites the query, retries (max 2). Logged to BQ as `is_retry`, `retry_count`, `retry_reason` |
+| **Token Budget Pool** | `report` (Phase 3-A) |
+| **Endpoint** | `POST /api/v1/strategy-report` |
 
 ### 6.1. Real-Time Streaming Architecture (SSE)
+
+> **2026-05-17 Refactored**: Backend engine migrated from LangGraph `astream_events` to `ChatOrchestrator.run_stream()` (raw `google-genai` SDK). SSE event contract is preserved for frontend compatibility.
 
 | Property | Value |
 |----------|-------|
 | **Protocol** | Server-Sent Events (SSE) |
 | **Content-Type** | `text/event-stream` |
 | **Backend Engine** | FastAPI StreamingResponse + AsyncGenerator |
-| **LangGraph Integration** | `astream_events(version="v2")` for event streaming |
-| **Event Types** | `session_start`, `routing`, `state_update` (oracle, executor, synthesizer, reflection), `tool_start`, `tool_end`, `token`, `final_answer`, `stream_end`, `error` |
+| **Orchestrator Engine** | `ChatOrchestrator.run_stream()` — raw `google-genai` `generate_content_stream()` with tool_use loop |
+| **Event Types** | `routing` (agent_type='chat' fixed for compatibility), `state_update`, `tool_start`, `tool_end`, `token`, `final_answer`, `stream_end`, `error` |
 | **Frontend** | ReadableStream API with SSE parsing |
-| **UI Updates** | Real-time streaming status display: `準備中` → `質問を分析中 🤔` → `データ取得中 🔍` → `🔄 エラーを分析し、修正を試みています` (reflection) → `回答生成中 ✍️` |
+| **UI Updates** | Real-time streaming status display: `準備中` → `質問を分析中 🤔` → `データ取得中 🔍` → `回答生成中 ✍️` |
 | **Token Accumulation** | LLM tokens streamed incrementally and accumulated in frontend |
+| **BQ Latency Propagation** | Tool returns `bigquery_latency_ms` in its data dict → Orchestrator aggregates → passes via `final_answer` event → endpoint writes to `LLMLogEntry.bigquery_latency_ms` (ContextVar bypassed since it fails under StreamingResponse) |
 
 **Streaming Data Flow:**
 
@@ -401,8 +415,10 @@ sequenceDiagram
     participant User as ユーザー
     participant Frontend as React Frontend
     participant Backend as FastAPI Backend
-    participant LangGraph as LangGraph Agent
+    participant Orch as ChatOrchestrator
+    participant Tool as get_batter_stats_tool
     participant LLM as Gemini 2.5 Flash
+    participant BQ as BigQuery
 
     User->>Frontend: クエリ入力 & Enter
     Frontend->>Frontend: handleSendMessageStream()
@@ -410,58 +426,40 @@ sequenceDiagram
 
     Frontend->>Backend: POST /agentic-stats-stream
     activate Backend
-    Backend->>Backend: SupervisorAgent.route_query()
-    Backend-->>Frontend: event: routing<br/>data: {agent_type: "batter"}
-    Frontend->>Frontend: streamingStatus: 'batterエージェントで処理中'
+    Backend->>Backend: set_session_id()<br/>reset_bq_latency_ms()
+    Backend-->>Frontend: event: routing<br/>data: {agent_type: "chat"}
+    Frontend->>Frontend: streamingStatus: 'ChatOrchestratorで処理中'
 
-    Backend->>LangGraph: agent.app.astream_events()
-    activate LangGraph
-    LangGraph->>LangGraph: oracle node start
-    LangGraph-->>Backend: on_chain_start (oracle)
-    Backend-->>Frontend: event: state_update<br/>data: {node: "oracle"}
+    Backend->>Orch: run_stream(query)
+    activate Orch
+    Orch-->>Backend: event: state_update<br/>data: {node: "oracle"}
+    Backend-->>Frontend: event forwarded
     Frontend->>Frontend: streamingStatus: '質問を分析中 🤔'
 
-    LangGraph->>LangGraph: executor node start
-    LangGraph-->>Backend: on_chain_start (executor)
-    Backend-->>Frontend: event: state_update<br/>data: {node: "executor"}
-    Frontend->>Frontend: streamingStatus: 'データ取得中 🔍'
+    Orch->>LLM: generate_content_stream<br/>(with tool declarations)
+    LLM-->>Orch: function_call<br/>(structured args: name, season, metrics)
+    Orch->>Orch: Log LLM #1 to BQ<br/>(parsed_player_name, parsed_season, etc.)
 
-    LangGraph->>LLM: BigQuery tool call
+    Orch-->>Backend: event: tool_start<br/>data: {tool_name: "get_batter_stats_tool"}
+    Backend-->>Frontend: streamingStatus: 'データ取得中 🔍'
 
-    opt Reflection Loop (SQL error or empty result)
-        LangGraph->>LangGraph: reflection node start
-        LangGraph-->>Backend: on_chain_start (reflection)
-        Backend-->>Frontend: event: state_update<br/>data: {node: "reflection"}
-        Frontend->>Frontend: streamingStatus: '🔄 エラーを分析し、修正を試みています'
-        LangGraph->>LangGraph: oracle node (retry)
-        LangGraph->>LangGraph: executor node (retry)
-        LangGraph->>LLM: Corrected BigQuery tool call
-    end
+    Orch->>Tool: invoke(structured args, output_format='data')
+    Tool->>BQ: dynamic SQL query
+    BQ-->>Tool: rows
+    Tool-->>Orch: {data, bigquery_latency_ms}
 
-    LangGraph->>LangGraph: synthesizer node start
-    LangGraph-->>Backend: on_chain_start (synthesizer)
-    Backend-->>Frontend: event: state_update<br/>data: {node: "synthesizer"}
-    Frontend->>Frontend: streamingStatus: '回答生成中 ✍️'
+    Orch-->>Backend: event: tool_end<br/>data: {output_summary: "1件のデータを取得"}
 
-    LLM-->>LangGraph: token stream
-    loop トークンストリーミング
-        LangGraph-->>Backend: on_chat_model_stream
-        Backend->>Backend: accumulated_answer += token
-        Backend-->>Frontend: event: token<br/>data: {content: "大"}
-        Frontend->>Frontend: content += "大"
-        LangGraph-->>Backend: on_chat_model_stream
-        Backend-->>Frontend: event: token<br/>data: {content: "谷"}
-        Frontend->>Frontend: content += "谷"
-    end
+    Note over Orch: synthesize_response=False<br/>→ skip LLM #2
 
-    deactivate LangGraph
-    Backend->>Backend: ストリーミング完了
-    Backend-->>Frontend: event: final_answer<br/>data: {answer: "...", isTable: false}
-    Frontend->>Frontend: isStreaming: false<br/>streamingStatus: undefined
+    Orch->>Orch: _format_rows_as_markdown(tool_results)
+    Orch-->>Backend: event: final_answer<br/>{answer: "### Aaron Judge / 2024年...",<br/>bigquery_latency_ms: 1502}
+    deactivate Orch
+    Backend->>Backend: log_entry.bigquery_latency_ms = event['bigquery_latency_ms']<br/>token_budget.record_usage(pool="chat")
 
     Backend-->>Frontend: event: stream_end
     deactivate Backend
-    Frontend->>User: 完全な応答を表示
+    Frontend->>User: Markdown 整形応答を表示
 ```
 
 **Key Implementation Details:**

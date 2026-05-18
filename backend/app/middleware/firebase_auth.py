@@ -1,5 +1,6 @@
 import os
 import json
+from backend.app.middleware.request_context import set_user_id
 from backend.app.services.firebase_service import verify_firebase_token
 from backend.app.utils.structured_logger import get_logger
 from google.oauth2 import id_token
@@ -49,6 +50,7 @@ class FirebaseAuthMiddleware:
             scope["state"] = scope.get("state", {})
             scope["state"]["user_id"] = "dev_user"
             scope["state"]["user_email"] = "dev@localhost"
+            set_user_id("dev_user")
             await self.app(scope, receive, send)
             return
 
@@ -93,6 +95,7 @@ class FirebaseAuthMiddleware:
                 scope["state"] = scope.get("state", {})
                 scope["state"]["user_id"] = caller_email
                 scope["state"]["user_email"] = caller_email
+                set_user_id(caller_email)
                 logger.info("OIDC auth success", email=caller_email)
             except Exception as e:
                 logger.warning("OIDC auth failed", error=str(e))
@@ -107,6 +110,7 @@ class FirebaseAuthMiddleware:
             scope["state"] = scope.get("state", {})
             scope["state"]["user_id"] = decoded_token["uid"]
             scope["state"]["user_email"] = decoded_token.get("email", "")
+            set_user_id(decoded_token["uid"])
             logger.info("Auth success", user_id=decoded_token["uid"])
         except Exception as e:
             logger.warning("Auth failed", error=str(e))

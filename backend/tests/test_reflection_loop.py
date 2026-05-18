@@ -204,7 +204,7 @@ def test_executor_empty_result_detection_list():
     }
 
     # Mock tool result (empty list)
-    with patch("backend.app.services.ai_agent_service.get_batter_stats_tool") as mock_tool:
+    with patch("backend.app.services.tools.batter_stats_tool.get_batter_stats_tool") as mock_tool:
         mock_tool.invoke.return_value = []
 
         result = agent.executor_node(state)
@@ -238,7 +238,7 @@ def test_executor_empty_result_detection_dict():
     }
 
     # Mock tool result (dict with "データが見つかりませんでした" message)
-    with patch("backend.app.services.ai_agent_service.get_pitcher_stats_tool") as mock_tool:
+    with patch("backend.app.services.tools.pitcher_stats_tool.get_pitcher_stats_tool") as mock_tool:
         mock_tool.invoke.return_value = {
             "answer": "指定された条件に一致するデータが見つかりませんでした。",
             "isTable": False
@@ -336,7 +336,7 @@ def test_integration_reflection_triggered_on_empty_result():
     agent.raw_model.invoke.return_value = mock_synthesizer_response
 
     # Mock tool results
-    with patch("backend.app.services.ai_agent_service.get_batter_stats_tool") as mock_tool:
+    with patch("backend.app.services.tools.batter_stats_tool.get_batter_stats_tool") as mock_tool:
         mock_tool.invoke.side_effect = [
             {"answer": "データが見つかりませんでした"},  # Empty result (triggers reflection)
             [{"player": "Test Player", "hr": 30}]       # Success after reflection

@@ -10,7 +10,7 @@
 - **💬 チャットモード**: 日本語での自然言語クエリとAI搭載レスポンス
 - **⚡ クイック質問**: 事前定義された一般的な野球クエリで即座に結果を取得
 - **⚙️ カスタムクエリビルダー**: カスタム状況フィルターを使った高度なアナリティクス
-- **🤖 自律型エージェントモード (NEW)**: LangGraphを使用した複数ステップのデータ探索とプロフェッショナルな推論・分析
+- **🤖 自律型エージェントモード**: `ChatOrchestrator`（素の Gemini SDK + tool_use ループによる単一 LLM 呼び出しチャット）と `StrategyAgent`（LangGraph による対戦戦略レポート）の 2 系統構成
 - **🎤 音声入力**: MediaRecorder APIによるマイク録音→バックエンドでテキスト変換し、クエリフィールドに直接注入
 - **📊 表形式レスポンス**: クエリごとにテーブル/テキストの出力形式を選択可能。構造化データをトランスポーズ対応の `DataTable` として表示し、小数点カラムの自動フォーマット・グループ表示にも対応
 
@@ -85,20 +85,20 @@
 **ビジネス応用**:
 - **スカウティング効率化**: パフォーマンスプロファイルによる見込み選手の分類
 
-### 4. 自律型アナリストエージェント（Supervisor + LangGraph）
-**ステータス**: ✅ LangGraphで動作する特化型エージェントを備えた本番環境対応
+### 4. 自律型アナリストエージェント（ChatOrchestrator + StrategyAgent）
+**ステータス**: ✅ 本番環境対応（2026-05-17 にチャット側を全面リファクタ）
+
+**アーキテクチャ概要**:
+- **チャット経路 — `ChatOrchestrator`**: 素の `google-genai` SDK + `tool_use` ループで動く単一クラスエンジン。旧 `SupervisorAgent` + 4 LangGraph sub-agent (Batter / Pitcher / Matchup / Stats) を畳んだ。デフォルト `synthesize_response=False` で **LLM 1 回だけ呼んで** Markdown 整形済みツール戻り値を返却（旧 4 回チェーンを 1 回に短縮）。
+- **戦略経路 — `StrategyAgent`**: LangGraph を維持。5 ノード構成 (`Planner → ParallelExecutor → Aggregator → Reflection → Strategist`) で横断的な戦略レポートを生成。
 
 **機能**:
-- **🧠 マルチエージェント・オーケストレーション**: `SupervisorAgent` を使用して、クエリを特化型エージェント（`StatsAgent`, `MatchupAgent`）にインテリジェントにルーティングします。各エージェントは **LangGraph** によって制御されています。
-- **🔍 推論プロセスの可視化**: 特化型グラフの各ノードにおける内部思考プロセス（Reasoning Steps）をリアルタイム表示。
-- **📊 アダプティブUI**: 取得データに基づいて、ナラティブレポート、インタラクティブチャート、データテーブルを自動的に切り替え。
-- **⚔️ 特化型エージェント**:
-  - **StatsAgent**: チーム/選手のシーズン成績、トレンド、グループ比較の専門家。
-  - **MatchupAgent**: 打者 vs 投手の直接対決アナリティクスと過去の実績の専門家。
-  - **StrategyAgent** *(NEW — Phase 1 MVP)*: Plan-and-Execute + Parallel Fan-Out パターンによる横断的な戦略分析。打者スタッツ・投手スタッツ・対戦履歴・対戦アナリティクスの4ツールを `asyncio.gather()` で並列実行し、6セクション構成の戦略レポートを生成。専用の `StrategyReportCard` UIコンポーネントで表示。
-- **🏆 プロフェッショナルレポート**: 見出し、箇条書き、深い洞察を備えた構造化されたアナリストレポートを生成。
-- **⚖️ フェイルセーフ生成**: 文の断片を防ぎ、完全で自然な日本語を保証するためのコードレベルのガードレール。
-- **🔄 Reflection Loop（自己修正）**: SQLエラーや空結果を検知し、原因を分析してパラメータを修正し再試行する自律的エラー回復メカニズム（最大2回リトライ）。リトライ可能なエラー（構文エラー、空結果）とリトライ不可エラー（認証、タイムアウト、スキーマエラー）をインテリジェントに分類し、無駄なリトライを回避。
+- **🧠 tool_use による LLM 駆動 NLU**: Orchestrator 外側 LLM が直接構造化引数 (`name`, `season`, `query_type`, `metrics`, ...) を抽出。ツール内 NLU LLM 呼び出しは廃止。
+- **🔧 共通ツール**: `backend/app/services/tools/` に集約された `get_batter_stats_tool`, `get_pitcher_stats_tool`, `mlb_matchup_history_tool`, `mlb_matchup_analytics_tool` を両経路で共有。`USE_SEMANTIC_LAYER=true` 時は `query_semantic_metrics_tool` (dbt Semantic Layer) に切替（Cloud Run 専用）。
+- **🗄️ output_format='data' デフォルト**: ツールは生データと `bigquery_latency_ms` を返却。Orchestrator は Markdown 整形版を即返却。`synthesize_response=True` 時のみ追加 LLM 呼び出しで自然言語化。
+- **💰 Token Budget プール分離 (Phase 3-A)**: `chat` / `report` プールを独立管理。レポート 1 本生成でチャット枠が枯渇するリスクを解消。
+- **📊 アダプティブ UI**: ツール出力に応じてナラティブ・テーブル・チャート・`StrategyReportCard` を自動切替。
+- **⚔️ Reflection Loop**: 戦略経路 (`StrategyAgent`) は明示的な Reflection ノードを維持（最大 2 回リトライ）。チャット経路は LLM の自然な tool_use 再試行に委ねる設計。
 
 ### 5. MLOps: プロンプトバージョニング、LLM I/Oロギング＆評価ゲート
 **ステータス**: ✅ 本番環境対応
@@ -664,15 +664,13 @@ PrefixCache.put(...)
    - 構造化データを自然な日本語レスポンスに変換
    - ナラティブ（`sentence`）と表形式（`table`）の出力形式の両方をサポート
 
-5. **🤖 自律型マルチエージェント推論** (`app/services/agents/`)
-   - **Supervisorアーキテクチャ**: `SupervisorAgent` を介して、クエリのルーティングとデータ取得を分離。
-   - **特化型エージェント**: 
-     - `StatsAgent`: 一般的な統計クエリとトレンド分析を担当。
-     - `MatchupAgent`: 特定の選手間対決の履歴比較を担当。
-   - **LangGraphの実装**: 各エージェントが独自の「Oracle」（計画）、「Executor」（データ取得）、「Synthesizer」（最終報告）ループを維持。
-   - **フィードバックループ**: 最初のデータ取得が不十分な場合、エージェントが自己修正して複数のツール呼び出しを実行。
-   - **Reflection Loop**: 各エージェントに`reflection`ノードを追加。Executor実行時のエラー（SQL構文エラー、空結果）を検知し、診断コンテキストをLLMにフィードバックして自己修正。無限ループ防止のための最大リトライ制限付き。
-   - **統合UI**: 構造化されたチャート/テーブルメタデータをフロントエンドコンポーネントに直接流し込み。
+5. **🤖 自律型推論 — `ChatOrchestrator` + `StrategyAgent`**（2026-05-17 リファクタ）
+   - **`ChatOrchestrator`** (`app/services/chat_orchestrator.py`): 単一クラスエンジン。素の `google-genai` SDK + `tool_use` ループ。旧 `SupervisorAgent` + 4 LangGraph sub-agent (Batter / Pitcher / Matchup / Stats) を畳んだ。外側 LLM が NLU を担当し、構造化引数で共通ツールを呼ぶ。
+   - **`StrategyAgent`** (`app/services/agents/strategy_agent.py`): 唯一残った LangGraph エージェント。5 ノード (Planner → ParallelExecutor → Aggregator → Reflection → Strategist) で横断的な戦略レポートを生成。
+   - **共通ツール** (`app/services/tools/`): 両経路で共有。ツールは生データを返し (`output_format='data'`)、応答合成は Orchestrator/Agent の責務。
+   - **Reflection**: チャット経路は Reflection ノードを廃止し、LLM の自然な tool_use 再試行に委ねる設計。戦略経路は明示的 Reflection ノードを維持 (最大 2 回リトライ)。
+   - **Token Budget プール分離 (Phase 3-A)**: `token_budget_service.py` で chat / report プールを独立追跡。
+   - **統合UI**: 構造化されたチャート/テーブル/マッチアップカードのメタデータをフロントエンドコンポーネントに直接流し込み。
 
 ### MLモデルアーキテクチャ: 3層分離アーキテクチャ
 

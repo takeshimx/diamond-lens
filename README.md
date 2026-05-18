@@ -10,7 +10,7 @@ An AI-powered analytics interface for exploring Major League Baseball statistics
 - **💬 Chat Mode**: Natural language queries in Japanese with AI-powered responses
 - **⚡ Quick Questions**: Pre-defined common baseball queries for instant results
 - **⚙️ Custom Query Builder**: Advanced analytics with custom situational filters
-- **🤖 Autonomous Agent Mode (NEW)**: High-performance reasoning agent using LangGraph for multi-step data exploration and professional analysis
+- **🤖 Autonomous Agent Mode**: `ChatOrchestrator` (single-LLM-call chat via tool_use loop) + `StrategyAgent` (LangGraph for cross-domain strategy reports)
 - **🎤 Voice Input**: Microphone-based audio capture (MediaRecorder API) with backend transcription, injected directly into the query field
 - **📊 Table Response Format**: Per-query format selection (table / text); structured responses render as a transposable `DataTable` with automatic decimal-column formatting and grouping support
 
@@ -85,20 +85,20 @@ An AI-powered analytics interface for exploring Major League Baseball statistics
 **Business Applications**:
 - **Scouting Efficiency**: Categorize prospects by performance profile
 
-### 4. Autonomous Analyst Agent (Supervisor + LangGraph)
-**Status**: ✅ Production-ready with specialized agents powered by LangGraph
+### 4. Autonomous Analyst Agent (ChatOrchestrator + StrategyAgent)
+**Status**: ✅ Production-ready (chat path refactored 2026-05-17)
+
+**Architecture overview**:
+- **Chat path** — `ChatOrchestrator`: a single-class engine built on **raw `google-genai` SDK + `tool_use` loop**. Replaces the legacy `SupervisorAgent` + 4 LangGraph sub-agents. Default `synthesize_response=False` returns Markdown-formatted tool data after just **1 LLM call**, reducing the previous 4-call chain to 1.
+- **Strategy path** — `StrategyAgent` (retained LangGraph): a 5-node `Planner → ParallelExecutor → Aggregator → Reflection → Strategist` pipeline for cross-domain strategy reports.
 
 **Capabilities**:
-- **🧠 Multi-Agent Orchestration**: Uses a `SupervisorAgent` to intelligently route queries to specialized agents (`StatsAgent`, `MatchupAgent`), each orchestrated by **LangGraph**.
-- **🔍 Reasoning Visualization**: Live display of the autonomous reasoning steps across different specialized graph nodes.
-- **📊 Adaptive UI**: Automatically switches between narrative reports, interactive charts, and data tables based on found data.
-- **⚔️ Specialized Agents**:
-  - **StatsAgent**: Expert in team/player season stats, trends, and group comparisons.
-  - **MatchupAgent**: Expert in batter vs. pitcher head-to-head analytics and historic outcomes.
-  - **StrategyAgent** *(NEW — Phase 1 MVP)*: Cross-domain strategy analysis using Plan-and-Execute + Parallel Fan-Out pattern. Simultaneously invokes all 4 tools (batter stats, pitcher stats, matchup history, matchup analytics) via `asyncio.gather()` and synthesizes a structured 6-section strategy report. Renders a dedicated `StrategyReportCard` UI component.
-- **🏆 Professional Reports**: Generates structured analyst reports with headers, bullet points, and deep insights.
-- **⚖️ Fail-safe Generation**: Code-level guards to ensure complete, natural Japanese sentences without fragments.
-- **🔄 Reflection Loop (Self-Correction)**: Autonomous error recovery mechanism that detects SQL errors or empty query results and self-corrects by analyzing the root cause and retrying with improved parameters (max 2 retries). Intelligently classifies errors as retryable (syntax errors, empty results) vs non-retryable (permission, timeout, schema errors) to avoid wasteful retries.
+- **🧠 LLM-driven NLU via tool_use**: The orchestrator's outer LLM directly extracts structured arguments (`name`, `season`, `query_type`, `metrics`, …) — no internal NLU LLM call inside the tool.
+- **🔧 Common Tools**: `backend/app/services/tools/` houses `get_batter_stats_tool`, `get_pitcher_stats_tool`, `mlb_matchup_history_tool`, `mlb_matchup_analytics_tool` shared by both paths. Optional `query_semantic_metrics_tool` for dbt Semantic Layer (Cloud Run only when `USE_SEMANTIC_LAYER=true`).
+- **🗄️ output_format='data' default**: Tools return raw rows with `bigquery_latency_ms`. The orchestrator either streams a Markdown summary directly, or — if `synthesize_response=True` — runs an extra LLM call to compose a natural-language answer.
+- **💰 Token Budget pool separation (Phase 3-A)**: `chat` and `report` pools tracked independently so a heavy report generation cannot starve chat (and vice-versa).
+- **📊 Adaptive UI**: Automatically switches between narrative, interactive charts, data tables, and `StrategyReportCard` based on tool output.
+- **⚔️ Strategy path retains Reflection Loop**: Self-correction via the Reflection node (max 2 retries) for empty results / SQL errors. The chat path drops the explicit Reflection node and relies on the LLM's natural re-try via the tool_use loop.
 
 ### 5. MLOps: Prompt Versioning, LLM I/O Logging & Evaluation Gate
 **Status**: ✅ Production-ready
@@ -152,7 +152,7 @@ User rates response 👎 + selects category + writes reason
 - **🌐 Global Rate Limit**: 100 requests/minute across all users via custom ASGI middleware
 - **👤 Per-Session Rate Limit**: 20 requests/minute per user (Firebase user_id > Session ID > IP address)
 - **🎯 Per-Endpoint Rate Limit**: Configurable limits per endpoint via slowapi decorators (e.g., AI chat: 5/min, player stats: 10/min, statistics: 10/min)
-- **💰 LLM Token Budget**: Daily token usage cap (default: 1,000,000 tokens/day) with automatic reset at UTC midnight
+- **💰 LLM Token Budget (pool-separated, Phase 3-A)**: Daily token caps split between `chat` (500K/day) and `report` (500K/day) pools, plus a `shared` hard cap (1M/day). Heavy strategy reports cannot starve chat capacity. Automatic reset at UTC midnight.
 - **📊 Monitoring Integration**: All rate limit rejections are logged to Cloud Monitoring custom metrics and BigQuery `llm_interaction_logs`
 - **⚙️ Configurable via `.env`**: All limits are adjustable without code changes
 
@@ -670,15 +670,13 @@ The application supports two chat backends, switchable per service via the `USE_
    - Converts structured data back to natural Japanese responses
    - Supports both narrative (`sentence`) and tabular (`table`) output formats
 
-5. **🤖 Autonomous Multi-Agent Reasoning** (`app/services/agents/`)
-   - **Supervisor Architecture**: Decouples query routing from data retrieval via a `SupervisorAgent`.
-   - **Specialized Agents**: 
-     - `StatsAgent`: Handles general statistical queries and trend analysis.
-     - `MatchupAgent`: Handles specific head-to-head player historical comparisons.
-   - **LangGraph Implementation**: Each agent maintains its own "Oracle" (Planning), "Executor" (Data Retrieval), and "Synthesizer" (Final Reporting) loop.
-   - **Feedback Loop**: Agents can self-correct and perform multiple tool calls if the initial measurement is insufficient.
-   - **Reflection Loop**: Each agent includes a `reflection` node that detects executor errors (SQL syntax, empty results) and feeds diagnostic context back to the LLM for self-correction, with a max retry cap to prevent infinite loops.
-   - **Integrated UI**: Pipes structured chart/table metadata directly into the specialized frontend components.
+5. **🤖 Autonomous Reasoning — `ChatOrchestrator` + `StrategyAgent`** (refactored 2026-05-17)
+   - **`ChatOrchestrator`** (`app/services/chat_orchestrator.py`): single-class engine. Raw `google-genai` SDK + `tool_use` loop. Replaces the former `SupervisorAgent` + 4 LangGraph sub-agents (Batter / Pitcher / Matchup / Stats). The outer LLM does NLU itself and calls common tools with structured args.
+   - **`StrategyAgent`** (`app/services/agents/strategy_agent.py`): the only remaining LangGraph agent. 5-node pipeline (Planner → ParallelExecutor → Aggregator → Reflection → Strategist) for cross-domain strategy reports.
+   - **Common Tools** (`app/services/tools/`): shared by both paths. Tools return raw rows (`output_format='data'`) so the orchestrator/agent owns response composition.
+   - **Reflection**: chat path drops the explicit Reflection node and trusts the LLM's natural re-try via the tool_use loop. Strategy path keeps an explicit Reflection node (max 2 retries).
+   - **Token Budget pool separation (Phase 3-A)**: chat / report pools tracked independently in `token_budget_service.py`.
+   - **Integrated UI**: Pipes structured chart / table / matchup metadata directly into the specialized frontend components.
 
 ### ML Model Architecture: 3-Layer Separation of Concerns
 

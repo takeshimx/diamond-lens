@@ -99,8 +99,11 @@ class Settings(BaseSettings):
     rate_limit_player_stats_per_minute: int = 10
     rate_limit_agent_chat_per_minute: int = 5
     rate_limit_statistics_per_minute: int = 10
-    # LLM Token Budget: 日次トークン上限
+    # LLM Token Budget: 日次トークン上限 (合算 hard cap、既存互換)
     llm_daily_token_budget: int = 1_000_000  # 1M tokens/day
+    # Phase 3-A: プール別予算 (チャット / レポート)。合算は llm_daily_token_budget を超えない
+    llm_daily_token_budget_chat: int = 500_000   # ChatOrchestrator 経由
+    llm_daily_token_budget_report: int = 500_000  # StrategyAgent / strategy-report 経由
     # Rate Limit有効/無効（開発時にOFFにする用）
     rate_limit_enabled: bool = True
 
@@ -160,6 +163,17 @@ class Settings(BaseSettings):
     # ============================================================
     metricflow_server_url: Optional[str] = Field(default=None, validation_alias='METRICFLOW_SERVER_URL')
     use_semantic_layer: bool = False  # Phase 4 のカナリアフラグ。True にするとSemantic Layer経路に切替
+
+    # ============================================================
+    # Phase 2: ChatOrchestrator feature flag
+    # ============================================================
+    # True → 旧 LangGraph (SupervisorAgent + 5 sub-agents) を使用
+    # False → 新 ChatOrchestrator (素の Gemini SDK + tool_use loop) を使用
+    # 段階リリース完了後（Phase 2-G）にこのフラグごと削除予定。
+    use_legacy_chat_agent: bool = Field(
+        default=True, # 安全側: デフォルトは旧実装
+        description="Phase 2 移行期間中のみ使用する切替フラグ。Phase 2-G 完了で削除。",
+    )
 
 
     class Config:

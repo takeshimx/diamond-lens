@@ -52,7 +52,7 @@ class StrategyAgent:
         self.raw_model = model  # ツールなし（最終レポート生成用）
 
         # 4つのツールをインポートしてバインド
-        from ..ai_agent_service import (
+        from ..tools import (
             get_batter_stats_tool,
             get_pitcher_stats_tool,
             mlb_matchup_history_tool,

@@ -14,6 +14,11 @@ from backend.app.services.ai_agent_service import run_mlb_agent
 from backend.app.services.llm_logger_service import get_llm_logger, LLMLogEntry
 from backend.app.config.prompt_registry import get_prompt_version
 from backend.app.middleware.request_id import get_request_id
+from backend.app.middleware.request_context import (
+    get_bq_latency_ms,
+    reset_bq_latency_ms,
+    set_session_id,
+)
 from backend.app.core.exceptions import PromptInjectionError
 from fastapi.responses import StreamingResponse
 from backend.app.utils.streaming import stream_json_events, format_sse
@@ -21,6 +26,7 @@ from backend.app.api.rate_limit import limiter
 from backend.app.config.settings import get_settings
 from backend.app.services.token_budget_service import get_token_budget_service
 from backend.app.services.bq_embedding_service import get_bq_embedding_service
+from backend.app.services.chat_orchestrator import ChatOrchestrator
 import asyncio
 import logging
 import time
@@ -68,10 +74,12 @@ async def get_player_stats_qna_endpoint(
     llm_logger = get_llm_logger()
     # セッションIDがない場合は新規作成
     session_id = request_body.session_id or str(uuid4())
+    set_session_id(session_id)
+    reset_bq_latency_ms()
 
     # トークンバジェットチェック
     token_budget = get_token_budget_service()
-    if token_budget.is_budget_exceeded():
+    if token_budget.is_budget_exceeded("chat"):
         return {
             "answer": "本日のAI分析サービスの利用上限に達しました。明日以降に再度お試しください。",
             "isTable": False,
@@ -297,10 +305,12 @@ async def get_agentic_stats_endpoint(
     """
     llm_logger = get_llm_logger()
     session_id = body.session_id or str(uuid4())
+    set_session_id(session_id)
+    reset_bq_latency_ms()
 
     # トークンバジェットチェック
     token_budget = get_token_budget_service()
-    if token_budget.is_budget_exceeded():
+    if token_budget.is_budget_exceeded("chat"):
         return {
             "query": body.query,
             "answer": "本日のAI分析サービスの利用上限に達しました。明日以降に再度お試しください。",
@@ -360,6 +370,7 @@ async def get_agentic_stats_endpoint(
 
         # ログエントリに結果を記録
         log_entry.total_latency_ms = elapsed_time * 1000
+        log_entry.bigquery_latency_ms = get_bq_latency_ms() or None
         log_entry.response_answer = answer
         log_entry.response_has_table = result_state.get("isTable", False)
         log_entry.response_has_chart = result_state.get("isChart", False)
@@ -479,10 +490,13 @@ async def get_agentic_stats_stream_endpoint(
     Server-Sent Events (SSE) を使用して、リアルタイムで結果を送信します。
     """
     session_id = body.session_id or str(uuid4())
+    # ContextVar にセット → 下流の call_gemini ログにも auto-populate される
+    set_session_id(session_id)
+    reset_bq_latency_ms()
 
     # トークンバジェットチェック
     token_budget = get_token_budget_service()
-    if token_budget.is_budget_exceeded():
+    if token_budget.is_budget_exceeded("chat"):
         from starlette.responses import JSONResponse
         return JSONResponse(
             status_code=503,
@@ -534,15 +548,26 @@ async def get_agentic_stats_stream_endpoint(
                 "message": "エージェントが質問を分析しています..."
             }
 
-            # Execute LangGraph streaming
-            from backend.app.services.ai_agent_service import run_mlb_agent_stream
-
-            async for event in run_mlb_agent_stream(
-                resolved_query,
-                request_id=log_entry.request_id,
-                session_id=session_id,
-                user_id=log_entry.user_id,
-            ):
+            # Feature flag による新旧切替（Phase 2 移行期間）
+            settings = get_settings()
+            if settings.use_legacy_chat_agent:
+                from backend.app.services.ai_agent_service import run_mlb_agent_stream
+                event_iter = run_mlb_agent_stream(
+                    resolved_query,
+                    request_id=log_entry.request_id,
+                    session_id=session_id,
+                    user_id=log_entry.user_id,
+                )
+            else:
+                orchestrator = ChatOrchestrator()
+                event_iter = orchestrator.run_stream(
+                    resolved_query,
+                    request_id=log_entry.request_id,
+                    session_id=session_id,
+                    user_id=log_entry.user_id,
+                )
+            
+            async for event in event_iter:
                 event_type = event.get("type")
                 # トークンを無条件で蓄積（current_node 等のフィルタは介在しない）
                 if event_type == "token":
@@ -559,6 +584,11 @@ async def get_agentic_stats_stream_endpoint(
                     log_entry.response_has_table = event.get("isTable", False)
                     log_entry.response_has_chart = event.get("isChart", False)
                     log_entry.llm_latency_ms = event.get("llm_latency_ms")
+                    # ChatOrchestrator が tool 戻り値から集計した BQ 時間を受け取る
+                    # (ContextVar 経由が StreamingResponse 配下で伝わらないための回避策)
+                    _event_bq_ms = event.get("bigquery_latency_ms")
+                    if _event_bq_ms:
+                        log_entry.bigquery_latency_ms = _event_bq_ms
                 yield event
 
             # Session end event
@@ -576,6 +606,12 @@ async def get_agentic_stats_stream_endpoint(
                 )
 
             log_entry.total_latency_ms = (time.time() - stream_start_time) * 1000
+            # event 経由で既にセット済みなら ContextVar からの上書きは不要
+            if log_entry.bigquery_latency_ms is None:
+                _bq_ms = get_bq_latency_ms()
+                log_entry.bigquery_latency_ms = _bq_ms if _bq_ms > 0 else None
+            logger.info(f"📊 Endpoint log: bigquery_latency_ms={log_entry.bigquery_latency_ms}, "
+                       f"total_latency_ms={log_entry.total_latency_ms:.0f}ms")
             llm_logger.log(log_entry)
 
         except PromptInjectionError as e:
@@ -583,6 +619,7 @@ async def get_agentic_stats_stream_endpoint(
             log_entry.error_type = "prompt_injection"
             log_entry.error_message = e.detected_pattern
             log_entry.total_latency_ms = (time.time() - stream_start_time) * 1000
+            log_entry.bigquery_latency_ms = get_bq_latency_ms() or None
             llm_logger.log(log_entry)
             yield {
                 "type": "error",
@@ -596,6 +633,7 @@ async def get_agentic_stats_stream_endpoint(
             log_entry.error_type = "stream_error"
             log_entry.error_message = str(e)
             log_entry.total_latency_ms = (time.time() - stream_start_time) * 1000
+            log_entry.bigquery_latency_ms = get_bq_latency_ms() or None
             llm_logger.log(log_entry)
             yield {
                 "type": "error",

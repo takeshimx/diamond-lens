@@ -17,7 +17,7 @@ class MatchupAgent:
         self.raw_model = model  # For text generation (no tools)
         
         # Import and define tools first
-        from ..ai_agent_service import mlb_matchup_history_tool, mlb_matchup_analytics_tool
+        from ..tools import mlb_matchup_history_tool, mlb_matchup_analytics_tool
         self.tools = [mlb_matchup_history_tool, mlb_matchup_analytics_tool]
         
         # Then bind tools to model

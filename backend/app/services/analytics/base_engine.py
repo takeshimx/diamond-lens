@@ -269,7 +269,7 @@ class BaseEngine:
 
         # 13. output_formatの検証
         if params.get("output_format"):
-            if params["output_format"] not in ["sentence", "table"]:
+            if params["output_format"] not in ["sentence", "table", "data"]:
                 logger.warning(f"⚠️ Invalid output_format: {params['output_format']}")
                 return False
 
