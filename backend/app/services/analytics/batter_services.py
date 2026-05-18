@@ -86,6 +86,11 @@ def _load_prompt_template(template_name: str) -> str:
         raise
 
 
+# parse_query_v1.txt の split 位置。これより前 (instructions + examples) を
+# Gemini Context Cache に登録し、これ以降 (本番マーカー + 質問本文) を毎回送信する。
+_PARSE_QUERY_SPLIT_MARKER = "# 本番"
+
+
 def _parse_query_with_llm(
     query: str,
     season: Optional[int],
@@ -93,6 +98,10 @@ def _parse_query_with_llm(
 ) -> Optional[Dict[str, Any]]:
     """
     [ステップ1] LLMを使い、質問からパラメータを抽出します。
+
+    Context Caching 対応: 固定プレフィックスを caches.create() でサーバ側に登録し、
+    リクエストでは動的サフィックスのみ送信する。input トークン課金を ~1/10 に削減。
+    cache 取得失敗時は無音で従来 (全文送信) 動作にフォールバックする。
 
     Args:
         query: 会話コンテキスト解決後のクエリ (LLM に投げる本文)
@@ -104,23 +113,52 @@ def _parse_query_with_llm(
         logger.error("GEMINI_API_KEY_V2 is not set.")
         return None
 
-    # プロンプトテンプレートを読み込み
     prompt_template = _load_prompt_template("parse_query_v1")
-
-    # seasonパラメータがある場合、ヒントとして追加
-    season_hint = f"\n    - **コンテキスト情報**: 会話履歴から、対象シーズンは {season} 年と推測されます。質問に年の記載がない場合でも、このシーズンを使用してください。" if season else ""
-
-    # プレースホルダーを置換
     current_year = datetime.now().year
-    prompt = prompt_template.format(
-        season_hint=season_hint,
-        query=query,
+    prev_year = current_year - 1
+
+    # cacheable prefix と dynamic suffix に分割
+    if _PARSE_QUERY_SPLIT_MARKER in prompt_template:
+        prefix_raw, suffix_after = prompt_template.split(_PARSE_QUERY_SPLIT_MARKER, 1)
+        suffix_raw = _PARSE_QUERY_SPLIT_MARKER + suffix_after
+    else:
+        prefix_raw, suffix_raw = "", prompt_template
+
+    # プレフィックスは年単位で安定 (TTL 切れで再作成すれば足りる)。
+    # {season_hint} はキャッシュ内では空にし、実 hint は suffix 先頭に prepend する。
+    prefix_text = prefix_raw.format(
+        season_hint="",
         current_year=current_year,
-        prev_year=current_year - 1
+        prev_year=prev_year,
+    ) if prefix_raw else ""
+
+    season_hint_text = (
+        f"\n# 補足: 会話履歴から、対象シーズンは {season} 年と推測されます。"
+        f"質問に年の記載がない場合でも、このシーズンを使用してください。\n"
+        if season else ""
+    )
+    suffix_text = season_hint_text + suffix_raw.format(
+        season_hint="",
+        current_year=current_year,
+        prev_year=prev_year,
+        query=query,
     )
 
-    # LLM の JSON 応答から parsed_* フィールドを log entry に転記するフック。
-    # call_gemini 内で text 受信後・log 書き込み前に呼ばれる。
+    cache_name: Optional[str] = None
+    if prefix_text:
+        try:
+            from backend.app.services.prompt_cache_service import get_or_create_cache
+            cache_name = get_or_create_cache(
+                prompt_name="parse_query",
+                prompt_version=get_prompt_version("parse_query"),
+                prefix_text=prefix_text,
+            )
+        except Exception as e:
+            logger.warning(f"prompt cache lookup failed: {e}")
+
+    # キャッシュあり: suffix のみ送信 / なし: 従来通り全文送信
+    final_prompt = suffix_text if cache_name else (prefix_text + suffix_text)
+
     def _hook(text: str, entry):
         try:
             parsed = json.loads(text)
@@ -133,11 +171,10 @@ def _parse_query_with_llm(
             parsed_season = parsed.get("season")
             entry.parsed_season = int(parsed_season) if parsed_season is not None else None
         except (json.JSONDecodeError, TypeError, ValueError):
-            # ロギング失敗は本処理に影響させない
             pass
 
     text = call_gemini(
-        prompt=prompt,
+        prompt=final_prompt,
         model="gemini-2.5-flash",
         response_mime_type="application/json",
         feature="analytics_batter",
@@ -146,6 +183,7 @@ def _parse_query_with_llm(
         user_query=original_query or query,
         resolved_query=query if (original_query and original_query != query) else None,
         post_response_hook=_hook,
+        cached_content_name=cache_name,
     )
     if not text:
         return None

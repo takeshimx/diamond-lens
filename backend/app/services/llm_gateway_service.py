@@ -84,6 +84,13 @@ def _get_genai_client() -> genai.Client:
     return _genai_client
 
 
+def get_genai_client() -> genai.Client:
+    """Public accessor for the shared genai client.
+    prompt_cache_service 等、gateway 外から caches.create() を呼ぶ用途で利用する。
+    """
+    return _get_genai_client()
+
+
 # ==================================
 # Gateway 本体
 # ==================================
@@ -101,6 +108,7 @@ def call_gemini(
     user_query: Optional[str] = None,
     resolved_query: Optional[str] = None,
     post_response_hook: Optional[Callable[[str, LLMLogEntry], None]] = None,
+    cached_content_name: Optional[str] = None,
 ) -> Optional[str]:
     """
     Gemini テキスト生成の単一窓口。
@@ -145,7 +153,10 @@ def call_gemini(
     t0 = time.time()
     try:
         client = _get_genai_client()
-        config = types.GenerateContentConfig(response_mime_type=response_mime_type)
+        config_kwargs = {"response_mime_type": response_mime_type}
+        if cached_content_name:
+            config_kwargs["cached_content"] = cached_content_name
+        config = types.GenerateContentConfig(**config_kwargs)
 
         response = client.models.generate_content(
             model=model,
@@ -256,14 +267,19 @@ class LangchainUsageCallback(BaseCallbackHandler):
         self._start_time = time.time()
 
     def _extract_usage(self, response) -> Dict[str, int]:
-        """LangChain LLMResult から (input, output) トークン数を抽出。複数 path に対応。"""
-        in_t, out_t = 0, 0
+        """LangChain LLMResult から (input, output, cached) トークン数を抽出。複数 path に対応。"""
+        in_t, out_t, cached_t = 0, 0, 0
         try:
             # Path 1: response.llm_output["token_usage"] (OpenAI 互換 path)
             if getattr(response, "llm_output", None):
                 tu = (response.llm_output or {}).get("token_usage") or {}
                 in_t = tu.get("prompt_token_count") or tu.get("input_tokens") or in_t
                 out_t = tu.get("candidates_token_count") or tu.get("output_tokens") or out_t
+                cached_t = (
+                    tu.get("cached_content_token_count")
+                    or tu.get("cache_read_input_tokens")
+                    or cached_t
+                )
 
             # Path 2: response.generations[0][0].message.usage_metadata (Gemini 経路の主流)
             gens = getattr(response, "generations", None) or []
@@ -274,14 +290,22 @@ class LangchainUsageCallback(BaseCallbackHandler):
                 if um:
                     in_t = in_t or um.get("input_tokens") or 0
                     out_t = out_t or um.get("output_tokens") or 0
+                    # LangChain usage_metadata は input_token_details に cache_read を入れる
+                    details = um.get("input_token_details") or {}
+                    cached_t = cached_t or details.get("cache_read") or 0
                 # Path 3: generation_info
                 gi = getattr(first, "generation_info", None) or {}
                 um2 = gi.get("usage_metadata") or {}
                 in_t = in_t or um2.get("prompt_token_count") or 0
                 out_t = out_t or um2.get("candidates_token_count") or 0
+                cached_t = cached_t or um2.get("cached_content_token_count") or 0
         except Exception as e:
             logger.warning(f"LangchainUsageCallback: failed to extract usage: {e}")
-        return {"input_tokens": int(in_t or 0), "output_tokens": int(out_t or 0)}
+        return {
+            "input_tokens": int(in_t or 0),
+            "output_tokens": int(out_t or 0),
+            "cached_tokens": int(cached_t or 0),
+        }
 
     def on_llm_end(self, response, **kwargs):
         entry = LLMLogEntry()
@@ -293,10 +317,12 @@ class LangchainUsageCallback(BaseCallbackHandler):
         usage = self._extract_usage(response)
         entry.input_tokens = usage["input_tokens"]
         entry.output_tokens = usage["output_tokens"]
+        entry.cached_tokens = usage["cached_tokens"] or None
         entry.estimated_cost_usd = _calc_cost_usd(
             model=self.model,
             input_tokens=entry.input_tokens or 0,
             output_tokens=entry.output_tokens or 0,
+            cached_tokens=entry.cached_tokens or 0,
         )
         if self._start_time:
             entry.llm_latency_ms = (time.time() - self._start_time) * 1000.0

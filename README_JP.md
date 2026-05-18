@@ -105,6 +105,7 @@
 
 **機能**:
 - **📝 プロンプトバージョニング**: LLMプロンプトをバージョン付きテキストファイル（`parse_query_v1.txt`, `routing_v1.txt`）として外部化し、`prompt_registry.py`で管理。コード変更なしでプロンプト改善が可能
+- **💾 Context Caching (Gemini)**: 長い固定プレフィックス（`parse_query_v1`, `oracle_semantic_v1`）を `client.caches.create()` で登録し、リクエストでは `cached_content` 参照のみ送信。input トークン課金を ~$0.30/M → ~$0.03/M (~1/10) に削減。インスタンス毎の in-memory registry、1 時間 TTL、失敗時は自動フォールバック ([`prompt_cache_service.py`](backend/app/services/prompt_cache_service.py))
 - **📊 LLM I/Oロギング**: 全LLMインタラクション（クエリ、パース結果、レイテンシ、エラー）を`llm_logger_service.py`経由でBigQueryに非同期ロギング。可観測性とドリフト検出に活用
 - **🚦 LLM評価ゲート**: ゴールデンデータセット（`golden_dataset.json`）に対してLLMを実行し、精度が80%を下回った場合にデプロイを停止するCI/CD品質ゲート
 

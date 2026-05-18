@@ -105,6 +105,7 @@ An AI-powered analytics interface for exploring Major League Baseball statistics
 
 **Capabilities**:
 - **📝 Prompt Versioning**: Externalized LLM prompts as versioned text files (`parse_query_v1.txt`, `routing_v1.txt`) managed via `prompt_registry.py`, enabling version-controlled prompt iteration without code changes
+- **💾 Context Caching (Gemini)**: Long fixed prompt prefixes (`parse_query_v1`, `oracle_semantic_v1`) registered via `client.caches.create()` and referenced per-request through `cached_content`. Reduces input token billing from ~$0.30/M to ~$0.03/M tokens (~1/10). Per-instance in-memory registry with 1-hour TTL and fail-open fallback ([`prompt_cache_service.py`](backend/app/services/prompt_cache_service.py))
 - **📊 LLM I/O Logging**: Async logging of all LLM interactions (queries, parsed results, latency, errors) to BigQuery via `llm_logger_service.py` for observability and drift detection
 - **🚦 LLM Evaluation Gate**: CI/CD quality gate that runs LLM against a golden dataset (`golden_dataset.json`) and blocks deployment if accuracy drops below 80%
 
