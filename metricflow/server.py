@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import subprocess
 import tempfile
@@ -12,6 +13,8 @@ app = FastAPI()
 
 DBT_PROJECT_DIR = os.environ.get("DBT_PROJECT_DIR", "/app/dbt_project")
 DBT_PROFILES_DIR = os.environ.get("DBT_PROFILES_DIR", "/app/dbt_project")
+# dbt parse が生成する semantic manifest (metrics / dimensions の構造化定義)
+SEMANTIC_MANIFEST_PATH = Path(DBT_PROJECT_DIR) / "target" / "semantic_manifest.json"
 
 
 class QueryRequest(BaseModel):
@@ -110,23 +113,41 @@ async def query_metrics(req: QueryRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _load_semantic_manifest() -> dict:
+    """dbt parse 生成済みの semantic_manifest.json を読む。CLI 装飾出力に依存せず、
+    構造化データから metric/dimension 名を直接取得できる。"""
+    if not SEMANTIC_MANIFEST_PATH.exists():
+        raise FileNotFoundError(
+            f"semantic_manifest.json not found at {SEMANTIC_MANIFEST_PATH}. "
+            f"Has `dbt parse` succeeded at startup?"
+        )
+    return json.loads(SEMANTIC_MANIFEST_PATH.read_text(encoding="utf-8"))
+
+
 @app.get("/metrics")
 async def list_metrics():
     try:
-        out = await asyncio.to_thread(_run_mf, ["list", "metrics"])
-        lines = [l.strip() for l in out["stdout"].splitlines() if l.strip()]
-        return {"metrics": lines}
+        manifest = await asyncio.to_thread(_load_semantic_manifest)
+        names = sorted({m["name"] for m in manifest.get("metrics", []) if m.get("name")})
+        return {"metrics": names}
     except Exception as e:
+        print(f"[manifest-error] /metrics failed: {e}", flush=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/dimensions")
 async def list_dimensions():
     try:
-        out = await asyncio.to_thread(_run_mf, ["list", "dimensions"])
-        lines = [l.strip() for l in out["stdout"].splitlines() if l.strip()]
-        return {"dimensions": lines}
+        manifest = await asyncio.to_thread(_load_semantic_manifest)
+        names = sorted({
+            d["name"]
+            for sm in manifest.get("semantic_models", [])
+            for d in sm.get("dimensions", [])
+            if d.get("name")
+        })
+        return {"dimensions": names}
     except Exception as e:
+        print(f"[manifest-error] /dimensions failed: {e}", flush=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
