@@ -39,6 +39,13 @@ def _run_mf(args: list[str]) -> dict:
         env=env,
     )
     if result.returncode != 0:
+        # 失敗時は Cloud Run logs に必ず詳細を残す (HTTPException 経由では response body
+        # にしか入らずログには status だけ出るため、根本原因が見えない)。
+        err_msg = (
+            f"[mf-error] cmd={cmd!r} exit={result.returncode} "
+            f"stderr={result.stderr!r} stdout={result.stdout!r}"
+        )
+        print(err_msg, flush=True)
         # stderr が空でも stdout に有用な情報が出ることがあるので両方を含める
         raise RuntimeError(
             f"mf {' '.join(args)} failed (exit={result.returncode}): "
@@ -116,19 +123,9 @@ async def list_metrics():
 @app.get("/dimensions")
 async def list_dimensions():
     try:
-        # 現行 dbt-metricflow では `mf list dimensions` は --metrics 必須 (scope となる
-        # metric 群を要求)。全 metric を取得 → comma 連結で渡して全 dimensions を集約取得。
-        metrics_out = await asyncio.to_thread(_run_mf, ["list", "metrics"])
-        metric_names = [l.strip() for l in metrics_out["stdout"].splitlines() if l.strip()]
-        if not metric_names:
-            return {"dimensions": []}
-
-        out = await asyncio.to_thread(
-            _run_mf,
-            ["list", "dimensions", "--metrics", ",".join(metric_names)],
-        )
+        out = await asyncio.to_thread(_run_mf, ["list", "dimensions"])
         lines = [l.strip() for l in out["stdout"].splitlines() if l.strip()]
-        return {"dimensions": sorted(set(lines))}
+        return {"dimensions": lines}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
