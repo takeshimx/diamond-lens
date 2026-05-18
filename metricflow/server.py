@@ -104,6 +104,24 @@ async def startup():
         )
     print("[startup] dbt parse succeeded; semantic_manifest.json generated")
 
+    # 生成された manifest の metric / dimension 名一覧を起動時に dump。
+    # /_debug/manifest は Cloud Run IAM で叩けない環境向けの代替手段。
+    try:
+        manifest = _load_semantic_manifest()
+        metric_names = sorted([m["name"] for m in manifest.get("metrics", []) if m.get("name")])
+        dim_names = sorted({
+            d["name"]
+            for sm in manifest.get("semantic_models", [])
+            for d in sm.get("dimensions", [])
+            if d.get("name")
+        })
+        sm_names = sorted([sm["name"] for sm in manifest.get("semantic_models", []) if sm.get("name")])
+        print(f"[startup-manifest] metric_count={len(metric_names)} metrics={metric_names}", flush=True)
+        print(f"[startup-manifest] semantic_model_count={len(sm_names)} models={sm_names}", flush=True)
+        print(f"[startup-manifest] dimension_count={len(dim_names)} dimensions={dim_names}", flush=True)
+    except Exception as e:
+        print(f"[startup-manifest] dump failed: {e}", flush=True)
+
 
 @app.post("/query")
 async def query_metrics(req: QueryRequest):
