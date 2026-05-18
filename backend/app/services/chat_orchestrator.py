@@ -346,11 +346,36 @@ class ChatOrchestrator:
             self._tool_registry = CHAT_TOOL_REGISTRY
             logger.info("ChatOrchestrator initialized with legacy METRIC_MAP tools")
 
-        self._gen_config = types.GenerateContentConfig(
-            tools=[self._tools_config],
-            system_instruction=_build_system_prompt(use_semantic=self.use_semantic_layer),
-            temperature=0,
-        )
+        system_prompt = _build_system_prompt(use_semantic=self.use_semantic_layer)
+
+        # Context Caching for system prompt. 本番では Semantic Layer vocab 注入後
+        # ~1,900 tokens (>1,024 閾値) となり caching の対象。1 リクエストで tool_use loop
+        # を複数回まわすため、削減効果は iteration 数だけ倍加する。
+        # 失敗時 (閾値未満・SDK エラー等) は無音で従来 (system_instruction) 経路にフォールバック。
+        cache_name: Optional[str] = None
+        try:
+            from backend.app.services.prompt_cache_service import get_or_create_cache
+            cache_name = get_or_create_cache(
+                prompt_name="chat_orchestrator_system",
+                prompt_version=get_prompt_version("chat_orchestrator_system"),
+                prefix_text=system_prompt,
+                as_system_instruction=True,
+            )
+        except Exception as e:
+            logger.warning(f"chat_orchestrator_system cache lookup failed: {e}")
+
+        if cache_name:
+            self._gen_config = types.GenerateContentConfig(
+                tools=[self._tools_config],
+                cached_content=cache_name,
+                temperature=0,
+            )
+        else:
+            self._gen_config = types.GenerateContentConfig(
+                tools=[self._tools_config],
+                system_instruction=system_prompt,
+                temperature=0,
+            )
 
     def _execute_tool(self, name: str, args: Dict[str, Any]) -> Any:
         """tool_use の dispatch。@tool 関数は .invoke(args) で呼べる。"""
