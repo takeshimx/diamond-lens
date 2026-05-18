@@ -116,9 +116,19 @@ async def list_metrics():
 @app.get("/dimensions")
 async def list_dimensions():
     try:
-        out = await asyncio.to_thread(_run_mf, ["list", "dimensions"])
+        # 現行 dbt-metricflow では `mf list dimensions` は --metrics 必須 (scope となる
+        # metric 群を要求)。全 metric を取得 → comma 連結で渡して全 dimensions を集約取得。
+        metrics_out = await asyncio.to_thread(_run_mf, ["list", "metrics"])
+        metric_names = [l.strip() for l in metrics_out["stdout"].splitlines() if l.strip()]
+        if not metric_names:
+            return {"dimensions": []}
+
+        out = await asyncio.to_thread(
+            _run_mf,
+            ["list", "dimensions", "--metrics", ",".join(metric_names)],
+        )
         lines = [l.strip() for l in out["stdout"].splitlines() if l.strip()]
-        return {"dimensions": lines}
+        return {"dimensions": sorted(set(lines))}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
