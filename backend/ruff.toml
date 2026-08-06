@@ -1,0 +1,21 @@
+target-version = "py311"
+line-length = 120
+
+[lint]
+# 最初は「明確なバグ」だけに絞る。E501(行長) 等は後から足す
+select = [
+    "F",    # pyflakes: 未定義変数、未使用 import など
+    "E9",   # 構文エラー・IndentationError
+    "B",    # flake8-bugbear: 引数のミュータブルデフォルト等の実バグ
+]
+
+ignore = [
+    "F401",  # unused import — 既存コードに多数あるため段階的に対応
+]
+
+exclude = [
+    ".venv",
+    "venv",
+    "**/__pycache__",
+    "app/services/ai_service_backup_02102026.py",  # バックアップファイル
+]
