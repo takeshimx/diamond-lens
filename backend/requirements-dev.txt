@@ -1,0 +1,5 @@
+# 開発・CI 専用の依存（本番イメージには含めない）
+pytest==9.1.1
+pytest-asyncio==1.4.0
+pytest-cov==7.1.0
+ruff==0.16.1
