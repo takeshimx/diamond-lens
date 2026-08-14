@@ -1,4 +1,14 @@
 {
-  "get_batter_stats_tool":  [{"player_name": "Shohei Ohtani", "season": 2025, "homerun": 54, "avg": 0.310}],
-  "get_pitcher_stats_tool": [{"player_name": "Tarik Skubal", "season": 2025, "era": 2.39, "so": 228}]
+  "get_batter_stats_tool": [
+    {"player_name": "Shohei Ohtani", "season": 2025, "homerun": 54, "batting_average": 0.310, "ops": 1.036}
+  ],
+  "get_pitcher_stats_tool": [
+    {"player_name": "Tarik Skubal", "season": 2025, "era": 2.39, "strikeouts": 228, "whip": 0.92}
+  ],
+  "mlb_matchup_history_tool": [
+    {"batter_name": "Shohei Ohtani", "pitcher_name": "Yu Darvish", "game_date": "2025-06-15", "pitch_type": "SL", "result": "strikeout"}
+  ],
+  "mlb_matchup_analytics_tool": [
+    {"batter_name": "Shohei Ohtani", "pitcher_name": "Yu Darvish", "pitch_type": "SL", "batting_average": 0.182, "whiff_rate": 0.41, "avg_velocity": 84.2}
+  ]
 }

@@ -79,6 +79,9 @@ GET_BATTER_STATS_DECL = types.FunctionDeclaration(
                 "description": "[後方互換] 構造化引数を渡せない時のみ。指定すると tool 内で NLU LLM が走る (旧挙動)。",
             },
         },
+        # query_type が無いと _build_dynamic_sql が (None, {}) を返しデータが取れない。
+        # リーダーボード系の質問で LLM が省略する事象を trajectory eval (TJ-001) が検出したため必須化。
+        "required": ["query_type"],
     },
 )
 
