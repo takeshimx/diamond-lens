@@ -468,6 +468,6 @@ LLM を介さない決定的チェック。不合格なら Planner へ差し戻�
 
 ## 関連ドキュメント
 
-- [README_ai_architecture.md](../README_ai_architecture.md) — 現行 AI / LLM ハーネス
-- [README_architecture.md](../README_architecture.md) — システム全体・データフロー
-- [SECURITY.md](../SECURITY.md)
+- [README_ai_architecture.md](../../README_ai_architecture.md) — 現行 AI / LLM ハーネス
+- [README_architecture.md](../../README_architecture.md) — システム全体・データフロー
+- [SECURITY.md](../../SECURITY.md)

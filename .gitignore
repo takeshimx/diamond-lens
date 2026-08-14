@@ -53,7 +53,9 @@ metricflow/package-lock.yml
 backend/docs/
 # docs/ 配下はローカル作業用のため原則無視。リポジトリで共有する文書のみ個別に例外指定する
 docs/*
-!docs/chat-architecture-redesign.md
+!docs/plan_docs/
+docs/plan_docs/*
+!docs/plan_docs/chat-architecture-redesign.md
 analysis/__pycache__/
 analysis/*.pyc
 analysis/.ipynb_checkpoints/
