@@ -40,14 +40,13 @@ jobs:
       - name: Run pytest
         env:
           PYTHONPATH: ${{ github.workspace }}
+          GCP_PROJECT_ID: test-project
         run: |
-          # NOTE: test_security.py / test_build_dynamic_sql.py は
-          #       bigquery_service.py がモジュール読み込み時に
-          #       bigquery.Client() を生成するため GCP 認証が必要。
-          #       クライアントを遅延初期化にしてから対象へ戻す。
           pytest \
             tests/test_query_maps.py \
             tests/test_llm_evaluation.py \
+            tests/test_security.py \
+            tests/test_build_dynamic_sql.py \
             -v --tb=short \
             --cov=app --cov-report=term-missing
 

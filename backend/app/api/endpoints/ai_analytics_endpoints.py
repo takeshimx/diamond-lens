@@ -548,25 +548,16 @@ async def get_agentic_stats_stream_endpoint(
                 "message": "エージェントが質問を分析しています..."
             }
 
-            # Feature flag による新旧切替（Phase 2 移行期間）
-            settings = get_settings()
-            if settings.use_legacy_chat_agent:
-                from backend.app.services.ai_agent_service import run_mlb_agent_stream
-                event_iter = run_mlb_agent_stream(
-                    resolved_query,
-                    request_id=log_entry.request_id,
-                    session_id=session_id,
-                    user_id=log_entry.user_id,
-                )
-            else:
-                orchestrator = ChatOrchestrator()
-                event_iter = orchestrator.run_stream(
-                    resolved_query,
-                    request_id=log_entry.request_id,
-                    session_id=session_id,
-                    user_id=log_entry.user_id,
-                )
-            
+            # チャットの唯一の実行経路（Phase 2 移行完了）
+            orchestrator = ChatOrchestrator()
+            event_iter = orchestrator.run_stream(
+                resolved_query,
+                request_id=log_entry.request_id,
+                session_id=session_id,
+                user_id=log_entry.user_id,
+            )
+
+
             async for event in event_iter:
                 event_type = event.get("type")
                 # トークンを無条件で蓄積（current_node 等のフィルタは介在しない）

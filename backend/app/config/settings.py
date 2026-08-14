@@ -67,6 +67,8 @@ class Settings(BaseSettings):
     # ============================================================
     gemini_api_key: Optional[str] = Field(default=None, validation_alias='GEMINI_API_KEY_V2')
     discord_webhook_url_lad: Optional[str] = Field(default=None, validation_alias='DISCORD_WEBHOOK_URL_LAD')
+    # .env に存在するため受け取る。現状コードからの参照はない。
+    openai_api_key: Optional[str] = Field(default=None, validation_alias='OPENAI_API_KEY')
 
     # ============================================================
     # Redis設定（会話履歴管理用）
@@ -164,16 +166,6 @@ class Settings(BaseSettings):
     metricflow_server_url: Optional[str] = Field(default=None, validation_alias='METRICFLOW_SERVER_URL')
     use_semantic_layer: bool = False  # Phase 4 のカナリアフラグ。True にするとSemantic Layer経路に切替
 
-    # ============================================================
-    # Phase 2: ChatOrchestrator feature flag
-    # ============================================================
-    # True → 旧 LangGraph (SupervisorAgent + 5 sub-agents) を使用
-    # False → 新 ChatOrchestrator (素の Gemini SDK + tool_use loop) を使用
-    # 段階リリース完了後（Phase 2-G）にこのフラグごと削除予定。
-    use_legacy_chat_agent: bool = Field(
-        default=False,  # Phase 2.5 移行完了。ChatOrchestrator が標準経路。
-        description="Phase 2 移行期間中のみ使用する切替フラグ。Phase 2-G 完了で削除。",
-    )
 
 
     class Config:
