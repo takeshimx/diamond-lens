@@ -51,7 +51,9 @@ metricflow/package-lock.yml
 !metricflow/profiles.yml
 
 backend/docs/
-docs/
+# docs/ は dbt 等の生成物置き場のため無視するが、手書きの設計文書 (*.md) はコミットする
+docs/*
+!docs/*.md
 analysis/__pycache__/
 analysis/*.pyc
 analysis/.ipynb_checkpoints/
