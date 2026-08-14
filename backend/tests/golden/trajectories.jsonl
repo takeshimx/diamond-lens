@@ -1,0 +1,2 @@
+{"id":"TJ-001","query":"2025年のホームラン王は誰？","expect":{"tool_calls":[{"name":"get_batter_stats_tool","args_contains":{"season":2025},"args_absent":["player_name"]}],"max_iterations":2,"must_not_mention":["申し訳","わかりません"]},"tags":["leaderboard","p0"]}
+{"id":"TJ-002","query":"大谷翔平の2025年の打率は？","expect":{"tool_calls":[{"name":"get_batter_stats_tool","args_contains":{"season":2025}}],"max_iterations":2},"tags":["single_player","p0"]}

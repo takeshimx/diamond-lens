@@ -1,0 +1,4 @@
+{
+  "get_batter_stats_tool":  [{"player_name": "Shohei Ohtani", "season": 2025, "homerun": 54, "avg": 0.310}],
+  "get_pitcher_stats_tool": [{"player_name": "Tarik Skubal", "season": 2025, "era": 2.39, "so": 228}]
+}
