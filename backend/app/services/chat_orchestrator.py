@@ -13,6 +13,7 @@ ChatOrchestrator: チャット機能の唯一の入口。
 - backend/app/services/tools/  共通ツール
 - backend/app/services/security_guardrail  Prompt Injection 防御
 """
+import asyncio
 import json
 import os
 import time
@@ -27,6 +28,7 @@ from backend.app.config.settings import get_settings
 from backend.app.core.exceptions import PromptInjectionError
 from backend.app.services.llm_gateway_service import _calc_cost_usd
 from backend.app.services.llm_logger_service import LLMLogEntry, get_llm_logger
+from backend.app.services.online_judge_service import judge_and_log, should_sample
 from backend.app.services.security_guardrail import get_security_guardrail
 from backend.app.services.token_budget_service import get_token_budget_service
 from backend.app.services.tools import (
@@ -600,6 +602,14 @@ class ChatOrchestrator:
                     "strategyData": None,
                     "llm_latency_ms": accumulated_llm_ms,
                 }
+                # 応答は yield 済み。await せず投げっぱなしにする (レイテンシに影響させない)。
+                if should_sample():
+                    asyncio.create_task(judge_and_log(
+                        request_id or "",
+                        user_query,
+                        tool_results_seen,
+                        accumulated_answer.strip(),
+                    ))
                 return
 
             # tool_use を contents に積む + 各 tool を実行
@@ -660,6 +670,15 @@ class ChatOrchestrator:
                     "llm_latency_ms": accumulated_llm_ms,
                     "bigquery_latency_ms": bq_latency_ms or None,
                 }
+                # synthesize_response=False 経路。answer は機械整形のため、
+                # judge の 5 項目のうち factual_accuracy / completeness のみが有効。
+                if should_sample():
+                    asyncio.create_task(judge_and_log(
+                        request_id or "",
+                        user_query,
+                        tool_results_seen,
+                        formatted_answer,
+                    ))
                 return
 
         logger.warning("ChatOrchestrator stream hit MAX_TOOL_ITERATIONS")

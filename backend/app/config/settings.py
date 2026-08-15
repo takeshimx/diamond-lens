@@ -71,6 +71,20 @@ class Settings(BaseSettings):
     openai_api_key: Optional[str] = Field(default=None, validation_alias='OPENAI_API_KEY')
 
     # ============================================================
+    # Online Judge 設定
+    # ============================================================
+    online_judge_enabled: bool = Field(
+        default=False,
+        validation_alias="ONLINE_JUDGE_ENABLED",
+        description="本番応答に対する非同期 Judge 評価。既定 OFF。",
+    )
+    online_judge_sample_rate: float = Field(
+        default=0.05,
+        validation_alias="ONLINE_JUDGE_SAMPLE_RATE",
+        description="Judge 評価対象とするリクエストの割合 [0.0, 1.0]。既定 0.05 (5%)",
+    )
+
+    # ============================================================
     # Redis設定（会話履歴管理用）
     # ============================================================
     redis_host: str = "localhost"
