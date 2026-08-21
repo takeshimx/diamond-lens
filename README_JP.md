@@ -619,6 +619,56 @@ PrefixCache.put(...)
 
 ---
 
+### 25. 用語集 RAG — Agentic Retrieval + LLM リランク（NEW 2026-08）
+**ステータス**: ✅ 本番投入可（`USE_GLOSSARY_RAG` / `USE_GLOSSARY_RERANK`）
+
+**概要**: 「xwOBA とは何ですか」といった用語定義の質問に、BigQuery 上のベクトル検索と LLM リランクで回答する。成績値の照会は従来通り SQL ツールが担当し、**RAG は非構造テキストに限定**している。
+
+**アーキテクチャ**:
+```
+[オフライン: 取り込み]
+  docs/knowledge/glossary_*.md（自前キュレーション 43 用語、Git 管理）
+    → "## 見出し" 単位でチャンク化（メタデータは別カラムへ退避）
+    → ML.GENERATE_EMBEDDING（task_type='RETRIEVAL_DOCUMENT'）
+    → glossary_chunks / glossary_embeddings
+
+[リクエスト時]
+  ユーザーの質問（日本語）
+    → ChatOrchestrator が用語集ツールの要否を判断（Agentic RAG）
+    → LLM がカテゴリ（batting / pitching / statcast）を選択 → 事前フィルタ
+    → ML.GENERATE_EMBEDDING（task_type='RETRIEVAL_QUERY'）+ ML.DISTANCE（COSINE）
+    → 候補 10 件 → 閾値 0.275 → Gemini が並べ直し → 上位 5 件
+    → LLM が要約して回答生成。出典は機械的に付加
+```
+
+**実測値**（ゴールデンセット 13 問、`backend/scripts/run_retrieval_eval.py`）:
+
+| | 命中@3 | 命中@5 | MRR |
+|---|---:|---:|---:|
+| ベクトル検索のみ | 0.615 | 0.769 | 0.585 |
+| **+ LLM リランク** | **0.769** | **0.923** | **0.762** |
+
+用語名を含む質問は命中@3 が 1.000。誤発火率は 0.000（成績照会で用語集が呼ばれることはない）。
+
+**主要な設計判断**:
+- **ベクトルストアに BigQuery を採用**: ChromaDB と sentence-transformers を全廃し、Cloud Run のイメージを肥大化させない。実行時の新規依存はゼロ
+- **`VECTOR_SEARCH` ではなく `ML.DISTANCE` のブルートフォース**: `VECTOR_SEARCH` は第 1 引数がテーブル固定で `category` の事前フィルタができない。打者の質問に投手チャンクが返る事故を構造的に防ぐにはフィルタが必須
+- **クロスリンガル前提**: `text-multilingual-embedding-002` で `task_type` を文書側・質問側で非対称に指定
+- **メタデータをベクトル化対象から除外**: 全チャンク共通の定型文は識別力を下げる
+- **出典は LLM の裁量に委ねず機械的に付加**（実際に要約の過程で落とされた事例があるため）
+- **閾値は実測で決定**: 0.275。正解と不正解の距離分布は重なっており（最近傍の不正解 0.1684 < 最近傍の正解 0.1816）、**閾値調整では精度が上がらない**ことが判明したためリランクを採用した
+
+**構成要素**:
+- `services/glossary_rag_service.py` — カテゴリ事前フィルタ付き検索、fail-open
+- `services/rerank_service.py` — LLM Gateway 経由のリランク
+- `services/tools/glossary_search_tool.py` — ChatOrchestrator に登録するツール
+- `scripts/ingest_glossary.py` / `scripts/ingest_rules.py` — 取り込み（source 単位で冪等）
+- `scripts/run_retrieval_eval.py` / `run_misfire_eval.py` — 評価ハーネス
+
+**既知の制約**: Tier 2（MLB 公式ルール PDF、897 チャンク）は取り込み済みだが**検索対象から除外**している（`EXCLUDED_CATEGORIES`）。分割を作り直しても rule 型の命中@3 は 0.333 に留まり、用語集の足を引っ張ったため。詳細は [ADR-047](docs/adr/047-rag-chunking-multilingual-embeddings-reranking.md)。
+
+---
+
 ### 技術機能
 - **AI搭載処理**: Gemini 2.5 Flashを使用したクエリ解析とレスポンス生成
 - **リアルタイムインターフェース**: ローディング状態とライブ更新付きのインタラクティブ体験

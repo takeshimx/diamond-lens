@@ -35,7 +35,9 @@ from backend.app.services.tools import (
     CHAT_TOOL_DECLARATIONS,
     CHAT_TOOL_DECLARATIONS_SEMANTIC,
     CHAT_TOOL_REGISTRY,
+    GLOSSARY_SEARCH_DECL,
     _get_semantic_tool_registry,
+    glossary_search_tool,
 )
 from backend.app.utils.structured_logger import get_logger
 
@@ -296,6 +298,42 @@ def _format_rows_as_markdown(tool_results: List[Any]) -> str:
     return "\n".join(parts) or "データが取得できませんでした。"
 
 
+# 戻り値が「生データ」ではなく「文章」であるツール。
+# これらが呼ばれた場合は機械整形ではなく LLM に応答を合成させる。
+SYNTHESIS_REQUIRED_TOOLS = frozenset({"glossary_search_tool"})
+
+
+def _needs_synthesis(tool_names_seen: set) -> bool:
+    """LLM #2 による応答合成が必要かを、呼ばれたツール名から判定する。
+
+    戻り値のキー（"sources" 等）で推測すると、将来別のツールが同じキーを
+    返した際に黙って挙動が変わるため、ツール名を明示的に見る。
+    """
+    return bool(tool_names_seen & SYNTHESIS_REQUIRED_TOOLS)
+
+
+def _append_sources(answer: str, tool_results: List[Any]) -> str:
+    """tool 戻り値の sources を回答末尾に機械的に付加する。
+
+    LLM に「出典を書け」と指示する方式は取らない。要約の過程で落とされ、
+    出典の有無が LLM の裁量に左右されるため（実際に落ちた事例あり）。
+    既に同じ出典行が含まれている場合は二重付加しない。
+    """
+    sources = sorted({
+        s
+        for r in tool_results
+        if isinstance(r, dict)
+        for s in (r.get("sources") or [])
+    })
+    if not sources or not answer:
+        return answer
+
+    line = "出典: " + ", ".join(sources)
+    if line in answer:
+        return answer
+    return f"{answer}\n\n{line}"
+
+
 class ChatOrchestrator:
     """素の Gemini SDK + tool_use ループで動くチャットエンジン。
 
@@ -310,6 +348,7 @@ class ChatOrchestrator:
         api_key: Optional[str] = None,
         synthesize_response: bool = False,
         use_semantic_layer: Optional[bool] = None,
+        use_glossary_rag: Optional[bool] = None,
     ):
         self.model = model
         self.synthesize_response = synthesize_response
@@ -323,15 +362,31 @@ class ChatOrchestrator:
             raise RuntimeError("GEMINI_API_KEY_V2 is not configured for ChatOrchestrator")
         self._client = genai.Client(api_key=key)
 
+        # use_glossary_rag 未指定なら settings から取得 (env: USE_GLOSSARY_RAG)
+        if use_glossary_rag is None:
+            use_glossary_rag = bool(get_settings().use_glossary_rag)
+        self.use_glossary_rag = use_glossary_rag
+
         # フラグでツール宣言と registry を切り替え
+        # list()/dict() でコピーするのは、モジュールレベルの定数に直接 append すると
+        # インスタンスを作るたびに宣言が増え続けるため。
         if self.use_semantic_layer:
-            self._tools_config = types.Tool(function_declarations=CHAT_TOOL_DECLARATIONS_SEMANTIC)
-            self._tool_registry = _get_semantic_tool_registry()
+            declarations = list(CHAT_TOOL_DECLARATIONS_SEMANTIC)
+            registry = dict(_get_semantic_tool_registry())
             logger.info("ChatOrchestrator initialized with Semantic Layer tools")
         else:
-            self._tools_config = types.Tool(function_declarations=CHAT_TOOL_DECLARATIONS)
-            self._tool_registry = CHAT_TOOL_REGISTRY
+            declarations = list(CHAT_TOOL_DECLARATIONS)
+            registry = dict(CHAT_TOOL_REGISTRY)
             logger.info("ChatOrchestrator initialized with legacy METRIC_MAP tools")
+
+        # Glossary RAG は独立フラグ。Semantic Layer の ON/OFF とは直交する
+        if self.use_glossary_rag:
+            declarations.append(GLOSSARY_SEARCH_DECL)
+            registry["glossary_search_tool"] = glossary_search_tool
+            logger.info("glossary RAG enabled")
+
+        self._tools_config = types.Tool(function_declarations=declarations)
+        self._tool_registry = registry
 
         system_prompt = _build_system_prompt(use_semantic=self.use_semantic_layer)
 
@@ -395,6 +450,8 @@ class ChatOrchestrator:
             types.Content(role="user", parts=[types.Part(text=user_query)])
         ]
         tool_results_seen: List[Any] = []
+        # 呼ばれたツール名。応答生成モードの判定に使う（戻り値のキーで推測しない）
+        tool_names_seen: set[str] = set()
 
         for iteration in range(MAX_TOOL_ITERATIONS):
             response = self._client.models.generate_content(
@@ -415,7 +472,9 @@ class ChatOrchestrator:
                     text_parts.append(part.text)
 
             if not function_calls:
-                final_text = "".join(text_parts).strip()
+                final_text = _append_sources(
+                    "".join(text_parts).strip(), tool_results_seen
+                )
                 payload = _extract_structured_payload(tool_results_seen)
                 return {"final_answer": final_text, **payload}
 
@@ -428,6 +487,7 @@ class ChatOrchestrator:
                 args = dict(fc.args or {})
                 result = self._execute_tool(fc.name, args)
                 tool_results_seen.append(result)
+                tool_names_seen.add(fc.name)
                 sanitized = _sanitize_tool_result(result)
                 contents.append(types.Content(
                     role="user",
@@ -438,7 +498,8 @@ class ChatOrchestrator:
                 ))
 
             # synthesize_response=False (デフォルト): LLM #2 を呼ばず即 return
-            if not self.synthesize_response:
+            # 用語集 RAG は結果が文章のため例外的に合成させる（run_stream と挙動を揃える）
+            if not self.synthesize_response and not _needs_synthesis(tool_names_seen):
                 payload = _extract_structured_payload(tool_results_seen)
                 return {"final_answer": "", **payload}
 
@@ -481,6 +542,8 @@ class ChatOrchestrator:
             types.Content(role="user", parts=[types.Part(text=user_query)])
         ]
         tool_results_seen: List[Any] = []
+        # 呼ばれたツール名。応答生成モードの判定に使う（戻り値のキーで推測しない）
+        tool_names_seen: set[str] = set()
         accumulated_answer = ""
         accumulated_llm_ms = 0.0
 
@@ -594,9 +657,13 @@ class ChatOrchestrator:
 
             if not function_calls:
                 payload = _extract_structured_payload(tool_results_seen)
+                # 出典は LLM の裁量に委ねず機械的に付加する
+                final_answer = _append_sources(
+                    accumulated_answer.strip(), tool_results_seen
+                )
                 yield {
                     "type": "final_answer",
-                    "answer": accumulated_answer.strip(),
+                    "answer": final_answer,
                     **payload,
                     "isStrategyReport": False,
                     "strategyData": None,
@@ -608,7 +675,7 @@ class ChatOrchestrator:
                         request_id or "",
                         user_query,
                         tool_results_seen,
-                        accumulated_answer.strip(),
+                        final_answer,
                     ))
                 return
 
@@ -628,6 +695,7 @@ class ChatOrchestrator:
                 args = dict(fc.args or {})
                 result = self._execute_tool(fc.name, args)
                 tool_results_seen.append(result)
+                tool_names_seen.add(fc.name)
                 output_summary = ""
                 if isinstance(result, list):
                     output_summary = f"{len(result)}件のデータを取得"
@@ -651,7 +719,9 @@ class ChatOrchestrator:
             # ===== 分岐: tool 実行後の応答生成モード =====
             # synthesize_response=False (デフォルト): LLM #2 を呼ばず、tool 生データを Markdown に整形して返す。
             # synthesize_response=True: ループを続け、次の iteration で LLM が応答合成する。
-            if not self.synthesize_response:
+            # 用語集 RAG の結果は生データではなく文章のため、LLM に要約させる。
+            # 成績照会（数値の羅列）は機械整形の方が正確かつ安価なので従来通り。
+            if not self.synthesize_response and not _needs_synthesis(tool_names_seen):
                 payload = _extract_structured_payload(tool_results_seen)
                 # 生データを LLM 不使用で Markdown 整形
                 formatted_answer = _format_rows_as_markdown(tool_results_seen)

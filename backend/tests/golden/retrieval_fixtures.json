@@ -1,0 +1,182 @@
+{
+  "_meta": {
+    "purpose": "用語集 RAG の検索精度を測るゴールデンセット。hit@3 / hit@5 / recall@3 / recall@5 / MRR を算出する",
+    "metrics": {
+      "hit@k": "上位 k 件に正解が 1 件でも入った質問の割合（RAG 文献で Recall@k と呼ばれるもの）",
+      "recall@k": "正解集合のうち上位 k 件に入った割合（ML の定義通り。複数正解の質問で hit@k と差が出る）",
+      "MRR": "正解の最上位順位の逆数の平均。順位の改善を検出する"
+    },
+    "note_misfire": "誤発火率は検索ではなくツール選択の問題のため、本ファイルの should_not_fire 型を使って別途 ChatOrchestrator 経由で測る（Gemini 課金が発生する）",
+    "target_total": 15,
+    "current_total": 15,
+    "pending": "Definitions of Terms（用語定義の条項）が Rule 9.23 に吸収されているため、「インフィールドフライとは」型の質問はまだ追加できない。取り込みロジック修正後に追加する"
+  },
+  "_rules": [
+    "既存の問題は変更・削除しない。過去の測定値と比較できなくなるため",
+    "id は型ごとの連番。direct_004, para_006 のように続ける",
+    "追加時は埋め込みキャッシュに無い質問だけが課金対象（差分のみ）",
+    "Tier 2（公式ルール PDF）取り込み後に rule_001〜 を 3 問追加し、合計 15 問とする",
+    "1 回の追加は 5 問程度まで。まとめて足すとレビューが形骸化する",
+    "relevant_chunk_ids は実在する chunk_id と完全一致させる。run_retrieval_eval.py --validate で機械確認すること"
+  ],
+  "fixtures": [
+    {
+      "id": "direct_001",
+      "type": "direct",
+      "query": "xwOBAとは何ですか",
+      "category_hint": "batting",
+      "relevant_chunk_ids": [
+        "glossary_batting.md#xwOBA (Expected Weighted On-Base Average)"
+      ],
+      "note": "2026-08-20 時点で 1 位 / distance 0.1831"
+    },
+    {
+      "id": "direct_002",
+      "type": "direct",
+      "query": "FIPについて教えてください",
+      "category_hint": "pitching",
+      "relevant_chunk_ids": [
+        "glossary_pitching.md#FIP (Fielding Independent Pitching)"
+      ],
+      "note": ""
+    },
+    {
+      "id": "direct_003",
+      "type": "direct",
+      "query": "Sweet Spotとは何ですか",
+      "category_hint": "statcast",
+      "relevant_chunk_ids": [
+        "glossary_statcast.md#Sweet Spot （スイートスポット率）"
+      ],
+      "note": ""
+    },
+
+    {
+      "id": "para_001",
+      "type": "paraphrase",
+      "query": "打球の質は良いのに結果が出ていない打者を見分ける指標は",
+      "category_hint": "batting",
+      "relevant_chunk_ids": [
+        "glossary_batting.md#xwOBA (Expected Weighted On-Base Average)",
+        "glossary_batting.md#xBA (Expected Batting Average)"
+      ],
+      "note": "2026-08-20 時点で batting 15 件中 8 位。改善の主対象",
+      "review": true
+    },
+    {
+      "id": "para_002",
+      "type": "paraphrase",
+      "query": "守備や運の影響を除いて投手本来の力を測りたい",
+      "category_hint": "pitching",
+      "relevant_chunk_ids": [
+        "glossary_pitching.md#FIP (Fielding Independent Pitching)",
+        "glossary_pitching.md#xFIP (Expected Fielding Independent Pitching)",
+        "glossary_pitching.md#SIERA (Skill-Interactive ERA)"
+      ],
+      "note": "正解 3 件。どれが返っても可とするか要判断",
+      "review": true
+    },
+    {
+      "id": "para_003",
+      "type": "paraphrase",
+      "query": "球場の広さの違いを補正して打者を公平に比較したい",
+      "category_hint": "batting",
+      "relevant_chunk_ids": [
+        "glossary_batting.md#wRC+ (Weighted Runs Created Plus)"
+      ],
+      "note": ""
+    },
+    {
+      "id": "para_004",
+      "type": "paraphrase",
+      "query": "打者が幸運だったか不運だったかを判断する指標はありますか",
+      "category_hint": "batting",
+      "relevant_chunk_ids": [
+        "glossary_batting.md#BABIP (Batting Average on Balls In Play)"
+      ],
+      "note": ""
+    },
+    {
+      "id": "para_005",
+      "type": "paraphrase",
+      "query": "コースや打者を無視して球そのものの凄みだけを評価する指標",
+      "category_hint": "pitching",
+      "relevant_chunk_ids": [
+        "glossary_pitching.md#Stuff+ （球質指数）"
+      ],
+      "note": "「球質」という語が質問に無い状態での検索を測る"
+    },
+
+    {
+      "id": "conf_001",
+      "type": "confusable",
+      "query": "空振り率のうち、分母がスイング数になっている方の指標は",
+      "category_hint": "pitching",
+      "relevant_chunk_ids": [
+        "glossary_pitching.md#Whiff Rate (空振り率・スイングベース)"
+      ],
+      "note": "SwStr%（分母=全投球）と区別できるかを測る。両者は分子が同じ",
+      "review": true
+    },
+    {
+      "id": "conf_002",
+      "type": "confusable",
+      "query": "100が平均で、数値が低いほど優秀な投手指標は",
+      "category_hint": "pitching",
+      "relevant_chunk_ids": [
+        "glossary_pitching.md#ERA- / FIP- / xFIP- （マイナス系指標）"
+      ],
+      "note": "wRC+（高いほど良い）と向きが逆。混同しやすい対"
+    },
+
+    {
+      "id": "noise_001",
+      "type": "should_not_fire",
+      "query": "大谷翔平の2026年の本塁打数は",
+      "category_hint": null,
+      "relevant_chunk_ids": [],
+      "note": "成績照会。用語集ツールが呼ばれてはいけない"
+    },
+    {
+      "id": "noise_002",
+      "type": "should_not_fire",
+      "query": "ヤンキースの今シーズンの勝率を教えて",
+      "category_hint": null,
+      "relevant_chunk_ids": [],
+      "note": "成績照会。用語集ツールが呼ばれてはいけない"
+    },
+
+    {
+      "id": "rule_001",
+      "type": "rule",
+      "query": "ボークが宣告されるのはどんな場合ですか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#6.02(a)"
+      ],
+      "note": "Tier 2 追加。分割されていないチャンクを正解に選んでいる"
+    },
+    {
+      "id": "rule_002",
+      "type": "rule",
+      "query": "バットの太さや長さに規定はありますか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#3.02(a)"
+      ],
+      "note": "Tier 2 追加。用語ではなく物理的な規格を問う質問"
+    },
+    {
+      "id": "rule_003",
+      "type": "rule",
+      "query": "打者が走者になるのはどういう場合ですか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#5.05(a)(1)",
+        "official_baseball_rules_2026.pdf#5.05(a)(2)#part1"
+      ],
+      "note": "Tier 2 追加。条件列挙型の条文を引けるか。(1)(2) を正解とする（(3) 以降も条件だが、代表的な 2 件に絞って厳しめに測る）",
+      "review": true
+    }
+  ]
+}

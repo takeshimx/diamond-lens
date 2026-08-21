@@ -10,12 +10,14 @@ from .batter_stats_tool import get_batter_stats_tool
 from .pitcher_stats_tool import get_pitcher_stats_tool
 from .matchup_history_tool import mlb_matchup_history_tool
 from .matchup_analytics_tool import mlb_matchup_analytics_tool
+from .glossary_search_tool import glossary_search_tool
 
 __all__ = [
     "get_batter_stats_tool",
     "get_pitcher_stats_tool",
     "mlb_matchup_history_tool",
     "mlb_matchup_analytics_tool",
+    "glossary_search_tool",
 ]
 
 
@@ -27,6 +29,7 @@ from ._genai_schemas import (
     MATCHUP_HISTORY_DECL,
     MATCHUP_ANALYTICS_DECL,
     QUERY_SEMANTIC_METRICS_DECL,
+    GLOSSARY_SEARCH_DECL,
 )
 
 # ツール名 → 実体関数のマップ（ChatOrchestrator の dispatch 用）
@@ -36,6 +39,8 @@ CHAT_TOOL_REGISTRY = {
     "get_pitcher_stats_tool": get_pitcher_stats_tool,
     "mlb_matchup_history_tool": mlb_matchup_history_tool,
     "mlb_matchup_analytics_tool": mlb_matchup_analytics_tool,
+    # glossary_search_tool は USE_GLOSSARY_RAG フラグ制御に移管（A-6）。
+    # ChatOrchestrator.__init__ が条件付きで registry へ追加する。
 }
 
 
@@ -52,6 +57,7 @@ def _get_semantic_tool_registry() -> dict:
         "query_semantic_metrics_tool": query_semantic_metrics_tool,
         "mlb_matchup_history_tool": mlb_matchup_history_tool,
         "mlb_matchup_analytics_tool": mlb_matchup_analytics_tool,
+        # glossary_search_tool は USE_GLOSSARY_RAG フラグ制御に移管（A-6）
     }
 
 
@@ -65,4 +71,5 @@ __all__ += [
     "MATCHUP_HISTORY_DECL",
     "MATCHUP_ANALYTICS_DECL",
     "QUERY_SEMANTIC_METRICS_DECL",
+    "GLOSSARY_SEARCH_DECL",
 ]

@@ -92,3 +92,7 @@ queries/
 design/
 
 analysis/rebuild_dim_players.ipynb
+# OSS sandbox (agent-loop など独立予定の作業領域。完成後に別リポジトリ化)
+sandbox/
+
+backend/app/data/knowledge_base/

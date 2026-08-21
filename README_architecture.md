@@ -867,6 +867,30 @@ python scripts/train_stuff_plus.py --season 2025 --min-pitches 100
 
 ---
 
+### 8r. Glossary RAG — Agentic Retrieval with LLM Reranking
+
+| Property | Value |
+|----------|-------|
+| **Status** | NEW 2026-08, production-ready (`USE_GLOSSARY_RAG` / `USE_GLOSSARY_RERANK`) |
+| **Scope** | Unstructured text only (term definitions). Structured stat lookups stay on the SQL tool path |
+| **Vector Store** | BigQuery. `glossary_chunks` (text + metadata columns) / `glossary_embeddings` (768-dim `ARRAY<FLOAT64>`) |
+| **Embedding Model** | `mlb_analytics_dash_25.query_embedding_model` → Vertex AI `text-multilingual-embedding-002` (cross-lingual: JA question × EN document) |
+| **`task_type`** | Asymmetric — `RETRIEVAL_DOCUMENT` on ingest, `RETRIEVAL_QUERY` at search |
+| **Search** | `ML.DISTANCE(..., 'COSINE')` brute force. Chosen over `VECTOR_SEARCH` because the latter takes a fixed table as arg 1 and cannot pre-filter by `category` |
+| **Pre-filter** | `category` ∈ {batting, pitching, statcast}, selected by the LLM as a tool argument. Structurally prevents cross-domain mismatches |
+| **Reranking** | Top-10 candidates → threshold → Gemini returns an index array → top-5. `backend/app/services/rerank_service.py`, routed through the LLM Gateway (`call_gemini`, feature=`glossary_rerank`) |
+| **Threshold** | `DEFAULT_DISTANCE_THRESHOLD = 0.275` — measured, not guessed. Loosening it adds noise without recovering answers |
+| **Ingestion** | `backend/scripts/ingest_glossary.py` (Markdown) / `ingest_rules.py` (PDF). Idempotent: DELETE→INSERT per `source` |
+| **Knowledge Source** | Tier 1: 43 curated terms in `docs/knowledge/*.md` (Git-tracked, license-clean). Tier 2: MLB Official Rules PDF, **Git-ignored** (copyright) |
+| **Evaluation** | `backend/scripts/run_retrieval_eval.py` (hit@k / recall@k / MRR, query-embedding cache so repeat runs cost nothing) + `run_misfire_eval.py` (tool-selection misfire) |
+| **Measured** | hit@3 0.615→**0.769**, hit@5 0.769→**0.923**, MRR 0.585→**0.762** with reranking. Misfire rate **0.000** |
+| **Failure Modes Handled** | fail-open on BQ error and rerank error; unknown `category` falls back to no filter; citations appended mechanically (never left to the LLM) |
+| **New BQ Resources** | `glossary_chunks`, `glossary_embeddings`, `retrieval_eval_query_embeddings` |
+| **Disabled** | `EXCLUDED_CATEGORIES = ("rules",)` — Tier 2 is ingested (897 chunks) but excluded from search; rule-type hit@3 stalled at 0.333 |
+| **ADR** | [ADR-047](docs/adr/047-rag-chunking-multilingual-embeddings-reranking.md) |
+
+---
+
 ### 8. Orchestration
 
 | Property | Value |

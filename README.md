@@ -625,6 +625,56 @@ Tracks every LLM invocation across the application and exposes cost / token / la
 
 ---
 
+### 25. Glossary RAG — Agentic Retrieval with LLM Reranking (NEW 2026-08)
+**Status**: ✅ Production-ready (`USE_GLOSSARY_RAG` / `USE_GLOSSARY_RERANK`)
+
+**Overview**: Answers "what is xwOBA?"-style questions from a curated glossary using BigQuery-native vector search plus LLM reranking. Structured stat lookups still go through SQL tools — RAG is scoped to unstructured text only.
+
+**Architecture**:
+```
+[Offline: ingestion]
+  docs/knowledge/glossary_*.md (43 curated terms, Git-tracked)
+    → chunk per "## heading" (metadata split into separate columns)
+    → ML.GENERATE_EMBEDDING (task_type='RETRIEVAL_DOCUMENT')
+    → glossary_chunks / glossary_embeddings
+
+[At request time]
+  User question (Japanese)
+    → ChatOrchestrator decides whether glossary_search_tool is needed (Agentic RAG)
+    → LLM picks category (batting / pitching / statcast) → pre-filter
+    → ML.GENERATE_EMBEDDING (task_type='RETRIEVAL_QUERY') + ML.DISTANCE (COSINE)
+    → top-10 candidates → threshold 0.275 → Gemini reranks → top-5
+    → LLM synthesizes an answer; sources appended mechanically
+```
+
+**Measured results** (13-question golden set, `backend/scripts/run_retrieval_eval.py`):
+
+| | hit@3 | hit@5 | MRR |
+|---|---:|---:|---:|
+| Vector search only | 0.615 | 0.769 | 0.585 |
+| **+ LLM reranking** | **0.769** | **0.923** | **0.762** |
+
+Term-name queries reach hit@3 = 1.000. Tool misfire rate is 0.000 (glossary is never invoked for stat lookups).
+
+**Key Design Decisions**:
+- **BigQuery as the vector store**: dropped ChromaDB + sentence-transformers entirely, so the Cloud Run image does not grow. Zero new runtime dependencies
+- **`ML.DISTANCE` brute force over `VECTOR_SEARCH`**: `VECTOR_SEARCH` requires a fixed table as its first argument and cannot pre-filter by `category`, which is what structurally prevents pitcher chunks from answering batter questions
+- **Cross-lingual by design**: `text-multilingual-embedding-002` with asymmetric `task_type` (document vs query)
+- **Metadata excluded from embeddings**: boilerplate shared by every chunk destroys discriminative power
+- **Citations appended mechanically**, never left to the LLM's discretion (it silently dropped them in practice)
+- **Evidence-driven thresholds**: 0.275 was measured, not guessed. Correct/incorrect distance distributions overlap (nearest wrong 0.1684 < nearest right 0.1816), which is precisely why reranking — not threshold tuning — was required
+
+**Components**:
+- `services/glossary_rag_service.py` — search with category pre-filter, fail-open
+- `services/rerank_service.py` — LLM reranking via the LLM Gateway
+- `services/tools/glossary_search_tool.py` — tool exposed to ChatOrchestrator
+- `scripts/ingest_glossary.py` / `scripts/ingest_rules.py` — ingestion (idempotent per source)
+- `scripts/run_retrieval_eval.py` / `run_misfire_eval.py` — evaluation harness
+
+**Known limitation**: Tier 2 (MLB Official Baseball Rules PDF, 897 chunks) is ingested but **excluded from search** (`EXCLUDED_CATEGORIES`). Even after rechunking, rule-type hit@3 stayed at 0.333 and dragged down the glossary. See [ADR-047](docs/adr/047-rag-chunking-multilingual-embeddings-reranking.md).
+
+---
+
 ### Technical Features
 - **AI-Powered Processing**: Uses Gemini 2.5 Flash for query parsing and response generation
 - **Real-time Interface**: Interactive experience with loading states and live updates

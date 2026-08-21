@@ -180,8 +180,18 @@ class Settings(BaseSettings):
     metricflow_server_url: Optional[str] = Field(default=None, validation_alias='METRICFLOW_SERVER_URL')
     use_semantic_layer: bool = False  # Phase 4 のカナリアフラグ。True にするとSemantic Layer経路に切替
 
+    # ============================================================
+    # Glossary RAG (用語集セマンティック検索) 設定
+    # ============================================================
+    # True にすると glossary_search_tool が ChatOrchestrator のツール一覧に加わる。
+    # デフォルト False の理由: distance_threshold が暫定値のため、
+    # Phase C の評価ハーネスで確定させるまで本番投入しない。
+    use_glossary_rag: bool = False
 
-
+    # RAG-Tool用のリランクフラグ（デフォルトはOFF）。
+    # True にすると、 glossary_search_tool がリランク用のLLM呼び出しを行う。
+    use_glossary_rerank: bool = False
+    
     class Config:
         """Pydantic設定"""
         # env_file = ".env"

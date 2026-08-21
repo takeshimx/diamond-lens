@@ -21,6 +21,7 @@
 | [9. Request Lifecycle](#9-request-lifecycle-1-クエリの旅) | 1 クエリの旅 |
 | [9.5. Token Budget プール分離](#95-token-budget-プール分離-phase-3-a) | chat / report 別予算管理 (Phase 3-A) |
 | [10. CI/CD 統合状況](#10-cicd-統合状況とギャップ) | 現状とギャップ |
+| [11. Glossary RAG](#11-glossary-rag-agentic-retrieval--llm-リランク) | 用語集の検索・リランク・評価 |
 
 ---
 
@@ -564,6 +565,90 @@ svc.get_remaining(pool="chat")
 | Judge 結果の BQ 化 | 現在は JSON ファイル出力。BQ テーブル化で時系列追跡が可能になる |
 | 自由文出力への Judge 適用拡張 | 現状 Parse Judge は構造化出力のみ。chat 自由文への rubric ベース Judge は未実装 |
 | しきい値の校正 | `PASS_THRESHOLD=3.5`, `SIMILARITY_THRESHOLD=0.15`, PSI `0.1 / 0.2` は経験則 |
+
+---
+
+## 11. Glossary RAG (Agentic Retrieval + LLM リランク)
+
+### 役割
+
+用語定義の質問に、**非構造テキストの検索**で答える層。数値集計は SQL ツールが担当するため、RAG の担当範囲は意図的に狭く切ってある。
+
+```
+質問 → ChatOrchestrator が要否を判断（Agentic RAG。常時検索しない）
+     → LLM が category を選択（batting / pitching / statcast）
+     → BQ で埋め込み生成 + ML.DISTANCE（COSINE）
+     → 候補 10 件 → 閾値 0.275 → Gemini がリランク → 上位 5 件
+     → LLM が要約 → 出典を機械的に付加
+```
+
+### 埋め込みの非対称性
+
+| 側 | task_type |
+|---|---|
+| 文書（取り込み時） | `RETRIEVAL_DOCUMENT` |
+| 質問（検索時） | `RETRIEVAL_QUERY` |
+
+同一モデル（`text-multilingual-embedding-002`）で用途に応じた別の埋め込みを生成する。日本語の質問で英語混じりの文書を引くため、多言語モデルは必須。
+
+### チャンク設計
+
+- `## 見出し` 1 つ = 1 チャンク（自然境界）。見出し語をチャンク先頭に含める
+- **メタデータはベクトル化対象から外す**。カテゴリ・メトリクス名・検証ステータスは別カラムへ。全チャンク共通の定型文はチャンク間の識別力を下げるため
+- 冪等性は `source` 単位の DELETE→INSERT
+
+### リランク（[rerank_service.py](backend/app/services/rerank_service.py)）
+
+- 本文は先頭 300 字のみ渡す。全文はトークンが嵩むだけで精度は上がらない
+- LLM には**候補番号の配列だけ**返させる。本文を再生成させると遅く高価で、改変のリスクもある
+- 範囲外・重複の番号は捨てる（LLM 出力は保証されない）
+- `call_gemini`（[LLM Gateway](#2-llm-gateway-層)）経由。直接 SDK を叩くとコスト計上が漏れる
+- 失敗時はベクトル検索の順序をそのまま返す（fail-open）
+
+### 応答合成の切り替え
+
+用語集の結果は生データではなく文章のため、**ツール名で合成の要否を判定**する。
+
+```python
+SYNTHESIS_REQUIRED_TOOLS = frozenset({"glossary_search_tool"})
+```
+
+戻り値のキー（`sources` 等）で推測すると、将来別のツールが同じキーを返した瞬間に挙動が黙って変わる。成績照会は従来通り機械整形（LLM 呼び出しを増やさない）。
+
+出典は `_append_sources` が機械的に付加する。system prompt での指示は「だいたい守られる」に留まり、実際に要約の過程で落ちた事例がある。
+
+### 評価（[run_retrieval_eval.py](backend/scripts/run_retrieval_eval.py)）
+
+| 指標 | 定義 |
+|---|---|
+| 命中率 hit@k | 上位 k 件に正解が 1 件でも入った質問の割合（RAG 文献の Recall@k） |
+| 網羅率 recall@k | 正解集合のうち上位 k 件に入った割合（ML の定義通り） |
+| MRR | 正解の最上位順位の逆数の平均 |
+| 誤発火率 | 検索不要な質問でツールが呼ばれた割合（[run_misfire_eval.py](backend/scripts/run_misfire_eval.py)） |
+
+質問側の埋め込みを BQ にキャッシュしているため、構成比較を何度回しても追加課金は発生しない。
+
+**実測（13 問）**
+
+| | 命中@3 | 命中@5 | MRR |
+|---|---:|---:|---:|
+| ベクトル検索のみ | 0.615 | 0.769 | 0.585 |
+| + リランク | **0.769** | **0.923** | **0.762** |
+
+誤発火率 **0.000**。用語名を含む質問（direct 型）は命中@3 が 1.000。
+
+### 閾値では精度が上がらないことの実証
+
+| 対象 | min | p50 | max |
+|---|---:|---:|---:|
+| 正解チャンク | 0.1816 | 0.2261 | 0.2542 |
+| 最上位の不正解 | **0.1684** | 0.2363 | - |
+
+**最近傍の不正解が最近傍の正解より近い。** 距離分布が重なっているため、どこに線を引いても分離できない。閾値は「明らかな無関係を切る」役割に留まる——この実測がリランク採用の直接の根拠。
+
+### 既知の制約
+
+`rules`（MLB 公式ルール PDF、897 チャンク）は取り込み済みだが `EXCLUDED_CATEGORIES` で検索対象から除外している。条文を `(a)(1)` 単位で割り直し、Definitions of Terms を独立させても rule 型の命中@3 は 0.333 に留まった。詳細は [ADR-047](docs/adr/047-rag-chunking-multilingual-embeddings-reranking.md)。
 
 ---
 
