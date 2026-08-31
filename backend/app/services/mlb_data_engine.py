@@ -128,7 +128,7 @@ class MLBDataEngine:
 
         text = call_gemini(
             prompt=prompt,
-            model="gemini-2.0-flash",
+            model="gemini-3.6-flash",
             response_mime_type="application/json",
             feature="mlb_data_engine",
             user_id="",

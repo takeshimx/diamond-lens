@@ -34,13 +34,23 @@ DEFAULT_MODEL = "gemini-2.5-flash"
 # ==================================
 # PRICING Map
 # ==================================
-# Source: https://ai.google.dev/gemini-api/docs/pricing (Paid tier, verified 2026-05-16)
+# Source: https://ai.google.dev/gemini-api/docs/pricing (Paid tier, verified 2026-08-21)
 PRICING: Dict[str, Dict[str, float]] = {
     "gemini-2.5-flash": {
         "input_per_1m_usd": 0.30,
         "output_per_1m_usd": 2.50,
         "cached_per_1m_usd": 0.03,
     },
+    # ⚠️ 2027-01-01 にプロモーション価格が失効し、単価が倍になる。
+    #    失効後: input 1.50 / output 7.50 / cached 0.15
+    #    更新を忘れるとコストログが実額の半分で積み上がるため、年末に必ず見直すこと。
+    "gemini-3.6-flash": {
+        "input_per_1m_usd": 0.75,
+        "output_per_1m_usd": 3.75,
+        "cached_per_1m_usd": 0.075,
+    },
+    # 2026-06-01 に提供終了 (公式の移行先は gemini-3.6-flash)。
+    # 過去ログのコスト再計算のためエントリは残す。新規呼び出しには使わないこと。
     "gemini-2.0-flash": {
         "input_per_1m_usd": 0.10,
         "output_per_1m_usd": 0.40,
@@ -115,7 +125,7 @@ def call_gemini(
 
     Args:
         prompt: LLM へのプロンプト
-        model: gemini-2.5-flash / gemini-2.0-flash 等
+        model: gemini-2.5-flash / gemini-3.6-flash 等
         response_mime_type: "text/plain" or "application/json"
         feature: ダッシュボード集計用タグ (例 "ai_summary", "routing_judge")
         user_id: Firebase UID 等 (省略時は ContextVar から auto-populate)

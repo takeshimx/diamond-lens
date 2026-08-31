@@ -46,7 +46,7 @@ class ReflectionVerdict:
     # メタデータ
     retry_count: int = 0
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    judge_model: str = "gemini-2.0-flash"
+    judge_model: str = "gemini-3.6-flash"
     latency_ms: float = 0.0
 
     def to_dict(self) -> Dict[str, Any]:
@@ -59,7 +59,7 @@ PASS_THRESHOLD = 3.5
 class ReflectionJudgeService:
     """Reflection Loop の判断品質を LLM Judge で評価するサービス"""
 
-    def __init__(self, model_name: str = "gemini-2.0-flash"):
+    def __init__(self, model_name: str = "gemini-3.6-flash"):
         self.model_name = model_name
         self.api_key = GEMINI_API_KEY
         if not self.api_key:
