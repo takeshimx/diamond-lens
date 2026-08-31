@@ -3,7 +3,7 @@
 # プッシュ: docker push gcr.io/<PROJECT_ID>/python-test-runner:latest
 # 再ビルドが必要なタイミング: requirements.txt を変更したとき
 
-FROM python:3.9-slim
+FROM python:3.11-slim
 
 WORKDIR /workspace
 
