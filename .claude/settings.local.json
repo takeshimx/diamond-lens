@@ -4,7 +4,10 @@
       "Bash(gcloud logging read:*)",
       "Bash(yarn add:*)",
       "Bash(npm run dev:*)",
-      "Bash(uvicorn:*)"
+      "Bash(uvicorn:*)",
+      "Bash(python -c \":*)",
+      "Bash(python -m pytest tests/test_firebase_auth_middleware.py -v)",
+      "Bash(.venv/Scripts/python -m pytest tests/test_firebase_auth_middleware.py -v)"
     ],
     "deny": [],
     "ask": []

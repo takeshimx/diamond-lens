@@ -264,7 +264,7 @@ CI/CD Drift Check → Compare active model's training data vs latest season
 | # | Judge | Evaluation Target | Evaluation Dimensions | File |
 |---|---|---|---|---|
 | 1 | **Parse Accuracy** | LLM query parse results | query_type accuracy, metrics extraction, player name resolution, intent understanding | `llm_judge_service.py` |
-| 2 | **Synthesizer Quality** | AI-generated responses | Factual accuracy, analytical depth, language quality, structure, completeness | `synthesizer_judge_service.py` |
+| 2 | **Synthesizer Quality** | AI-generated responses | Factual accuracy, analytical depth, language quality, structure, completeness (+ context relevance on RAG paths) | `synthesizer_judge_service.py` |
 | 3 | **Reflection Decision** | Self-correction loop | Trigger appropriateness, root cause identification, correction quality, over-correction risk | `reflection_judge_service.py` |
 | 4 | **Routing Accuracy** | Supervisor routing | Route accuracy, ambiguity handling, reasoning quality | `routing_judge_service.py` |
 | 5 | **Drift Alert Quality** | Data drift detection results | Statistical validity, practical significance, actionability, domain relevance | `drift_alert_judge_service.py` |
@@ -277,6 +277,16 @@ CI/CD Drift Check → Compare active model's training data vs latest season
 
 **E2E Script**:
 - `backend/scripts/evaluate_with_llm_judge.py` — Parse accuracy regression testing against golden dataset
+
+**RAG Triad Coverage**: Rather than adopting a dedicated framework (TruLens etc.), the three checks of the RAG Triad are mapped onto existing evaluation assets. A dedicated framework would add dependencies while double-counting metrics already collected.
+
+| RAG Triad edge | Implementation |
+|---|---|
+| Context Relevance | Synthesizer Judge `context_relevance` (online, RAG paths only) + `run_retrieval_eval.py` hit@k / MRR (offline) |
+| Groundedness | Synthesizer Judge `factual_accuracy` — the judge prompt receives the actual tool return values as source data |
+| Answer Relevance | Synthesizer Judge `completeness` |
+
+`context_relevance` is scored only when a retrieval tool actually fired (detected by tool name, not return-value shape); otherwise the criterion is omitted from the prompt entirely and `0` is recorded, with a separate `retrieval_used` flag distinguishing "not applicable" from "judge failed". It is deliberately excluded from `overall_score` so the existing 3.5 pass threshold keeps its meaning. No additional LLM call is incurred.
 
 **Tests**:
 - `test_llm_judge.py`, `test_synthesizer_judge.py`, `test_reflection_judge.py`, `test_routing_judge.py`, `test_drift_alert_judge.py`

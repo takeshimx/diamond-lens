@@ -122,10 +122,15 @@ graph TB
 
 ### 価格表（[llm_gateway_service.py:38-49](backend/app/services/llm_gateway_service.py#L38-L49)）
 
-| モデル | input / 1M | output / 1M | cached / 1M |
-|---|---|---|---|
-| gemini-2.5-flash | $0.30 | $2.50 | $0.03 |
-| gemini-2.0-flash | $0.10 | $0.40 | $0.025 |
+| モデル | input / 1M | output / 1M | cached / 1M | 備考 |
+|---|---|---|---|---|
+| gemini-2.5-flash | $0.30 | $2.50 | $0.03 | 本体（生成側）の既定モデル |
+| gemini-3.6-flash | $0.75 | $3.75 | $0.075 | Judge の既定モデル。**プロモ価格。2027-01-01 に $1.50 / $7.50 / $0.15 へ倍増** |
+| gemini-2.0-flash | $0.10 | $0.40 | $0.025 | **2026-06-01 提供終了**。過去ログのコスト再計算用に残置 |
+
+価格は 2026-08-21 に [ai.google.dev/gemini-api/docs/pricing](https://ai.google.dev/gemini-api/docs/pricing) で確認。`_calc_cost_usd` は**未登録モデルをコスト 0 で記録する**（warning のみ）ため、モデル追加時は本表の更新が必須。
+
+**Judge を生成側より上位のモデルに置いているのは意図的な判断**。LLM-as-a-Judge では採点側が被採点側より弱いと、微妙な事実誤認や論理の飛躍を検出できず採点が甘い方向に偏る。Judge は低頻度・入力 4000 字切り詰め・JSON 出力のため、上位モデルを使っても絶対額は小さい。
 
 ### 経路 2 系統
 
@@ -298,7 +303,7 @@ graph LR
 | # | Judge | ファイル | 評価対象 | 主要次元 (1-5) | 閾値 |
 |---|---|---|---|---|---|
 | 1 | **Parse Judge** | [llm_judge_service.py](backend/app/services/llm_judge_service.py) | 自然言語 → 構造化クエリのパース精度 | query_type / metrics / entity / intent | overall ≥ 3.5 |
-| 2 | **Synthesizer Judge** | [synthesizer_judge_service.py](backend/app/services/synthesizer_judge_service.py) | レポート・回答テキストの品質 | 5 次元（factual / readability / usefulness 等） | — |
+| 2 | **Synthesizer Judge** | [synthesizer_judge_service.py](backend/app/services/synthesizer_judge_service.py) | レポート・回答テキストの品質 | factual_accuracy / analytical_depth / language_quality / structure / completeness ＋ RAG 経路のみ context_relevance | overall ≥ 3.5 |
 | 3 | **Reflection Judge** | [reflection_judge_service.py](backend/app/services/reflection_judge_service.py) | 自己修正トリガーと修正策の妥当性 | 過修正の有無を含む | — |
 | 4 | **Routing Judge** | [routing_judge_service.py](backend/app/services/routing_judge_service.py) | Supervisor の routing 判断 | batter / pitcher / stats / matchup の分類精度 | — |
 | 5 | **Drift Alert Judge** | [drift_alert_judge_service.py](backend/app/services/drift_alert_judge_service.py) | データドリフト統計検知のセカンドオピニオン | アクションが本当に必要か | ACTION_THRESHOLD ≥ 3.5 |
@@ -320,6 +325,29 @@ graph LR
 ```
 
 `failure_category` は `unregistered_metric_key / entity_resolution_error / missing_context / schema_violation / over_extraction / type_misclassification` から 1 つを選択させ、後工程で集計いたします。
+
+### Synthesizer Judge と RAG Triad
+
+RAG の品質評価では **RAG Triad**（context relevance / groundedness / answer relevance の 3 点検査）が業界の定番でございますが、本プロジェクトでは専用フレームワーク（TruLens 等）を導入せず、**既存の評価資産に 3 辺を対応付ける**方針を採っております。
+
+| RAG Triad の辺 | 何を問うか | 本プロジェクトでの実装 |
+|---|---|---|
+| Context Relevance | 引いてきた文書は質問に関係あるか | Synthesizer Judge の `context_relevance`（オンライン）＋ [run_retrieval_eval.py](backend/scripts/run_retrieval_eval.py) の hit@k / MRR（オフライン） |
+| Groundedness | 回答は引いた文書に根拠を持つか | Synthesizer Judge の `factual_accuracy`。判定プロンプトに「元データ」として実際のツール戻り値を渡しているため、根拠照合として機能する |
+| Answer Relevance | 回答は質問に答えているか | Synthesizer Judge の `completeness` |
+
+**専用フレームワークを見送った理由**: 3 辺とも既存 Judge がカバーしており、導入すると依存ライブラリが増えるうえ同一項目を二重計上いたします。観点ごとに Judge を分ける本プロジェクトの設計とも噛み合いません。
+
+**`context_relevance` の設計判断**:
+
+| 論点 | 採用 | 理由 |
+|---|---|---|
+| RAG 非発火時の扱い | 採点基準ごとプロンプトから外し、`0`（評価対象外）を記録 | 文書を引かない成績照会に「文脈の関連度」を尋ねると、Judge が架空のスコアを返す |
+| `overall_score` への算入 | **含めない** | 合格ライン 3.5 の意味が変わり、既存の蓄積データと比較できなくなる。プロンプトでも明示的に除外を指示 |
+| 「対象外」と「判定失敗」の区別 | `retrieval_used`（BOOL）を別列で保持 | どちらも `0` になるため、列がないと集計時に切り分けられない |
+| RAG 発火の判定方法 | ツール名（`RETRIEVAL_TOOLS = {"glossary_search_tool"}`） | 戻り値のキーで推測すると、別ツールが同じキーを返した瞬間に黙って挙動が変わる。`SYNTHESIS_REQUIRED_TOOLS` と同じ思想 |
+
+追加の LLM 呼び出しは発生しません（既存 1 コールに採点項目が 1 つ増えるのみ）。結果は BQ `online_judge_verdicts` の `context_relevance` / `retrieval_used` 列に蓄積し、低スコアの質問を [retrieval_fixtures.json](backend/tests/golden/retrieval_fixtures.json) の追加候補として拾い上げます。
 
 ---
 
@@ -625,6 +653,7 @@ SYNTHESIS_REQUIRED_TOOLS = frozenset({"glossary_search_tool"})
 | 網羅率 recall@k | 正解集合のうち上位 k 件に入った割合（ML の定義通り） |
 | MRR | 正解の最上位順位の逆数の平均 |
 | 誤発火率 | 検索不要な質問でツールが呼ばれた割合（[run_misfire_eval.py](backend/scripts/run_misfire_eval.py)） |
+| context_relevance | 引いた文書の質問との関連度（1-5）。**本番トラフィックに対する Synthesizer Judge のオンライン採点**。上 4 つはオフラインのゴールデンセット 13 問に対する指標だが、これのみ実トラフィックを測る（[Judge Layer](#5-judge-layer-llm-as-a-judge) 参照） |
 
 質問側の埋め込みを BQ にキャッシュしているため、構成比較を何度回しても追加課金は発生しない。
 
@@ -657,4 +686,5 @@ SYNTHESIS_REQUIRED_TOOLS = frozenset({"glossary_search_tool"})
 - [README.md](README.md) — プロダクト全体（英語）
 - [README_JP.md](README_JP.md) — プロダクト全体（日本語）
 - [README_architecture.md](README_architecture.md) — システム・インフラ全体
+- [README_eval.md](README_eval.md) — 評価システム（4 層 + オンライン・Judge・ゴールデンセット・実測値）
 - 本ドキュメント — AI / LLM レイヤー専用

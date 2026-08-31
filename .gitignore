@@ -51,7 +51,13 @@ metricflow/package-lock.yml
 !metricflow/profiles.yml
 
 backend/docs/
-docs/
+
+# docs/ 配下は原則コミットしない。ただし ADR (設計判断記録) のみ例外。
+# 「docs/」ではなく「docs/*」にしているのは、ディレクトリごと除外すると
+# Git が中を走査せず、後続の「!」が効かなくなるため。
+docs/*
+!docs/adr/
+
 analysis/__pycache__/
 analysis/*.pyc
 analysis/.ipynb_checkpoints/

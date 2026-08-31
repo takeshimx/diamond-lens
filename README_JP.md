@@ -264,7 +264,7 @@ CI/CD ドリフトチェック → アクティブモデルの学習データ vs
 | # | Judge | 評価対象 | 評価次元 | ファイル |
 |---|---|---|---|---|
 | 1 | **パース精度** | LLMクエリパース結果 | query_type正確性、metrics抽出、選手名解決、意図理解 | `llm_judge_service.py` |
-| 2 | **Synthesizer品質** | AI生成レスポンス | 事実正確性、分析深度、言語品質、構造、完全性 | `synthesizer_judge_service.py` |
+| 2 | **Synthesizer品質** | AI生成レスポンス | 事実正確性、分析深度、言語品質、構造、完全性（＋RAG経路のみ文脈関連性） | `synthesizer_judge_service.py` |
 | 3 | **Reflection判断** | 自己修正ループ | トリガー適切性、根本原因特定、修正品質、過修正リスク | `reflection_judge_service.py` |
 | 4 | **ルーティング精度** | Supervisorルーティング | ルーティング正確性、曖昧性対応、判断根拠の質 | `routing_judge_service.py` |
 | 5 | **ドリフトアラート品質** | データドリフト検知結果 | 統計的妥当性、実用的重要性、対応可能性、ドメイン関連性 | `drift_alert_judge_service.py` |
@@ -277,6 +277,16 @@ CI/CD ドリフトチェック → アクティブモデルの学習データ vs
 
 **E2Eスクリプト**:
 - `backend/scripts/evaluate_with_llm_judge.py` — ゴールデンデータセットに対するパース精度の回帰テスト
+
+**RAG Triad への対応**: RAG 品質評価の定番である RAG Triad（文脈の関連性／回答の根拠性／回答の妥当性の 3 点検査）について、専用フレームワーク（TruLens 等）は導入せず、**既存の評価資産に 3 辺を対応付けている**。導入すると依存が増えるうえ、同一項目を二重計上するため。
+
+| RAG Triad の辺 | 実装 |
+|---|---|
+| 文脈の関連性 (Context Relevance) | Synthesizer Judge の `context_relevance`（本番トラフィックのオンライン採点）＋ `run_retrieval_eval.py` の hit@k / MRR（オフライン） |
+| 回答の根拠性 (Groundedness) | Synthesizer Judge の `factual_accuracy`。判定プロンプトに実際のツール戻り値を「元データ」として渡している |
+| 回答の妥当性 (Answer Relevance) | Synthesizer Judge の `completeness` |
+
+`context_relevance` は検索ツールが実際に発火したときのみ採点する（判定は戻り値の形ではなく**ツール名**で行う）。非発火時は採点基準をプロンプトから外して `0`（評価対象外）を記録し、`retrieval_used` フラグで「対象外」と「判定失敗」を区別する。合格ライン 3.5 の意味を保つため `overall_score` には**含めない**。追加の LLM 呼び出しは発生しない。
 
 **テスト**:
 - `test_llm_judge.py`, `test_synthesizer_judge.py`, `test_reflection_judge.py`, `test_routing_judge.py`, `test_drift_alert_judge.py`

@@ -237,7 +237,7 @@ predictions = await self._predict_with_vertex_ai(endpoint_id, instances)
 | **ML Monitoring** | Data Drift Service, Model Registry, GCS, BigQuery | Data drift detection (PSI/KS), model versioning & auto-baseline CI/CD gate |
 | **Stuff+/Pitching+/Pitching++** | XGBoost, Model Registry, BigQuery | Pitch quality evaluation, sequence context modeling, pre-computed rankings, real-time inference |
 | **HITL Feedback** | Feedback UI, BigQuery, pending_review.json | User feedback collection, golden dataset expansion pipeline |
-| **LLM as a Judge** | 5 Judge Services, Gemini 2.0 Flash, BigQuery Logging | Automated multi-dimensional quality evaluation (parse, synthesizer, reflection, routing, drift alerts) |
+| **LLM as a Judge** | 5 Judge Services, Gemini 2.0 Flash, BigQuery Logging | Automated multi-dimensional quality evaluation (parse, synthesizer, reflection, routing, drift alerts); RAG Triad covered via existing dimensions |
 | **BQ Embedding Quality Warning** | BigQuery ML, Vertex AI text-multilingual-embedding-002, VECTOR_SEARCH, asyncio.gather | Serverless semantic similarity warning: detects queries similar to past bad-rated ones; daily batch embedding via BQ Scheduled Query; zero always-on instances |
 | **Hot/Slump Dashboard** | BigQuery (mart rolling-window tables), React | Detects hot streaks and slumps across BA/OPS/Barrel%/HH% over 7/14/28-day windows with multi-badge display |
 | **Leaderboard** | BigQuery (mart tables), React | Batting/pitching season leaderboards with league and dynamic min-sample filters |
@@ -637,7 +637,7 @@ python scripts/train_stuff_plus.py --season 2025 --min-pitches 100
 | # | Judge | Service File | Evaluation Dimensions | Output |
 |---|---|---|---|---|
 | 1 | Parse Accuracy | `llm_judge_service.py` | query_type, metrics extraction, player name resolution, intent understanding (1-5 each) | `JudgeVerdict` |
-| 2 | Synthesizer Quality | `synthesizer_judge_service.py` | Factual accuracy, analytical depth, language quality, structure, completeness (1-5 each) | `SynthesizerVerdict` |
+| 2 | Synthesizer Quality | `synthesizer_judge_service.py` | Factual accuracy, analytical depth, language quality, structure, completeness (1-5 each) + `context_relevance` on RAG paths only | `SynthesizerVerdict` |
 | 3 | Reflection Decision | `reflection_judge_service.py` | Trigger appropriateness, root cause identification, correction quality, over-correction risk (1-5 each) | `ReflectionVerdict` |
 | 4 | Routing Accuracy | `routing_judge_service.py` | Route accuracy, ambiguity handling, reasoning quality (1-5 each) | `RoutingVerdict` |
 | 5 | Drift Alert Quality | `drift_alert_judge_service.py` | Statistical validity, practical significance, actionability, domain relevance (1-5 each) | `DriftAlertVerdict` |
@@ -650,14 +650,20 @@ python scripts/train_stuff_plus.py --season 2025 --min-pitches 100
 
 [Batch]     BQ logs → Sample extraction → 5 Judges evaluate → Results to BQ
             (Frequency and sample size configurable)
+
+[Online]    Production response returned → 5% sampled → Synthesizer Judge (async,
+            fire-and-forget) → BQ online_judge_verdicts
 ```
+
+**RAG Triad:** The three checks (context relevance / groundedness / answer relevance) are mapped onto existing assets instead of adopting a dedicated framework — `context_relevance` (online, RAG paths only) plus offline hit@k / MRR, `factual_accuracy`, and `completeness` respectively. `context_relevance` is excluded from `overall_score` to preserve the meaning of the existing 3.5 pass threshold, and carries a companion `retrieval_used` BOOL so "not applicable" is distinguishable from "judge failed". Requires columns `context_relevance INT64` and `retrieval_used BOOL` on `online_judge_verdicts`.
 
 **Key Files:**
 
 | File | Purpose |
 |------|---------|
 | `services/llm_judge_service.py` | Parse accuracy Judge with METRIC_MAP key validation |
-| `services/synthesizer_judge_service.py` | Synthesizer output quality Judge (agent/simple path-aware) |
+| `services/synthesizer_judge_service.py` | Synthesizer output quality Judge (agent/simple path-aware, RAG-aware via `retrieval_used`) |
+| `services/online_judge_service.py` | Sampled async judging of production responses; resolves RAG firing from tool names (`RETRIEVAL_TOOLS`) → BQ `online_judge_verdicts` |
 | `services/reflection_judge_service.py` | Reflection loop decision quality Judge |
 | `services/routing_judge_service.py` | Supervisor routing accuracy Judge (two-way player handling) |
 | `services/drift_alert_judge_service.py` | Data drift alert quality Judge (model-specific domain context) |
@@ -853,7 +859,7 @@ python scripts/train_stuff_plus.py --season 2025 --min-pitches 100
 | **Gateway** | `backend/app/services/llm_gateway_service.py` — `call_gemini()` (sync, REST drop-in) + `LangchainUsageCallback(BaseCallbackHandler)` (LangChain/LangGraph integration) |
 | **BQ Table** | `tksm-dash-test-25.mlb_analytics_dash_25.llm_interaction_logs` extended with `model`, `input_tokens`, `output_tokens`, `cached_tokens`, `estimated_cost_usd`, `feature` |
 | **Row Discrimination** | `WHERE model IS NOT NULL` selects gateway-written rows only |
-| **Pricing** | gemini-2.5-flash ($0.30 / $2.50 / $0.03 per 1M input/output/cached); gemini-2.0-flash ($0.10 / $0.40 / $0.025). Verified at ai.google.dev/gemini-api/docs/pricing |
+| **Pricing** | gemini-2.5-flash ($0.30 / $2.50 / $0.03 per 1M input/output/cached); gemini-3.6-flash ($0.75 / $3.75 / $0.075 — promotional, doubles to $1.50 / $7.50 / $0.15 on 2027-01-01); gemini-2.0-flash ($0.10 / $0.40 / $0.025 — shut down 2026-06-01, kept for historical log recalculation). Verified at ai.google.dev/gemini-api/docs/pricing on 2026-08-21 |
 | **Endpoint** | `GET /api/v1/usage/dashboard?year=&month=&trend_days=&recent_limit=&force=` |
 | **Service** | `usage_stats_service.py:get_dashboard_all()` — 6 aggregations in a single BQ query via CTE + `ARRAY<STRUCT>`, scan-limited to 90 days |
 | **Cache** | 60s in-memory TTL keyed by `(year, month, trend_days, recent_limit)`; `force=true` bypasses |
