@@ -231,5 +231,85 @@ class TestSynthesizerEvaluationWithMock:
         assert "not configured" in verdict.reasoning
 
 
+class TestContextRelevance:
+    """context_relevance（文脈の関連性）の追加テスト"""
+
+    def test_fields_exist_in_dict(self):
+        d = SynthesizerVerdict(case_id="T", user_query="t").to_dict()
+        assert "context_relevance" in d
+        assert "retrieval_used" in d
+
+    def test_criteria_absent_when_no_retrieval(self):
+        """RAG が動いていない質問には採点基準を出さない"""
+        judge = SynthesizerJudgeService()
+        prompt = judge._build_judge_prompt(
+            user_query="t", source_data="{}", synthesizer_output="t",
+            synthesizer_path="agent", retrieval_used=False,
+        )
+        assert "context_relevance" not in prompt
+
+    def test_criteria_present_when_retrieval(self):
+        judge = SynthesizerJudgeService()
+        prompt = judge._build_judge_prompt(
+            user_query="t", source_data="{}", synthesizer_output="t",
+            synthesizer_path="agent", retrieval_used=True,
+        )
+        assert "context_relevance" in prompt
+        assert "材料選びの正しさ" in prompt
+
+    def test_defaults_to_zero_not_one(self):
+        """採点対象外は 0。最低点 1 と混同してはならない"""
+        judge = SynthesizerJudgeService()
+        verdict = judge._parse_judge_response(
+            {"overall_score": 4.0}, "T", "t", retrieval_used=False
+        )
+        assert verdict.context_relevance == 0
+        assert verdict.retrieval_used is False
+
+    def test_score_is_parsed_and_clamped(self):
+        judge = SynthesizerJudgeService()
+        verdict = judge._parse_judge_response(
+            {"overall_score": 4.0, "context_relevance": 9}, "T", "t", retrieval_used=True
+        )
+        assert verdict.context_relevance == 5
+        assert verdict.retrieval_used is True
+
+    def test_overall_score_excludes_context_relevance(self):
+        """総合点は既存5項目のみ。合格ライン 3.5 の意味を変えない"""
+        judge = SynthesizerJudgeService()
+        verdict = judge._parse_judge_response(
+            {"overall_score": 4.0, "context_relevance": 1}, "T", "t", retrieval_used=True
+        )
+        assert verdict.overall_score == 4.0
+        assert verdict.passed is True
+
+    def test_retrieval_used_preserved_on_api_error(self):
+        """Judge が失敗しても「RAG は動いた」事実は記録に残す"""
+        judge = SynthesizerJudgeService()
+        judge.api_key = None
+        verdict = judge.evaluate_output(
+            case_id="T", user_query="t", source_data="{}",
+            synthesizer_output="t", retrieval_used=True,
+        )
+        assert verdict.retrieval_used is True
+        assert verdict.context_relevance == 0
+
+
+class TestOnlineJudgeRetrievalDetection:
+    """online_judge_service 側の RAG 判定"""
+
+    def test_glossary_tool_marks_retrieval_used(self):
+        from backend.app.services.online_judge_service import RETRIEVAL_TOOLS
+        assert bool({"glossary_search_tool"} & RETRIEVAL_TOOLS) is True
+
+    def test_sql_tools_do_not_mark_retrieval_used(self):
+        from backend.app.services.online_judge_service import RETRIEVAL_TOOLS
+        assert bool({"batter_stats_tool", "pitcher_stats_tool"} & RETRIEVAL_TOOLS) is False
+
+    def test_none_tool_names_is_safe(self):
+        from backend.app.services.online_judge_service import RETRIEVAL_TOOLS
+        assert bool((None or set()) & RETRIEVAL_TOOLS) is False
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

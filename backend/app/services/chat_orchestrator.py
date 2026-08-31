@@ -676,6 +676,7 @@ class ChatOrchestrator:
                         user_query,
                         tool_results_seen,
                         final_answer,
+                        tool_names_seen,
                     ))
                 return
 
@@ -748,6 +749,7 @@ class ChatOrchestrator:
                         user_query,
                         tool_results_seen,
                         formatted_answer,
+                        tool_names_seen,
                     ))
                 return
 

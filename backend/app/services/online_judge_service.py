@@ -17,6 +17,10 @@ from backend.app.services.synthesizer_judge_service import SynthesizerJudgeServi
 
 logger = logging.getLogger(__name__)
 
+# 文書検索 (RAG) を行うツール。context_relevance の採点要否をこれで判定する。
+# 戻り値の形ではなくツール名で見るのは chat_orchestrator.SYNTHESIS_REQUIRED_TOOLS と同じ思想。
+RETRIEVAL_TOOLS = frozenset({"glossary_search_tool"})
+
 _judge: Optional[SynthesizerJudgeService] = None
 
 
@@ -44,12 +48,18 @@ async def judge_and_log(
     user_query: str,
     tool_results: List[Any],
     final_answer: str,
+    tool_names: Optional[set] = None,
 ) -> None:
-    """応答確定後に呼ぶ。同期的に待たないこと。"""
+    """応答確定後に呼ぶ。同期的に待たないこと。
+
+    tool_names を省略した場合は「RAG なし」として扱う。呼び出し元の
+    渡し漏れで例外を出さないための既定値。
+    """
     try:
         if not final_answer:
             return
-        
+
+        retrieval_used = bool((tool_names or set()) & RETRIEVAL_TOOLS)
         source_data = _truncate(json.dumps(tool_results, ensure_ascii=False, default=str))
 
         # Judge 本体は同期 I/O のため、イベントループを塞がないよう別スレッドへ逃がす
@@ -60,6 +70,7 @@ async def judge_and_log(
             source_data=source_data,
             synthesizer_output=_truncate(final_answer),
             synthesizer_path="chat_orchestrator",
+            retrieval_used=retrieval_used,
         )
         _write_to_bq(request_id, verdict)
     except Exception as e:
