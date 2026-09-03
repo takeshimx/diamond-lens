@@ -1266,11 +1266,12 @@ def run_mlb_agent(query: str) -> dict:
     logger.info(f"Supervisor routed to: {agent_type}", query=query, agent_type=agent_type)
 
     # Step 3: Initialize model
+    usage_cb = LangchainUsageCallback(feature=f"agent_{agent_type}", model="gemini-2.5-flash")
     model = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash",
         google_api_key=os.getenv("GEMINI_API_KEY_V2"),
         temperature=0, # 分析精度を高めるため、ランダム性を排除
-        callbacks=[LangchainUsageCallback(feature=f"agent_{agent_type}", model="gemini-2.5-flash")],
+        callbacks=[usage_cb],
     )
 
     # Step 4: Select and initialize agent
@@ -1287,7 +1288,7 @@ def run_mlb_agent(query: str) -> dict:
         agent = StatsAgent(model=model)
         result = agent.run(query)
     elif agent_type == "strategy":
-        agent = StrategyAgent(model=model)
+        agent = StrategyAgent(model=model, usage_callback=usage_cb)
         result = agent.run(query)
     else: # fallback to stats at this point
         logger.warning(f"Unknown agent type: '{agent_type}', falling back to StatsAgent")
@@ -1380,11 +1381,12 @@ async def run_mlb_agent_stream(
     }
 
     # Step 3: Initialize model
+    usage_cb = LangchainUsageCallback(feature=f"agent_stream_{agent_type}", model="gemini-2.5-flash")
     model = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash",
         google_api_key=os.getenv("GEMINI_API_KEY_V2"),
         temperature=0,
-        callbacks=[LangchainUsageCallback(feature=f"agent_stream_{agent_type}", model="gemini-2.5-flash")],
+        callbacks=[usage_cb],
     )
 
     # Step 4: Select and initialize agent
@@ -1397,7 +1399,7 @@ async def run_mlb_agent_stream(
     elif agent_type == "stats":
         agent = StatsAgent(model=model)
     elif agent_type == "strategy":
-        agent = StrategyAgent(model=model)
+        agent = StrategyAgent(model=model, usage_callback=usage_cb)
     else:
         stream_logger.warning(f"Unknown agent type: '{agent_type}', falling back to StatsAgent")
         agent = StatsAgent(model=model)

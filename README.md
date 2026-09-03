@@ -685,6 +685,45 @@ Term-name queries reach hit@3 = 1.000. Tool misfire rate is 0.000 (glossary is n
 
 ---
 
+### 26. Agent Trace Viewer & Failure Labeling (Full Stack, NEW 2026-09)
+**Status**: ✅ Production-ready (`TRACE` tab)
+
+**Overview**: Reconstructs an agent run from `llm_interaction_logs` and renders it as a readable step sequence, then lets a human attach a failure label. [ADR-032](docs/adr/032-snowflake-trace-id-structured-logging.md) already made the rows *joinable* by `trace_id`; what was missing was anything that reads them. Debugging previously meant hand-typing SQL in the BigQuery console.
+
+**What a trace records**:
+
+| `node` | Meaning | `model` |
+|---|---|---|
+| `oracle` | The LLM decided which tool to call | set |
+| `executor` | A tool actually ran — **not an LLM call** | **NULL** |
+| `synthesizer` | The LLM turned tool output into prose | set |
+
+`ChatOrchestrator` has exactly **one** LLM call site; whether it acted as `oracle` or `synthesizer` is determined by whether the response contained a `function_call`. The `executor` row carries `{name, ok, error, latency_ms}` per tool — **the only evidence that a tool failed**, since the downstream LLM will happily answer anyway.
+
+**Why the path length varies**:
+```
+Stat lookup :  oracle → executor                 (2 steps, 1 LLM call)
+                        ↑ numeric rows are formatted mechanically — no synthesizer
+
+Glossary    :  oracle → executor → synthesizer   (3 steps, 2 LLM calls)
+                        ↑ SYNTHESIS_REQUIRED_TOOLS forces prose generation
+```
+A second LLM call here is **by design, not a retry**. A genuine "the first tool wasn't enough" case shows up as `oracle` appearing **twice**.
+
+**Key Design Decisions**:
+- **Rode on the existing table instead of a new one**: three NULLABLE columns (`node`, `iteration`, `tool_calls`) on `llm_interaction_logs`. A dedicated trace table would force a JOIN on every read for no gain
+- **Non-LLM steps are logged with `model = NULL`**: `usage_stats_service` filters every query by `WHERE model IS NOT NULL`, so tool-execution rows never touch the cost dashboard
+- **Labels are append-only** in a separate `trace_labels` table: re-labeling inserts a new row and the reader takes the latest `labeled_at`, preserving *when the judgement changed*
+- **Instrumented the path that actually runs**: the first attempt targeted `StrategyAgent` (LangGraph, 5 nodes) purely from code structure. Real logs showed **zero** invocations — no current UI path reaches it. Recorded as a failure of process in [ADR-053](docs/adr/053-agent-trace-viewer-failure-labeling.md)
+
+**Label axes**: `correct` / `wrong_tool` / `wrong_params` / `right_answer_wrong_path` / `should_have_abstained` / `retrieval_miss` / `tool_error`
+
+**Components**: `services/trace_query_service.py`, `services/trace_label_service.py`, `api/endpoints/trace_endpoints.py`, `frontend/src/components/TraceViewer.jsx`
+
+**Known limitations**: `iteration` means different things per path (LLM-call index in `ChatOrchestrator`, reflection `retry_count` in `StrategyAgent`), so LLM-call counts are recomputed as `COUNTIF(model IS NOT NULL)`. `MAX_TOOL_ITERATIONS` truncation is not yet distinguishable from a normal finish.
+
+---
+
 ### Technical Features
 - **AI-Powered Processing**: Uses Gemini 2.5 Flash for query parsing and response generation
 - **Real-time Interface**: Interactive experience with loading states and live updates

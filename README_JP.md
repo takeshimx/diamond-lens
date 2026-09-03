@@ -679,6 +679,45 @@ PrefixCache.put(...)
 
 ---
 
+### 26. エージェント実行トレースビューア & 失敗ラベリング（フルスタック、NEW 2026-09）
+**Status**: ✅ Production-ready（`TRACE` タブ）
+
+**概要**: `llm_interaction_logs` からエージェント 1 回分の実行経路を復元し、読めるステップ列として表示した上で、人手で失敗ラベルを付与する画面。[ADR-032](docs/adr/032-snowflake-trace-id-structured-logging.md) で `trace_id` による**束ねられる状態**は既に作ってあったが、**読む面が存在しなかった**。調査は BigQuery コンソールに SQL を手打ちする運用だった。
+
+**記録されるステップ**:
+
+| `node` | 意味 | `model` |
+|---|---|---|
+| `oracle` | どのツールを使うか LLM が判断した回 | 有 |
+| `executor` | ツールを実行した（**LLM 呼び出しではない**） | **NULL** |
+| `synthesizer` | ツール結果を LLM が文章化した回 | 有 |
+
+`ChatOrchestrator` は LLM を呼ぶ箇所が **1 つしかなく**、返ってきたものが `function_call` かテキストかで役割が決まる。`executor` 行には `{name, ok, error, latency_ms}` をツール分格納する。**ツールが失敗しても後続の LLM が何か答えてしまう**ため、これが失敗の唯一の証跡になる。
+
+**質問の種類で経路長が変わる**:
+```
+成績照会 :  oracle → executor                （2 ステップ / LLM 1 回）
+                     ↑ 数値の羅列は機械整形するため synthesizer が発生しない
+
+用語集   :  oracle → executor → synthesizer  （3 ステップ / LLM 2 回）
+                     ↑ SYNTHESIS_REQUIRED_TOOLS により文章化が必須
+```
+ここでの 2 回目の LLM 呼び出しは**再試行ではなく設計上必須**。本当に「1 回目のツールでは足りなかった」ケースは、**`oracle` が 2 回出現する**ことで判別する。
+
+**主要な設計判断**:
+- **新テーブルを作らず既存テーブルに相乗り**: `llm_interaction_logs` に NULLABLE の 3 列（`node` / `iteration` / `tool_calls`）を追加。専用テーブルにすると読むたびに JOIN が必要になり、得るものがない
+- **LLM を呼ばないステップも `model = NULL` で記録**: `usage_stats_service` が全クエリを `WHERE model IS NOT NULL` で絞っているため、ツール実行行はコストダッシュボードに一切現れない
+- **ラベルは別テーブルに追記のみ**: 付け直しは新しい行の INSERT で表現し、読み出し側が `labeled_at` の最新を採用する。**いつ判断が変わったか**を残すため
+- **実際に動いている経路を計装した**: 当初は `StrategyAgent`（LangGraph 5 ノード）をコード構造だけで対象に選んだが、実ログでは**呼び出しがゼロ**で、現行 UI からどの経路でも到達しないことが判明した。この判断過程の失敗を [ADR-053](docs/adr/053-agent-trace-viewer-failure-labeling.md) に記録している
+
+**ラベル軸**: `correct` / `wrong_tool` / `wrong_params` / `right_answer_wrong_path` / `should_have_abstained` / `retrieval_miss` / `tool_error`
+
+**構成要素**: `services/trace_query_service.py`, `services/trace_label_service.py`, `api/endpoints/trace_endpoints.py`, `frontend/src/components/TraceViewer.jsx`
+
+**既知の制約**: `iteration` の意味が経路で揃っていない（`ChatOrchestrator` は LLM 呼び出しの通し番号、`StrategyAgent` は reflection の `retry_count`）ため、LLM 呼び出し回数は `COUNTIF(model IS NOT NULL)` で数え直している。`MAX_TOOL_ITERATIONS` による打ち切りは通常終了と区別できていない。
+
+---
+
 ### 技術機能
 - **AI搭載処理**: Gemini 2.5 Flashを使用したクエリ解析とレスポンス生成
 - **リアルタイムインターフェース**: ローディング状態とライブ更新付きのインタラクティブ体験

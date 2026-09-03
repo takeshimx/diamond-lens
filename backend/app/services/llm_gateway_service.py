@@ -262,6 +262,8 @@ class LangchainUsageCallback(BaseCallbackHandler):
         request_id: Optional[str] = None,
         trace_id: Optional[str] = None,
         request_start_time: Optional[float] = None,
+        node: Optional[str] = None,
+        iteration: Optional[int] = None,
     ):
         """
         Args:
@@ -311,6 +313,21 @@ class LangchainUsageCallback(BaseCallbackHandler):
         # caller が request 受信時刻を渡せばそちらを優先。
         self._request_start_time: float = request_start_time or time.time()
         self._start_time: Optional[float] = None
+        # ── Trace Viewer 用 (P0-1) ──
+        self.node = node
+        self.iteration = iteration
+
+    def set_node(self, node: Optional[str], iteration: Optional[int] = None) -> None:
+        """次の LLM 呼び出しに紐づくグラフノード名と周回数を差し替える。
+
+        LangGraph の各ノードが invoke 直前に呼ぶ。callback インスタンスは
+        リクエスト単位で生成され、かつ StrategyAgent の LLM 呼び出しは
+        planner / reflection / strategist の逐次3箇所のみ
+        (parallel_executor はツールを並列実行するだけで LLM を呼ばない) ため、
+        インスタンス状態の書き換えで競合は起きない。
+        """
+        self.node = node
+        self.iteration = iteration
 
     # LangChain は chat-style では on_chat_model_start を呼ぶ
     def on_chat_model_start(self, serialized, messages, **kwargs):
@@ -389,12 +406,41 @@ class LangchainUsageCallback(BaseCallbackHandler):
             logger.warning(f"LangchainUsageCallback: failed to extract response text: {e}")
         return None
 
+    def _extract_tool_calls(self, response) -> Optional[list]:
+        """LangChain LLMResult から tool_calls の name / args を抽出する。
+
+        planner が「どのツールを何個同時に計画したか」が trace の中核情報になるため、
+        caller に渡させるのではなく callback 側で自動取得する。
+        """
+        try:
+            gens = getattr(response, "generations", None) or []
+            if not gens or not gens[0]:
+                return None
+            msg = getattr(gens[0][0], "message", None)
+            tool_calls = (getattr(msg, "tool_calls", None) or []) if msg else []
+            if not tool_calls:
+                return None
+            extracted = []
+            for tc in tool_calls:
+                if isinstance(tc, dict):
+                    extracted.append({"name": tc.get("name"), "args": tc.get("args", {})})
+                else:
+                    extracted.append({"name": getattr(tc, "name", None), "args": getattr(tc, "args", {})})
+            return extracted
+        except Exception as e:
+            logger.warning(f"LangchainUsageCallback: failed to extract tool_calls: {e}")
+            return None
+
     def on_llm_end(self, response, **kwargs):
         entry = LLMLogEntry()
         entry.user_id = self.user_id
         entry.feature = self.feature
         entry.endpoint = self.endpoint
         entry.model = self.model
+        # Trace Viewer 用 (P0-1)
+        entry.node = self.node
+        entry.iteration = self.iteration
+        entry.set_tool_calls(self._extract_tool_calls(response))
         # ContextVar が asyncio.to_thread 経由で伝搬しないケースに備え、
         # __init__ snapshot 値で上書き (LLMLogEntry.__init__ 内の ContextVar 読み込みは
         # 別スレッドだと空になる)。
@@ -450,6 +496,9 @@ class LangchainUsageCallback(BaseCallbackHandler):
         entry.feature = self.feature
         entry.endpoint = self.endpoint
         entry.model = self.model
+        # Trace Viewer 用 (P0-1)。エラー経路は response が無いため tool_calls は取得しない
+        entry.node = self.node
+        entry.iteration = self.iteration
         if self.session_id:
             entry.session_id = self.session_id
         if self.request_id:

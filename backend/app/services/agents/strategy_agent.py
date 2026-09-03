@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 from typing import Annotated, TypedDict, List, Dict, Any, Optional
 from operator import add
 
@@ -48,8 +49,15 @@ class StrategyAgent:
     打者・投手・対戦傾向を横断的に分析する戦略エージェント。
     """
 
-    def __init__(self, model):
+    def __init__(self, model, usage_callback=None):
+        """
+        Args:
+            usage_callback: LangchainUsageCallback インスタンス (P0-1 Trace Viewer 用)。
+                各ノードが invoke 直前に set_node() を呼び、BQ ログの node / iteration
+                カラムを埋める。None の場合は何もしない（既存呼び出しとの後方互換）。
+        """
         self.raw_model = model  # ツールなし（最終レポート生成用）
+        self.usage_callback = usage_callback
 
         # 4つのツールをインポートしてバインド
         from ..tools import (
@@ -66,6 +74,53 @@ class StrategyAgent:
         ]
         self.model = model.bind_tools(self.tools)
         self.graph = self._build_graph()
+
+    def _mark_node(self, node: str, state) -> None:
+        """次の LLM 呼び出しに紐づくノード名と周回数を callback に伝える (P0-1)。
+
+        callback 未注入時は無操作。トレース記録の失敗が本処理を止めないよう握り潰す。
+        """
+        if not self.usage_callback:
+            return
+        try:
+            self.usage_callback.set_node(node, state.get("retry_count", 0))
+        except Exception as e:
+            logger.warning(f"set_node failed (suppressed): {e}")
+
+    def _log_tool_execution(self, tool_stats: List[Dict[str, Any]], state) -> None:
+        """ツール実行の結果を llm_interaction_logs に1行記録する (P0-1 Step 5)。
+
+        LLM を呼ばないノードなので **model は必ず NULL のままにする**。
+        usage_stats_service が `WHERE model IS NOT NULL` で LLM 行だけを集計しており、
+        model を埋めるとコストダッシュボードに実体のない行が混入する。
+        """
+        if not tool_stats:
+            return
+        try:
+            from backend.app.services.llm_logger_service import LLMLogEntry, get_llm_logger
+
+            entry = LLMLogEntry()
+            # このノードは to_thread / ThreadPoolExecutor を跨ぐため ContextVar が
+            # 空になりうる。callback が endpoint context で取った snapshot で埋め直す。
+            cb = self.usage_callback
+            if cb is not None:
+                entry.trace_id = entry.trace_id or getattr(cb, "trace_id", None)
+                entry.request_id = entry.request_id or getattr(cb, "request_id", None)
+                entry.session_id = entry.session_id or getattr(cb, "session_id", None)
+                entry.user_id = entry.user_id or getattr(cb, "user_id", "")
+                entry.endpoint = entry.endpoint or getattr(cb, "endpoint", None)
+                entry.feature = getattr(cb, "feature", None)
+            entry.node = "parallel_executor"
+            entry.iteration = state.get("retry_count", 0)
+            entry.set_tool_calls(tool_stats)
+            # 一部でも成功していれば success。全滅した場合のみ False。
+            entry.success = any(s["ok"] for s in tool_stats)
+            # user_query は BQ 側 REQUIRED のため必ず非 NULL にする
+            entry.user_query = (state.get("original_user_intent") or "[TOOL_EXECUTION]")[:500]
+            get_llm_logger().log(entry)
+        except Exception as e:
+            # トレース記録の失敗は本処理を止めない
+            logger.warning(f"tool execution log failed (suppressed): {e}")
 
     # ===== 3. グラフ構築 =====
     def _build_graph(self):
@@ -150,6 +205,7 @@ class StrategyAgent:
         system_prompt = get_prompt("strategy_planner")
         prompt = [SystemMessage(content=system_prompt)] + state["messages"]
 
+        self._mark_node("planner", state)
         try:
             response = self.model.invoke(prompt)
             return {"messages": [response]}
@@ -168,6 +224,7 @@ class StrategyAgent:
             async def run_single(tool_call):
                 tool_name = tool_call["name"]
                 selected_tool = next((t for t in self.tools if t.name == tool_name), None)
+                t0 = time.perf_counter()
                 if selected_tool:
                     try:
                         # 同期ツールをスレッドプールで非同期実行
@@ -178,7 +235,8 @@ class StrategyAgent:
                         result = {"error": str(e)}
                 else:
                     result = {"error": f"Tool {tool_name} not found"}
-                return tool_call, result
+                # trace 用の所要時間 (P0-1 Step 5)。どのツールが遅かったかを後から読む
+                return tool_call, result, (time.perf_counter() - t0) * 1000.0
 
             return await asyncio.gather(*[run_single(tc) for tc in tool_calls])
 
@@ -191,16 +249,25 @@ class StrategyAgent:
         result_count = -1
         error_message = ""
         parallel_results = {}
+        tool_stats = []  # trace 用のツール別実行結果 (P0-1 Step 5)
 
-        for tool_call, result in results:
+        for tool_call, result, latency_ms in results:
             tool_name = tool_call["name"]
             logger.info(f"Parallel tool completed: {tool_name}")
 
             # エラー検出
-            if isinstance(result, dict) and "error" in result:
+            is_error = isinstance(result, dict) and "error" in result
+            if is_error:
                 has_error = True
                 error_message = result.get("error", "Unknown error")
                 logger.warning("Tool error detected", tool_name=tool_name, error=error_message)
+
+            tool_stats.append({
+                "name": tool_name,
+                "ok": not is_error,
+                "error": (result.get("error") or "Unknown error")[:300] if is_error else None,
+                "latency_ms": round(latency_ms, 1),
+            })
 
             # 件数カウント（MatchupAgentと同じ方式）
             if isinstance(result, list):
@@ -218,6 +285,8 @@ class StrategyAgent:
                 tool_call_id=tool_call["id"],
                 content=json.dumps(sanitized, ensure_ascii=False, default=str)
             ))
+
+        self._log_tool_execution(tool_stats, state)
 
         return {
             "messages": tool_outputs,
@@ -281,6 +350,7 @@ class StrategyAgent:
 """
         prompt = [SystemMessage(content=reflection_prompt)] + state["messages"]
 
+        self._mark_node("reflection", state)
         try:
             response = self.model.invoke(prompt)
             return {
@@ -299,6 +369,7 @@ class StrategyAgent:
             HumanMessage(content="それでは、戦略分析レポートを作成してください。必ず主語から始まる完全な文章で開始すること。")
         ]
 
+        self._mark_node("strategist", state)
         try:
             response = self.raw_model.invoke(prompt)
             logger.info(f"Strategist response length: {len(response.content)}")

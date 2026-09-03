@@ -873,6 +873,28 @@ python scripts/train_stuff_plus.py --season 2025 --min-pitches 100
 
 ---
 
+### 8q-2. Agent Trace Viewer & Failure Labeling
+
+| Property | Value |
+|----------|-------|
+| **Status** | NEW 2026-09, production-ready (`TRACE` tab) |
+| **Purpose** | Reconstruct an agent run from logs as a readable step sequence and attach human failure labels. ADR-032 made rows joinable by `trace_id`; this adds the reading surface |
+| **BQ Table (reused)** | `llm_interaction_logs` extended with `node` STRING, `iteration` INT64, `tool_calls` STRING — all NULLABLE, existing rows unaffected |
+| **BQ Table (new)** | `trace_labels` (`label_id`, `trace_id`, `label`, `note`, `labeled_by`, `labeled_at`) — `PARTITION BY DATE(labeled_at)`, `CLUSTER BY trace_id`. **Append-only**; re-labeling inserts a new row and readers take the latest `labeled_at` |
+| **Non-LLM Rows** | Tool executions are logged with `model = NULL`. `usage_stats_service` filters every query by `WHERE model IS NOT NULL`, so these rows never reach the cost dashboard |
+| **Instrumented Path** | `ChatOrchestrator` (`POST /api/v1/qa/agentic-stats-stream`). `StrategyAgent` is instrumented identically but is unreachable from the current UI — see ADR-053 |
+| **Node Vocabulary** | `oracle` (LLM chose tools) / `executor` (tool ran, `model` NULL) / `synthesizer` (LLM wrote prose). `ChatOrchestrator` has one LLM call site; the role is decided by whether the response held a `function_call` |
+| **Endpoints** | `GET /api/v1/traces`, `GET /api/v1/traces/{trace_id}`, `GET /api/v1/traces/compare?a=&b=`, `GET /api/v1/traces/labels`, `POST /api/v1/traces/{trace_id}/label` |
+| **Service** | `trace_query_service.py` (list / detail / compare, single-query aggregation) + `trace_label_service.py` (synchronous insert; failures surface to the caller) |
+| **Cache** | 60s in-memory TTL on the list endpoint, keyed by filter params; cleared on label write |
+| **Label Axes** | `correct`, `wrong_tool`, `wrong_params`, `right_answer_wrong_path`, `should_have_abstained`, `retrieval_miss`, `tool_error` — defined once in `trace_label_service.VALID_LABELS` and served via `GET /traces/labels` |
+| **Frontend** | `frontend/src/components/TraceViewer.jsx` (sidebar entry `id="trace"`, icon=`board`). Left: trace list with `FAILED ONLY` / `UNLABELED` filters. Right: label panel + expandable step rows |
+| **Design Tokens** | Same tokens as 8q (`--ink-*`, `--bg-*`, `--rule`, `--amber`, `--pos`, `--neg`, `--info`, `--purp`) |
+| **Known Gaps** | `iteration` semantics differ per path, so LLM-call counts are recomputed as `COUNTIF(model IS NOT NULL)`; `MAX_TOOL_ITERATIONS` truncation is indistinguishable from normal completion; endpoint summary rows (`node IS NULL`) carry a request-start timestamp with final-result content and are split out as `summary` |
+| **ADR** | [ADR-053](./adr/053-agent-trace-viewer-failure-labeling.md) |
+
+---
+
 ### 8r. Glossary RAG — Agentic Retrieval with LLM Reranking
 
 | Property | Value |
@@ -1095,6 +1117,7 @@ See [Architecture Decision Records](./adr/) for detailed design decisions.
 - [ADR-002: Separate ETL, dbt, and Orchestration Repositories](./adr/002-separate-repos.md)
 - [ADR-003: Weekly Batch Processing Strategy](./adr/003-weekly-batch-processing.md)
 - [ADR-004: Cloud Workflows over Airflow](./adr/004-cloud-workflows-over-airflow.md)
+- [ADR-053: Agent Trace Viewer + failure labeling on the existing log table](./adr/053-agent-trace-viewer-failure-labeling.md)
 
 ---
 

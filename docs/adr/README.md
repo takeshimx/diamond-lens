@@ -173,6 +173,7 @@ ADR は「ある時点で、どの選択肢を、なぜ選んだか」を1ファ
 | 043 | Cloud Monitoring custom metrics over Prometheus | マネージド監視 vs Prometheus 自前運用 | ✅ | P2 | EV GC★ | `docs/MONITORING.md` / README Monitoring |
 | 042 | Incident response runbook | 障害対応手順の明文化 vs 都度対応 | ✅ | P3 | BP | `docs/INCIDENT_RESPONSE.md` |
 | 051 | Append-only LLM logging (daemon thread) + feedback via placeholder INSERT | 非同期 fire-and-forget 書込・UPDATE回避 vs 同期書込/直接UPDATE（BQ streaming buffer 制約対応。※プロセス即死でログ欠落リスクは残る） | ✅/再検討 | P3 | EV LM | `README_ai_architecture.md` §3 |
+| 053 | Agent Trace Viewer + 失敗ラベリング（既存ログテーブルに相乗り） | `llm_interaction_logs` に node/iteration/tool_calls を追加し `model IS NULL` でツール実行行を混在 vs trace 専用テーブル新設。**計装対象を StrategyAgent と誤判断し、実ログで到達不能と判明して ChatOrchestrator に変更した経緯を記録** | ✅ | ⭐P1 | LM★ EV★ | `README_ai_architecture.md` §9.7 / `AGENT_LEARNING_ENGINEER_PREP_PLAN.md` P0-1 |
 
 ### H. 今後の意思決定（Proposed — DDIA / AI Engineering レビュー由来、未決定）
 

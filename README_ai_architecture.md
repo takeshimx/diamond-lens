@@ -20,6 +20,7 @@
 | [8. Reflection Loop](#8-reflection-loop) | 自己修正フロー |
 | [9. Request Lifecycle](#9-request-lifecycle-1-クエリの旅) | 1 クエリの旅 |
 | [9.5. Token Budget プール分離](#95-token-budget-プール分離-phase-3-a) | chat / report 別予算管理 (Phase 3-A) |
+| [9.7. Trace Viewer と失敗ラベリング](#97-trace-viewer-と失敗ラベリング) | 実行経路の閲覧・失敗ラベル付与 (ADR-053) |
 | [10. CI/CD 統合状況](#10-cicd-統合状況とギャップ) | 現状とギャップ |
 | [11. Glossary RAG](#11-glossary-rag-agentic-retrieval--llm-リランク) | 用語集の検索・リランク・評価 |
 
@@ -222,6 +223,9 @@ parse_query_v1.txt:
 | `is_retry`, `retry_count`, `retry_reason`, `reflection_pre_query`, `reflection_post_query`, `synthesizer_source_data` | Reflection Loop | **StrategyAgent のみ** 使用 (ChatOrchestrator は Reflection ノードを持たない) |
 | `user_rating`, `feedback_category`, `feedback_reason` | HITL フィードバック | フィードバック API 経由で後追い UPDATE |
 | `success`, `error_type`, `error_message` | 失敗観測 | `try/finally` で必ず記録 |
+| `node`, `iteration`, `tool_calls` | **Trace Viewer (§9.7)** | エージェントのステップ単位で caller が明示。`tool_calls` は `LLMLogEntry.set_tool_calls()` が JSON 文字列化 |
+
+> **`model IS NULL` の行が存在いたします。** ツール実行のように LLM を呼ばないステップも trace の一部として 1 行記録するためでございます。`usage_stats_service` は全クエリで `WHERE model IS NOT NULL` により LLM 行のみを集計しているため、コストダッシュボードには影響いたしません（§9.7 参照）。
 
 ### 書き込みフロー
 
@@ -569,6 +573,64 @@ svc.get_remaining(pool="chat")
 ログには `pool` フィールドが入る `token_budget_recorded` イベントが構造化記録されます。
 
 ---
+
+
+---
+
+## 9.7. Trace Viewer と失敗ラベリング
+
+ファイル: [backend/app/services/trace_query_service.py](backend/app/services/trace_query_service.py) / [trace_label_service.py](backend/app/services/trace_label_service.py) / [backend/app/api/endpoints/trace_endpoints.py](backend/app/api/endpoints/trace_endpoints.py) / [frontend/src/components/TraceViewer.jsx](frontend/src/components/TraceViewer.jsx)
+
+§9 の `trace_id` は「束ねられる状態」を作りましたが、**読む面がございませんでした**。実際の調査は BQ コンソールに SQL を手打ちする運用でした。ここを画面にしたのが本セクションでございます。詳細な判断経緯は [ADR-053](docs/adr/053-agent-trace-viewer-failure-labeling.md) を参照ください。
+
+### 記録されるステップ
+
+`ChatOrchestrator` は LLM を呼ぶ箇所が 1 つしかなく、**返ってきたものが `function_call` かテキストかで役割が変わります**。そのため `node` は応答内容を見てから確定いたします。
+
+| `node` | 意味 | `model` |
+|---|---|---|
+| `oracle` | どのツールを使うか LLM が判断した回 | 有 |
+| `executor` | 選ばれたツールを実行した（**LLM 呼び出しではない**） | **NULL** |
+| `synthesizer` | ツール結果を LLM が文章化した回 | 有 |
+
+`executor` 行の `tool_calls` には `{name, ok, error, latency_ms}` を実行ツール分格納いたします。**ツールが失敗しても後続の LLM が何か答えてしまう**ため、応答だけを見ても失敗は分かりません。この行が失敗の唯一の証跡でございます。
+
+### 質問の種類で経路が変わる
+
+```
+成績照会 :  oracle → executor            （2 ステップ / LLM 1 回）
+                     ↑ 数値の羅列は機械整形するため synthesizer が発生しない
+
+用語集   :  oracle → executor → synthesizer （3 ステップ / LLM 2 回）
+                     ↑ SYNTHESIS_REQUIRED_TOOLS により文章化が必須
+```
+
+用語集経路で 2 周目に入るのは**再試行ではなく設計上必須の文章化**でございます。UI 上で警告色にしていないのはこのためでございます。
+
+「1 回目のツールでは足りず追加でツールを呼んだ」ケースは、**`oracle` が 2 回以上出現する**ことで判別いたします。
+
+### API
+
+| エンドポイント | 用途 |
+|---|---|
+| `GET /api/v1/traces` | 一覧。`only_failed` / `only_unlabeled` で絞り込み。60 秒 TTL キャッシュ |
+| `GET /api/v1/traces/{trace_id}` | 1 trace の全ステップ |
+| `GET /api/v1/traces/compare?a=&b=` | 2 trace のノード列・ツール列の比較 |
+| `GET /api/v1/traces/labels` | ラベル軸の定義（フロントでのハードコード回避） |
+| `POST /api/v1/traces/{trace_id}/label` | ラベル付与 |
+
+### ラベル軸（`trace_labels` テーブル）
+
+`correct` / `wrong_tool` / `wrong_params` / `right_answer_wrong_path` / `should_have_abstained` / `retrieval_miss` / `tool_error`
+
+**追記のみ**でございます。ログ本体は書き換えず、付け直しは新しい行の INSERT で表現し、読み出し側が `labeled_at` の最新を採用いたします。「いつ判断が変わったか」を残すためでございます。
+
+### 既知の制約
+
+- **`iteration` 列の意味が経路で揃っておりません。** `ChatOrchestrator` では LLM 呼び出しの通し番号、`StrategyAgent` では reflection の `retry_count` でございます。そのため一覧の「LLM 呼び出し回数」は `COUNTIF(model IS NOT NULL)` で数え直しております
+- **`MAX_TOOL_ITERATIONS` (6) による打ち切りが trace 上で判別できません。** 上限到達は「黙った」のではなく「調べ切れなかった」であり、通常終了と区別すべき事象でございます
+- **エンドポイントが書くサマリ行は `node IS NULL`** でございます。`LLMLogEntry` はインスタンス生成時に timestamp を打つため、リクエスト受信直後に生成して処理完了後に書き込むこの行は「時刻は最古・中身は最終結果」になります。ステップ列に混ぜると順序が壊れるため `summary` として分離しております
+- **`StrategyAgent` 側も同じ計装を実装済みでございますが、現行 UI から到達しないため trace は蓄積されません**（[ADR-053](docs/adr/053-agent-trace-viewer-failure-labeling.md) Context 参照）
 
 ## 10. CI/CD 統合状況とギャップ
 

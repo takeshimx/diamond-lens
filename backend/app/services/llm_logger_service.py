@@ -79,7 +79,28 @@ class LLMLogEntry:
         self.cached_tokens: Optional[int] = None
         self.estimated_cost_usd: Optional[float] = None
         self.feature: Optional[str] = None  # アプリ機能区分（gateway 由来。prompt_name とは別概念）
-    
+        # ── Trace Viewer 用 (P0-1) ──
+        # ContextVar からの auto-populate はしない。node / iteration は
+        # 「呼び出し側が今どこを実行しているか」に依存する値であり、
+        # parallel_executor の asyncio.gather 並列実行下では混線するため、
+        # 必ず caller が明示セットする。
+        self.node: Optional[str] = None
+        self.iteration: Optional[int] = None
+        self.tool_calls: Optional[str] = None  # JSON 文字列（set_tool_calls 経由で格納）
+
+    def set_tool_calls(self, calls: Any) -> None:
+        """tool_calls を JSON 文字列として格納する。
+
+        BQ 側は STRING 列のため、呼び出し側それぞれに json.dumps を書かせず
+        ここで一元化する。シリアライズ失敗はログを落とさず握り潰す。
+        """
+        if not calls:
+            return
+        try:
+            self.tool_calls = json.dumps(calls, ensure_ascii=False, default=str)[:5000]
+        except (TypeError, ValueError) as e:
+            logger.warning(f"Failed to serialize tool_calls: {e}")
+
     def _resolve_response_answer(self) -> Optional[str]:
         """
         BigQuery に書き込む response_answer を決定する。
@@ -144,6 +165,10 @@ class LLMLogEntry:
             "cached_tokens": self.cached_tokens,
             "estimated_cost_usd": self.estimated_cost_usd,
             "feature": self.feature,
+            # Trace Viewer 用 (P0-1)
+            "node": self.node,
+            "iteration": self.iteration,
+            "tool_calls": self.tool_calls,
         }
 
 

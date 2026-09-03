@@ -78,13 +78,14 @@ async def generate_strategy_report_endpoint(
         from backend.app.services.agents.strategy_agent import StrategyAgent
         from backend.app.services.llm_gateway_service import LangchainUsageCallback
 
+        usage_cb = LangchainUsageCallback(feature="strategy_report", model="gemini-2.5-flash", pool="report")
         model = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
             google_api_key=os.getenv("GEMINI_API_KEY_V2"),
             temperature=0,
-            callbacks=[LangchainUsageCallback(feature="strategy_report", model="gemini-2.5-flash", pool="report")],
+            callbacks=[usage_cb],
         )
-        agent = StrategyAgent(model=model)
+        agent = StrategyAgent(model=model, usage_callback=usage_cb)
         result = agent.run_structured(
             batter_name=body.batter_name.strip(),
             pitcher_name=body.pitcher_name.strip(),

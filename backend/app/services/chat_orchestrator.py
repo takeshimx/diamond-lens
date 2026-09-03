@@ -566,6 +566,10 @@ class ChatOrchestrator:
             entry.prompt_name = "chat_orchestrator_system"
             entry.prompt_version = get_prompt_version("chat_orchestrator_system")
             entry.user_query = (user_query or "")[:500]
+            # Trace Viewer 用 (P0-1)。
+            # 同一の LLM 呼び出しが「ツールを選ぶ司令塔」と「結果を文章化する
+            # synthesizer」の 2 役を兼ねるため、応答を見てから finally で確定する。
+            entry.iteration = iteration
 
             llm_t0 = time.time()
             function_calls: List[Any] = []
@@ -596,6 +600,12 @@ class ChatOrchestrator:
                                 }
                 entry.success = True
                 entry.response_answer = "".join(iter_text_parts) or None
+
+                # Trace Viewer 用 (P0-1): この iteration で LLM が選んだツール一覧
+                entry.set_tool_calls([
+                    {"name": fc.name, "args": dict(fc.args or {})}
+                    for fc in function_calls
+                ])
 
                 # function_call の引数を parsed_* カラムに記録 (Orchestrator が解析した結果)
                 for fc in function_calls:
@@ -639,6 +649,9 @@ class ChatOrchestrator:
                 raise
             finally:
                 entry.llm_latency_ms = (time.time() - llm_t0) * 1000.0
+                # ツールを選んだ回は司令塔 (oracle)、テキストを返した回は文章化
+                # (synthesizer)。SSE の state_update / token が使い分けている名前に揃える。
+                entry.node = "oracle" if function_calls else "synthesizer"
                 try:
                     get_llm_logger().log(entry)
                 except Exception as e:
@@ -685,6 +698,7 @@ class ChatOrchestrator:
                 role="model",
                 parts=[types.Part(function_call=fc) for fc in function_calls],
             ))
+            tool_stats: List[Dict[str, Any]] = []  # Trace Viewer 用 (P0-1)
             for fc in function_calls:
                 yield {
                     "type": "tool_start",
@@ -694,7 +708,17 @@ class ChatOrchestrator:
                     "step_type": "tool_call",
                 }
                 args = dict(fc.args or {})
+                _tool_t0 = time.time()
                 result = self._execute_tool(fc.name, args)
+                _tool_ms = (time.time() - _tool_t0) * 1000.0
+                # _execute_tool は例外を送出せず {"error": ...} を返す仕様
+                _is_err = isinstance(result, dict) and "error" in result
+                tool_stats.append({
+                    "name": fc.name,
+                    "ok": not _is_err,
+                    "error": str(result.get("error"))[:300] if _is_err else None,
+                    "latency_ms": round(_tool_ms, 1),
+                })
                 tool_results_seen.append(result)
                 tool_names_seen.add(fc.name)
                 output_summary = ""
@@ -716,6 +740,22 @@ class ChatOrchestrator:
                         response={"result": sanitized},
                     ))],
                 ))
+
+            # Trace Viewer 用 (P0-1): ツール実行を 1 行として記録する。
+            # LLM を呼んでいないので model は NULL のまま（usage_stats_service が
+            # `WHERE model IS NOT NULL` で LLM 行だけを集計しているため、
+            # コストダッシュボードには一切現れない）。
+            try:
+                exec_entry = LLMLogEntry()
+                exec_entry.node = "executor"
+                exec_entry.iteration = iteration
+                exec_entry.feature = f"chat_orchestrator_exec_{iteration}"
+                exec_entry.user_query = (user_query or "[TOOL_EXECUTION]")[:500]
+                exec_entry.set_tool_calls(tool_stats)
+                exec_entry.success = any(s["ok"] for s in tool_stats)
+                get_llm_logger().log(exec_entry)
+            except Exception as e:
+                logger.warning(f"tool execution log failed (suppressed): {e}")
 
             # ===== 分岐: tool 実行後の応答生成モード =====
             # synthesize_response=False (デフォルト): LLM #2 を呼ばず、tool 生データを Markdown に整形して返す。

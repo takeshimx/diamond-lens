@@ -13,6 +13,7 @@ import HotSlumpDashboard from './components/HotSlumpDashboard.jsx';
 import PlayerProfile from './components/PlayerProfile.jsx';
 import StrategyReportPage from './components/StrategyReportPage.jsx';
 import UsageDashboard from './components/UsageDashboard.jsx';
+import TraceViewer from './components/TraceViewer.jsx';
 import { useAuth } from './hooks/useAuth';
 import { useSession } from './hooks/useSession.js';
 import { useBackendAPI } from './hooks/useBackendAPI.js';
@@ -193,6 +194,13 @@ const MLBChatApp = () => {
       case "usage":
         return (
           <UsageDashboard
+            getBackendURL={getBackendURL}
+            getAuthHeaders={getAuthHeaders}
+          />
+        );
+      case "trace":
+        return (
+          <TraceViewer
             getBackendURL={getBackendURL}
             getAuthHeaders={getAuthHeaders}
           />
