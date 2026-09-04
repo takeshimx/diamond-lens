@@ -191,6 +191,13 @@ class Settings(BaseSettings):
     # RAG-Tool用のリランクフラグ（デフォルトはOFF）。
     # True にすると、 glossary_search_tool がリランク用のLLM呼び出しを行う。
     use_glossary_rerank: bool = False
+
+    # HyDE（クエリ書き換え）フラグ（デフォルトは OFF）。
+    # True にすると、英語文書のカテゴリ（現状 rules のみ）に限り、
+    # 日本語の質問を英語の条文風に書き換えてから埋め込む。
+    # ユーザーの入出力は日本語のまま。書き換えるのは検索に使う文字列だけ。
+    # 対象カテゴリは query_rewrite_service.HYDE_CATEGORIES で定義する。
+    use_glossary_hyde: bool = False
     
     class Config:
         """Pydantic設定"""

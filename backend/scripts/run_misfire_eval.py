@@ -55,13 +55,24 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Glossary tool misfire evaluation")
     parser.add_argument("--all", action="store_true",
                         help="should_not_fire 以外も流し、正しく発火するかも確認する")
+    parser.add_argument("--ids", type=str, default=None,
+                        help="対象の fixture id をカンマ区切りで指定する。"
+                             "1 問につき Gemini が数コール走るため、"
+                             "全問流さずに標本だけ測りたいときに使う")
     args = parser.parse_args()
 
     data = json.loads(FIXTURES_PATH.read_text(encoding="utf-8"))
     fixtures = data["fixtures"]
-    targets = fixtures if args.all else [
-        f for f in fixtures if f["type"] == "should_not_fire"
-    ]
+    if args.ids:
+        wanted = {s.strip() for s in args.ids.split(",") if s.strip()}
+        targets = [f for f in fixtures if f["id"] in wanted]
+        unknown = wanted - {f["id"] for f in targets}
+        if unknown:
+            print(f"未知の id: {sorted(unknown)}")
+    elif args.all:
+        targets = fixtures
+    else:
+        targets = [f for f in fixtures if f["type"] == "should_not_fire"]
 
     print(f"queries: {len(targets)} (billable: Gemini + BigQuery)")
     print()

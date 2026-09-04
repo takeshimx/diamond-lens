@@ -10,6 +10,17 @@ google-genai SDK 用の FunctionDeclaration スキーマ定義。
 """
 from google.genai import types
 
+from backend.app.services.glossary_rag_service import VALID_CATEGORIES
+
+# category の選択肢は glossary_rag_service 側の単一ソースから導出する。
+# ここに直書きすると、除外カテゴリを解禁したときに片方だけ古くなる。
+_CATEGORY_HELP = {
+    "batting": "打撃指標なら batting",
+    "pitching": "投球指標なら pitching",
+    "statcast": "打球計測・トラッキング用語なら statcast",
+    "rules": "競技ルール（反則・判定・進塁の規定など）なら rules",
+}
+
 
 GET_BATTER_STATS_DECL = types.FunctionDeclaration(
     name="get_batter_stats_tool",
@@ -243,9 +254,11 @@ QUERY_SEMANTIC_METRICS_DECL = types.FunctionDeclaration(
 GLOSSARY_SEARCH_DECL = types.FunctionDeclaration(
     name="glossary_search_tool",
     description=(
-        "MLB の用語定義・指標の意味を知識ベースから検索する。"
-        "『xwOBA とは何か』『FIP と ERA の違いは』のような "
-        "**定義・意味・解釈を問う質問にのみ**使用すること。"
+        "MLB の用語定義・指標の意味、および公式野球規則の条文を"
+        "知識ベースから検索する。"
+        "『xwOBA とは何か』『FIP と ERA の違いは』のような指標の定義と、"
+        "『ボークが宣告されるのはどんな場合か』『インフィールドフライとは』"
+        "のような競技ルールの質問の**両方**に使用すること。"
         "特定の選手の成績値を取得する用途には使用しないこと"
         "（それは get_batter_stats_tool / get_pitcher_stats_tool の役割）。"
     ),
@@ -258,13 +271,14 @@ GLOSSARY_SEARCH_DECL = types.FunctionDeclaration(
             },
             "category": {
                 "type": "STRING",
-                # "rules" は精度不足のため一時除外（glossary_rag_service.EXCLUDED_CATEGORIES）
-                "enum": ["batting", "pitching", "statcast"],
+                # 除外中のカテゴリ（現状は "rules"）は選択肢に出さない。
+                # 渡されても結果が 0 件になるため、LLM に選ばせる意味がない。
+                "enum": list(VALID_CATEGORIES),
                 "description": (
-                    "打撃指標なら batting、投球指標なら pitching、"
-                    "打球計測・トラッキング用語なら statcast。"
-                    "競技ルール（反則・判定・進塁の規定など）なら rules。"
-                    "判断がつかない場合は省略すること（全カテゴリ横断で検索される）"
+                    "、".join(_CATEGORY_HELP[c] for c in VALID_CATEGORIES)
+                    + "。必ず指定すること。"
+                    "省略すると全カテゴリ横断となり、カテゴリ別の距離閾値も"
+                    "適用されないため検索精度が落ちる"
                 ),
             },
             "top_k": {
@@ -272,7 +286,15 @@ GLOSSARY_SEARCH_DECL = types.FunctionDeclaration(
                 "description": "取得件数 (デフォルト 5)",
             },
         },
-        "required": ["query"],
+        # category を必須にする理由:
+        #   距離閾値 (CATEGORY_DISTANCE_THRESHOLDS) と HyDE の適用判定が
+        #   category を鍵にしているため、省略されると設定が既定値に落ちる。
+        #   また category なしでは全カテゴリ横断となり、打撃の質問に
+        #   別ドメインのチャンクが混入し得る (ADR-047 で記録した事故と同型)。
+        # 保証されるのは「出力すること」だけで「正しく選ぶこと」ではない。
+        # 誤選択と、スキーマを無視した出力の両方に備え、
+        # glossary_rag_service 側の未知カテゴリ -> フィルタなしのフォールバックは残す。
+        "required": ["query", "category"],
     }
 )
 

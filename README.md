@@ -672,16 +672,21 @@ Term-name queries reach hit@3 = 1.000. Tool misfire rate is 0.000 (glossary is n
 - **Cross-lingual by design**: `text-multilingual-embedding-002` with asymmetric `task_type` (document vs query)
 - **Metadata excluded from embeddings**: boilerplate shared by every chunk destroys discriminative power
 - **Citations appended mechanically**, never left to the LLM's discretion (it silently dropped them in practice)
-- **Evidence-driven thresholds**: 0.275 was measured, not guessed. Correct/incorrect distance distributions overlap (nearest wrong 0.1684 < nearest right 0.1816), which is precisely why reranking — not threshold tuning — was required
+- **Evidence-driven thresholds**: measured, not guessed. Correct/incorrect distance distributions overlap (nearest wrong 0.1684 < nearest right 0.1816), which is precisely why reranking — not threshold tuning — was required
+- **Per-category thresholds**: 0.275 for the glossary, **0.35 for the rulebook**. Only the rules tier is genuinely cross-lingual (JA question × EN document), which shifts the whole distance distribution ~0.07 further out
+- **HyDE for cross-lingual retrieval**: JA questions are rewritten into rulebook-style English *for the embedding only*. Input and output stay Japanese
 
 **Components**:
-- `services/glossary_rag_service.py` — search with category pre-filter, fail-open
+- `services/glossary_rag_service.py` — search with category pre-filter, per-category threshold, fail-open
 - `services/rerank_service.py` — LLM reranking via the LLM Gateway
+- `services/query_rewrite_service.py` — HyDE query rewriting (rules only), fail-open
 - `services/tools/glossary_search_tool.py` — tool exposed to ChatOrchestrator
 - `scripts/ingest_glossary.py` / `scripts/ingest_rules.py` — ingestion (idempotent per source)
 - `scripts/run_retrieval_eval.py` / `run_misfire_eval.py` — evaluation harness
 
-**Known limitation**: Tier 2 (MLB Official Baseball Rules PDF, 897 chunks) is ingested but **excluded from search** (`EXCLUDED_CATEGORIES`). Even after rechunking, rule-type hit@3 stayed at 0.333 and dragged down the glossary. See [ADR-047](docs/adr/047-rag-chunking-multilingual-embeddings-reranking.md).
+**Tier 2 is live** (2026-09): the MLB Official Baseball Rules PDF (897 chunks) is searchable. It had been excluded on the belief that rule-type hit@3 stalled at 0.333 — that number turned out to be a **measurement bug**: the golden set pointed at heading-only stub chunks. After fixing the labels, growing the rule set from 3 to 30 questions, and adding the per-category threshold plus HyDE, rule-type hit@3 is **0.833** (misfire rate 0.000). See [ADR-054](docs/adr/054-cross-lingual-rag-hyde-category-thresholds.md).
+
+**Known limitation**: a rules question costs 2 extra Gemini calls (HyDE + rerank) and takes **20–35 s** end to end. The two stages are inherently serial. Tier 2 chunk quality is also unfixed (12.8% carry page running-heads).
 
 ---
 

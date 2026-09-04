@@ -40,16 +40,59 @@ EMBEDDING_MODEL = f"{PROJECT_ID}.{DATASET_ID}.query_embedding_model"
 DEFAULT_TOP_K = 5
 DEFAULT_DISTANCE_THRESHOLD = 0.275
 
-VALID_CATEGORIES = ("batting", "pitching", "statcast")
+# BQ に取り込み済みの全カテゴリ。
+ALL_CATEGORIES = ("batting", "pitching", "statcast", "rules")
 
 # 検索対象から除外するカテゴリ。BQ のデータは残したまま無効化する。
 # rules (公式ルール PDF 897 チャンク) は 2026-08-21 時点で検索精度が実用水準に
 # 達していないため除外している。分割を作り直しても命中@3 は 0.333 のままで、
 # 用語集 (命中@3 1.000) の足を引っ張る状態だった。
-# 再開する場合はここから外し、run_retrieval_eval で rule 型を再測定すること。
-EXCLUDED_CATEGORIES = ("rules",)
+#
+# 2026-09-04 追記: 上記 0.333 はゴールデンセット側の正解 chunk_id が
+# 「見出しだけのリード文チャンク」を指していたことによる測定誤りを含む。
+# 正解を貼り直し rule 型を 30 問へ拡張して再測定した結果は 命中@3 0.600。
+# 2026-09-04: 除外を解除した。解除時点の実測 (rule 型 30 問 / リランク + HyDE):
+#   命中@3 0.833 / 命中@5 0.867 / MRR 0.766
+# 前提: USE_GLOSSARY_RERANK と USE_GLOSSARY_HYDE の両方が true であること。
+#       どちらも false だと rules の命中@3 は 0.500 まで落ちる。
+EXCLUDED_CATEGORIES: tuple[str, ...] = ()
+
+# LLM に選ばせてよいカテゴリ。除外中のものを渡されても結果は 0 件になるため、
+# 選択肢そのものから外す。ハードコードせず EXCLUDED_CATEGORIES から導出する。
+VALID_CATEGORIES = tuple(c for c in ALL_CATEGORIES if c not in EXCLUDED_CATEGORIES)
+
+# カテゴリ別の距離閾値。ここに無いカテゴリは DEFAULT_DISTANCE_THRESHOLD を使う。
+#
+# rules だけが「日本語の質問 -> 英語の条文」というクロスリンガル検索になる。
+# 用語集 (docs/knowledge/*.md) は日本語で執筆しているため日本語同士であり、
+# 距離分布が構造的に異なる。用語集用に決めた 0.275 を rules に当てると
+# 候補がすべて足切りされ、リランクが起動しないまま終わる。
+#
+# 2026-09-04 測定 (rule 型 30 問 / 候補 10 件):
+#   閾値   正解保持率  ノイズ/問  リランクが起動する問
+#   0.275    0.333      3.17      15/30   <- 用語集用の値
+#   0.325    0.700      7.13      27/30
+#   0.350    0.733      7.67      28/30   <- 採用。ここで正解保持率が頭打ち
+#   0.400    0.733      8.60      30/30   <- 保持率は増えずノイズだけ増える
+#
+# 0.275 -> 0.35 の適用結果 (rule 型 30 問 / リランク ON):
+#   命中@3 0.600 -> 0.733、MRR 0.580 -> 0.708
+# 注意: リランクは LLM 呼び出しのため実行ごとに揺れる。同一条件のはずの
+#       用語集 paraphrase も 0.800 -> 1.000 と動いており、上記の改善幅には
+#       ばらつきが含まれる。複数回実行して確認していない。
+CATEGORY_DISTANCE_THRESHOLDS = {"rules": 0.35}
 
 DEFAULT_RERANK_CANDIDATES = 10   # リランク時に取得する候補数
+
+
+def resolve_distance_threshold(category: Optional[str]) -> float:
+    """カテゴリに対応する距離閾値を返す。
+
+    本番と評価ハーネスで同じ値を使うため、両者からこの関数を呼ぶ。
+    """
+    if not category:
+        return DEFAULT_DISTANCE_THRESHOLD
+    return CATEGORY_DISTANCE_THRESHOLDS.get(category, DEFAULT_DISTANCE_THRESHOLD)
 
 
 class GlossaryRAGService:
@@ -73,8 +116,9 @@ class GlossaryRAGService:
         query_text: str,
         top_k: int = DEFAULT_TOP_K,
         category: Optional[str] = None,
-        distance_threshold: float = DEFAULT_DISTANCE_THRESHOLD,
+        distance_threshold: Optional[float] = None,
         rerank: bool = False,
+        hyde: bool = False,
     ) -> list[dict]:
         """用語集から関連チャンクを検索する。
 
@@ -84,7 +128,11 @@ class GlossaryRAGService:
             category: 'batting' / 'pitching' / 'statcast' で絞り込む。
                       None なら全カテゴリ横断。
             distance_threshold: コサイン距離の上限。これを超える結果は捨てる。
+                      None ならカテゴリ別の既定値
+                      (CATEGORY_DISTANCE_THRESHOLDS) を使う。
             rerank: True の場合、LLM を使って関連性の高い順に並べ直す。
+            hyde: True の場合、英語文書のカテゴリに限り、質問を英語の条文風に
+                      書き換えてから埋め込む（query_rewrite_service）。
 
         Returns:
             [{"section", "source", "category", "chunk_text", "distance"}, ...]
@@ -98,6 +146,21 @@ class GlossaryRAGService:
             if category is not None:
                 logger.warning(f"unknown category ignored: {category}")
             category = None
+
+        # 閾値は category 確定後に解決する。未知の category を None に倒した後の
+        # 値を使わないと、フィルタと閾値がちぐはぐになるため。
+        if distance_threshold is None:
+            distance_threshold = resolve_distance_threshold(category)
+
+        # 検索に使う文字列。HyDE 有効時のみ英語の条文風に書き換わる。
+        # ログとリランクには元の質問を使う（利用者が何を聞いたかが本体のため）。
+        # 循環 import を避けるため関数内で import する。
+        search_text = query_text
+        if hyde:
+            from backend.app.services.query_rewrite_service import (
+                rewrite_for_retrieval,
+            )
+            search_text = rewrite_for_retrieval(query_text, category)
 
         # リランクする場合は候補を広めに取る。並べ直す材料がないと意味がないため。
         fetch_k = max(top_k, DEFAULT_RERANK_CANDIDATES) if rerank else top_k
@@ -125,7 +188,7 @@ class GlossaryRAGService:
         """
         job_config = bigquery.QueryJobConfig(
             query_parameters=[
-                bigquery.ScalarQueryParameter("query_text", "STRING", query_text),
+                bigquery.ScalarQueryParameter("query_text", "STRING", search_text),
                 bigquery.ScalarQueryParameter("category", "STRING", category),
                 bigquery.ScalarQueryParameter("top_k", "INT64", fetch_k),
                 bigquery.ArrayQueryParameter(
@@ -148,6 +211,8 @@ class GlossaryRAGService:
         # 「何位まで惜しかったか」をログに残せるようにするため（Phase C の材料）。
         logger.info(
             f"glossary search: q='{query_text[:40]}' category={category} "
+            f"threshold={distance_threshold:.3f} "
+            f"hyde={'on' if search_text != query_text else 'off'} "
             f"top_distance={rows[0].distance:.4f} hits={len(rows)}"
         )
 

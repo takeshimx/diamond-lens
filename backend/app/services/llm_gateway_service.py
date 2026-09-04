@@ -119,6 +119,7 @@ def call_gemini(
     resolved_query: Optional[str] = None,
     post_response_hook: Optional[Callable[[str, LLMLogEntry], None]] = None,
     cached_content_name: Optional[str] = None,
+    node: Optional[str] = None,
 ) -> Optional[str]:
     """
     Gemini テキスト生成の単一窓口。
@@ -140,6 +141,10 @@ def call_gemini(
                             caller が parsed_query_type / parsed_metrics 等の
                             派生フィールドを log entry に詰めるために使う。
                             シグネチャ: (response_text: str, entry: LLMLogEntry) -> None
+        node: Trace Viewer 上のステップ名 (例 "reranker", "hyde")。
+              省略すると node が NULL のまま記録され、
+              trace_query_service がエンドポイントの「リクエスト全体のサマリ行」と
+              同一視してしまう。単発の補助呼び出しでも必ず指定すること。
 
     Returns:
         生成テキスト、または失敗時 None (既存 _make_request と互換)
@@ -154,6 +159,7 @@ def call_gemini(
         entry.request_id = request_id
     entry.model = model
     entry.feature = feature
+    entry.node = node
     entry.prompt_name = prompt_name
     entry.prompt_version = prompt_version
     entry.user_query = (user_query or "")[:500]

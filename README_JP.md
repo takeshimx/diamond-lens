@@ -666,16 +666,21 @@ PrefixCache.put(...)
 - **クロスリンガル前提**: `text-multilingual-embedding-002` で `task_type` を文書側・質問側で非対称に指定
 - **メタデータをベクトル化対象から除外**: 全チャンク共通の定型文は識別力を下げる
 - **出典は LLM の裁量に委ねず機械的に付加**（実際に要約の過程で落とされた事例があるため）
-- **閾値は実測で決定**: 0.275。正解と不正解の距離分布は重なっており（最近傍の不正解 0.1684 < 最近傍の正解 0.1816）、**閾値調整では精度が上がらない**ことが判明したためリランクを採用した
+- **閾値は実測で決定**: 正解と不正解の距離分布は重なっており（最近傍の不正解 0.1684 < 最近傍の正解 0.1816）、**閾値調整では精度が上がらない**ことが判明したためリランクを採用した
+- **閾値はカテゴリ別**: 用語集 0.275 / **ルール 0.35**。日英を跨ぐのはルールのみで、距離分布が約 0.07 遠い側へ寄るため
+- **クロスリンガル対策に HyDE**: 日本語の質問を英語の条文風に書き換え、**埋め込みにのみ**使う。入出力は日本語のまま
 
 **構成要素**:
-- `services/glossary_rag_service.py` — カテゴリ事前フィルタ付き検索、fail-open
+- `services/glossary_rag_service.py` — カテゴリ事前フィルタ付き検索、カテゴリ別閾値、fail-open
 - `services/rerank_service.py` — LLM Gateway 経由のリランク
+- `services/query_rewrite_service.py` — HyDE によるクエリ書き換え（rules 限定）、fail-open
 - `services/tools/glossary_search_tool.py` — ChatOrchestrator に登録するツール
 - `scripts/ingest_glossary.py` / `scripts/ingest_rules.py` — 取り込み（source 単位で冪等）
 - `scripts/run_retrieval_eval.py` / `run_misfire_eval.py` — 評価ハーネス
 
-**既知の制約**: Tier 2（MLB 公式ルール PDF、897 チャンク）は取り込み済みだが**検索対象から除外**している（`EXCLUDED_CATEGORIES`）。分割を作り直しても rule 型の命中@3 は 0.333 に留まり、用語集の足を引っ張ったため。詳細は [ADR-047](docs/adr/047-rag-chunking-multilingual-embeddings-reranking.md)。
+**Tier 2 稼働中**（2026-09）: MLB 公式ルール PDF（897 チャンク）を検索できる。従来は「rule 型の命中@3 が 0.333 で頭打ち」として除外していたが、この数字は**測定バグ**だった（ゴールデンセットが中身のない見出しチャンクを正解に指定していた）。ラベルを是正し、rule 型を 3 問 → 30 問へ拡張、カテゴリ別閾値と HyDE を追加した結果、rule 型の命中@3 は **0.833**（誤発火率 0.000）。詳細は [ADR-054](docs/adr/054-cross-lingual-rag-hyde-category-thresholds.md)。
+
+**既知の制約**: ルール質問 1 件につき Gemini 呼び出しが 2 回増え（HyDE + リランク）、応答まで **20〜35 秒**かかる。両者は直列のため並列化できない。Tier 2 のチャンク品質も未修正（12.8% にページ柱が残留）。
 
 ---
 

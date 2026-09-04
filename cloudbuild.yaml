@@ -246,6 +246,16 @@ steps:
       - "1Gi"
       - "--port"
       - "8080"
+      # 用語集/ルール RAG のフラグ。ローカルは .env で与えるが、.env は
+      # .gitignore 対象でイメージに入らないため、Cloud Run では明示的に渡す。
+      #   USE_GLOSSARY_RAG    : glossary_search_tool をツール一覧に加える
+      #   USE_GLOSSARY_RERANK : 候補を LLM で並べ直す
+      #   USE_GLOSSARY_HYDE   : rules に限り質問を英語の条文風に書き換えて埋め込む
+      # 3 つとも true でないと ADR-054 の実測値 (rule 型 命中@3 0.833) にならない。
+      # --set-env-vars ではなく --update-env-vars を使う。前者は既存の環境変数を
+      # 全消しするため、コンソール等で個別設定した値を巻き込んで壊す。
+      - "--update-env-vars"
+      - "USE_GLOSSARY_RAG=true,USE_GLOSSARY_RERANK=true,USE_GLOSSARY_HYDE=true"
 
   # ----------------------------------------------------------------------
   # 4. フロントエンド (React) のDockerイメージをビルド

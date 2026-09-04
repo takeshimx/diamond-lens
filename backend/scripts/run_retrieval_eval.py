@@ -400,6 +400,10 @@ def main() -> None:
                         help="category_hint による事前フィルタを無効化して比較する")
     parser.add_argument("--rerank", action="store_true",
                         help="LLM で並べ直してから評価する（Gemini を質問数だけ呼ぶ）")
+    parser.add_argument("--hyde", action="store_true",
+                        help="検索用クエリを英語の条文風に書き換えてから評価する。"
+                             "対象は HYDE_CATEGORIES のみ。"
+                             "課金: Gemini x 対象問数 + 書き換え文の埋め込み（未キャッシュ分のみ）")
     parser.add_argument("--report", type=str, default=None,
                         help="Markdown レポートの出力先。省略時は docs/reports/ に自動命名")
     args = parser.parse_args()
@@ -412,32 +416,61 @@ def main() -> None:
     targets = [f for f in fixtures if f["type"] not in EXCLUDED_TYPES]
     client = bigquery.Client(project=PROJECT_ID)
 
+    # 検索に使う文字列。既定は質問文そのもの。HyDE 有効時のみ書き換わる。
+    # 「利用者が何を聞いたか」(f["query"]) と「何で検索したか」(search_texts) を
+    # 分けて持つ。リランクとレポートには前者、埋め込みには後者を使う。
+    search_texts = {f["id"]: f["query"] for f in targets}
+
+    if args.hyde:
+        from backend.app.services.query_rewrite_service import (
+            rewrite_for_retrieval,
+            should_rewrite,
+        )
+        n = sum(1 for f in targets if should_rewrite(f.get("category_hint")))
+        print(f"HyDE rewriting {n} queries (billable: Gemini x{n})")
+        for f in targets:
+            search_texts[f["id"]] = rewrite_for_retrieval(
+                f["query"], f.get("category_hint")
+            )
+
     if args.warm_cache:
-        warm_cache(client, [f["query"] for f in targets])
+        warm_cache(client, list(dict.fromkeys(search_texts.values())))
         return
 
+    if args.hyde:
+        # 書き換え文は毎回異なりうるため、その場でキャッシュを補充する。
+        # 未登録分だけが課金対象（warm_cache の差分生成に従う）。
+        warm_cache(client, list(dict.fromkeys(search_texts.values())))
+
     use_filter = not args.no_category_filter
-    rankings = fetch_rankings(client, targets, use_filter)
+    # fetch_rankings は fixture の "query" で埋め込みを引くため、
+    # 検索用文字列に差し替えた影武者を渡す。
+    shadow = [{**f, "query": search_texts[f["id"]]} for f in targets]
+    rankings = fetch_rankings(client, shadow, use_filter)
 
     if args.rerank:
         from backend.app.services.glossary_rag_service import (
-            DEFAULT_DISTANCE_THRESHOLD,
             DEFAULT_RERANK_CANDIDATES,
             DEFAULT_TOP_K,
+            resolve_distance_threshold,
         )
         print(f"reranking {len(targets)} queries (billable: Gemini x{len(targets)})")
         for f in targets:
-            q = f["query"]
-            if q in rankings:
-                rankings[q] = apply_rerank(
-                    q,
-                    rankings[q],
+            st = search_texts[f["id"]]
+            if st in rankings:
+                # 閾値は本番と同じ解決規則を使う。ここで固定値を書くと
+                # カテゴリ別閾値を変えたときに評価だけ古い値で回る。
+                # リランクに渡すのは書き換え文ではなく元の質問。
+                # 利用者の意図を読ませるのがリランクの役目のため。
+                rankings[st] = apply_rerank(
+                    f["query"],
+                    rankings[st],
                     candidates=DEFAULT_RERANK_CANDIDATES,
-                    threshold=DEFAULT_DISTANCE_THRESHOLD,
+                    threshold=resolve_distance_threshold(f.get("category_hint")),
                     top_k=DEFAULT_TOP_K,
                 )
 
-    missing = [f["id"] for f in targets if f["query"] not in rankings]
+    missing = [f["id"] for f in targets if search_texts[f["id"]] not in rankings]
     if missing:
         print("埋め込み未生成の質問があります。--warm-cache を先に実行してください:")
         for m in missing:
@@ -450,9 +483,9 @@ def main() -> None:
             "type": f["type"],
             "query": f["query"],
             "relevant": f["relevant_chunk_ids"],
-            "ranked": rankings[f["query"]],
+            "ranked": rankings[search_texts[f["id"]]],
             "scores": score_one(
-                [c["chunk_id"] for c in rankings[f["query"]]],
+                [c["chunk_id"] for c in rankings[search_texts[f["id"]]]],
                 f["relevant_chunk_ids"],
             ),
         }
@@ -464,6 +497,7 @@ def main() -> None:
         f"# Retrieval Eval - {datetime.now(timezone.utc):%Y-%m-%d %H:%M UTC}\n\n"
         f"- category filter: `{'ON' if use_filter else 'OFF'}`\n"
         f"- rerank: `{'ON' if args.rerank else 'OFF'}`\n"
+        f"- hyde: `{'ON' if args.hyde else 'OFF'}`\n"
         f"- 対象: {len(rows)} 問（`should_not_fire` は検索評価の対象外）\n"
     )
     body = render(rows, header)

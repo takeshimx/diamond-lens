@@ -182,6 +182,7 @@ ADR は「ある時点で、どの選択肢を、なぜ選んだか」を1ファ
 | 044 | Idempotency keys for POST / LLM calls | 二重課金・二重記録の防止をどう入れるか | 🟡 | P2 | BP | DDIA レビュー Ch.7 |
 | 045 | Model cascade (Flash → Pro escalation) | 低信頼時のみ上位モデルへ昇格するか | 🟡 | P2 | LM | AI Eng レビュー Ch.7 |
 | 047 | RAG chunking + multilingual embeddings + reranking | BQ ベクトル検索 + カテゴリ事前フィルタ + LLM リランク vs ChromaDB 復活 / 想定質問の手書き / 閾値調整のみ（命中@5 0.800→1.000, MRR 0.658→0.925 を実測） | ✅ | P2 | FM★ | AI Eng レビュー Ch.7 |
+| 054 | クロスリンガル RAG（カテゴリ別閾値 + HyDE）で公式ルール PDF を復帰 | 日英を跨ぐ rules 専用の閾値 0.35 + HyDE vs 全体の閾値緩和 / 英語での質問要求 / テーブル分離。**「精度が出ない」で無効化した判断が、実は正解ラベルの誤りによる測定バグだったと特定した経緯を記録**（rule 型 命中@3 0.333→0.833） | ✅ | ⭐P1 | FM★ EV★ | ADR-047 の続き / `README_ai_architecture.md` §8r |
 | 046 | Semantic response cache | 既存 embedding 基盤を応答キャッシュに転用するか | 🟡 | P3 | LM | AI Eng レビュー Ch.7 |
 | 048 | Distributed rate limit / circuit breaker standardization | 多インスタンス整合とリトライ/CB の共通化 | 🟡 | P3 | BP GC | DDIA Ch.1 / ADR-030 再検討 |
 

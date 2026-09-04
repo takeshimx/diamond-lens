@@ -247,10 +247,19 @@ def get_trace(trace_id: str) -> Dict[str, Any]:
         logger.warning(f"trace_labels read failed (suppressed): {e}")
 
     # サマリは「最終回答を持つもの」を優先。無ければ最後の1件。
+    #
+    # ただし node を渡さない call_gemini (リランク等の補助呼び出し) のログも
+    # node が NULL のためここに紛れ込む。中身は候補番号の配列などで、
+    # 最終回答として表示すると読めなくなる。
+    # エンドポイントのサマリ行だけが total_latency_ms を持つため、それで絞る。
     summary: Optional[Dict[str, Any]] = None
     if summaries:
-        with_answer = [s for s in summaries if s.get("response_answer")]
-        summary = (with_answer or summaries)[-1]
+        endpoint_rows = [
+            s for s in summaries if s.get("total_latency_ms") is not None
+        ]
+        pool = endpoint_rows or summaries
+        with_answer = [s for s in pool if s.get("response_answer")]
+        summary = (with_answer or pool)[-1]
 
     return {
         "trace_id": trace_id,

@@ -7,17 +7,22 @@
       "MRR": "正解の最上位順位の逆数の平均。順位の改善を検出する"
     },
     "note_misfire": "誤発火率は検索ではなくツール選択の問題のため、本ファイルの should_not_fire 型を使って別途 ChatOrchestrator 経由で測る（Gemini 課金が発生する）",
-    "target_total": 15,
-    "current_total": 15,
-    "pending": "Definitions of Terms（用語定義の条項）が Rule 9.23 に吸収されているため、「インフィールドフライとは」型の質問はまだ追加できない。取り込みロジック修正後に追加する"
+    "target_total": 42,
+    "current_total": 42,
+    "pending": "なし。Definitions of Terms は ingest_rules.py の split_definitions で独立チャンク化済みのため、定義型の質問（rule_004 等）を追加した",
+    "note_rule_type": "rule 型は n=3 では判断できないため 2026-09-04 に 30 問へ拡張した。条件列挙型（rule_001 等）は正解チャンクが十数件に分かれており recall@k が構造的に低く出る。rule 型の判定は hit@k を主指標とすること",
+    "note_rule_subtype_mix": "2026-09-04 の配分決定。命中@3 が満点だった definition / spec / confusable は据え置き、失敗していた paraphrase・situation・enumeration を厚くした。狙いは『専門語を使わない日本語の質問で英語の条文を引けるか』に評価の重心を置くこと。citation（条文番号の直接指定）は実際のユーザーが聞かない型のため 1 問のみ残し、改善目標からは除外する（数値は記録として残す）",
+    "note_rule_subtype_target": {"paraphrase": 8, "situation": 9, "enumeration": 6, "definition": 2, "spec": 2, "confusable": 2, "citation": 1}
   },
   "_rules": [
     "既存の問題は変更・削除しない。過去の測定値と比較できなくなるため",
+    "例外: 正解 chunk_id 自体が誤っていた場合のみ修正してよい。誤った基準で測り続ける害の方が大きいため。修正時は note に旧値と理由を必ず残す（例: rule_001）",
+    "relevant_chunk_ids には「見出しだけのリード文チャンク」を指定しない。中身は子チャンク側にあるため、検索が正しく動いても不正解と記録される",
     "id は型ごとの連番。direct_004, para_006 のように続ける",
     "追加時は埋め込みキャッシュに無い質問だけが課金対象（差分のみ）",
-    "Tier 2（公式ルール PDF）取り込み後に rule_001〜 を 3 問追加し、合計 15 問とする",
     "1 回の追加は 5 問程度まで。まとめて足すとレビューが形骸化する",
-    "relevant_chunk_ids は実在する chunk_id と完全一致させる。run_retrieval_eval.py --validate で機械確認すること"
+    "relevant_chunk_ids は実在する chunk_id と完全一致させる。run_retrieval_eval.py --validate で機械確認すること",
+    "subtype は人間がレビューするための補助情報。評価スクリプトは参照しない（集計は type 単位）"
   ],
   "fixtures": [
     {
@@ -149,16 +154,33 @@
     {
       "id": "rule_001",
       "type": "rule",
+      "subtype": "enumeration",
       "query": "ボークが宣告されるのはどんな場合ですか",
       "category_hint": "rules",
       "relevant_chunk_ids": [
-        "official_baseball_rules_2026.pdf#6.02(a)"
+        "official_baseball_rules_2026.pdf#6.02(a)(1)#part1",
+        "official_baseball_rules_2026.pdf#6.02(a)(2)#part2",
+        "official_baseball_rules_2026.pdf#6.02(a)(3)#part3",
+        "official_baseball_rules_2026.pdf#6.02(a)(3)#part4",
+        "official_baseball_rules_2026.pdf#6.02(a)(4)#part5",
+        "official_baseball_rules_2026.pdf#6.02(a)(5)#part6",
+        "official_baseball_rules_2026.pdf#6.02(a)(6)#part7",
+        "official_baseball_rules_2026.pdf#6.02(a)(7)#part8",
+        "official_baseball_rules_2026.pdf#6.02(a)(8)#part9",
+        "official_baseball_rules_2026.pdf#6.02(a)(9)#part10",
+        "official_baseball_rules_2026.pdf#6.02(a)(10)#part11",
+        "official_baseball_rules_2026.pdf#6.02(a)(11)#part12",
+        "official_baseball_rules_2026.pdf#6.02(a)(12)#part13",
+        "official_baseball_rules_2026.pdf#6.02(a)(13)#part14",
+        "official_baseball_rules_2026.pdf#6.02(a)(13)#part15"
       ],
-      "note": "Tier 2 追加。分割されていないチャンクを正解に選んでいる"
+      "note": "2026-09-04 修正。旧値は `#6.02(a)` の 1 件だったが、その中身は「If there is a runner, or runners, it is a balk when:」という 134 字のリード文のみで、ボークの条件は (1)〜(13) の子チャンクに入っている。検索が (1)〜(13) を返しても不正解と記録され、旧値は 414 位だった。正解ラベル側の誤りのため、_rules の例外規定に従い差し替えた。旧測定値（rule 型 命中@3 0.333）とは比較不能",
+      "review": true
     },
     {
       "id": "rule_002",
       "type": "rule",
+      "subtype": "spec",
       "query": "バットの太さや長さに規定はありますか",
       "category_hint": "rules",
       "relevant_chunk_ids": [
@@ -169,6 +191,7 @@
     {
       "id": "rule_003",
       "type": "rule",
+      "subtype": "enumeration",
       "query": "打者が走者になるのはどういう場合ですか",
       "category_hint": "rules",
       "relevant_chunk_ids": [
@@ -176,6 +199,366 @@
         "official_baseball_rules_2026.pdf#5.05(a)(2)#part1"
       ],
       "note": "Tier 2 追加。条件列挙型の条文を引けるか。(1)(2) を正解とする（(3) 以降も条件だが、代表的な 2 件に絞って厳しめに測る）",
+      "review": true
+    },
+    {
+      "id": "rule_004",
+      "type": "rule",
+      "subtype": "definition",
+      "query": "インフィールドフライとはどういう打球のことですか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#def:INFIELD FLY"
+      ],
+      "note": "定義型。Definitions of Terms の独立チャンクを引けるか。Tier 1 用語集と同じ「〜とは」形式で、条文型との難易度差を測る"
+    },
+    {
+      "id": "rule_005",
+      "type": "rule",
+      "subtype": "definition",
+      "query": "ストライクゾーンはどこからどこまでですか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#def:STRIKE ZONE"
+      ],
+      "note": "定義型。質問文に「ストライクゾーン」という語を含むため、語彙が一致する条件での下限を測る"
+    },
+    {
+      "id": "rule_006",
+      "type": "rule",
+      "subtype": "paraphrase",
+      "query": "野手がボールを持っていないのに走者の進路を塞いだ場合はどうなりますか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#def:OBSTRUCTION"
+      ],
+      "note": "言い換え型。「オブストラクション」「走塁妨害」という語を質問に含めず、状況の描写だけで引けるかを測る"
+    },
+    {
+      "id": "rule_007",
+      "type": "rule",
+      "subtype": "confusable",
+      "query": "ファウルチップとファウルボールは何が違いますか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#def:FOUL TIP",
+        "official_baseball_rules_2026.pdf#def:FOUL BALL"
+      ],
+      "note": "紛らわしい対。両方が上位に来ないと回答できない型。hit@k では 1 件で命中扱いになるため recall@k も併せて見ること",
+      "review": true
+    },
+    {
+      "id": "rule_008",
+      "type": "rule",
+      "subtype": "situation",
+      "query": "打順を間違えて別の打者が打ってしまったらどうなりますか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#6.03(b)(1)#part9",
+        "official_baseball_rules_2026.pdf#6.03(b)(3)#part11",
+        "official_baseball_rules_2026.pdf#6.03(b)(5)#part13"
+      ],
+      "note": "状況型。条文の見出し語（Batting Out of Turn）が質問に無く、日本語の状況描述から引く必要がある",
+      "review": true
+    },
+    {
+      "id": "rule_009",
+      "type": "rule",
+      "subtype": "situation",
+      "query": "指名打者は誰の代わりに打つのですか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#5.11(a)(1)#part1"
+      ],
+      "note": "状況型。親の `#5.11(a)` は「The Designated Hitter Rule provides as follows:」の 109 字リード文であり正解に含めない（rule_001 と同じ罠）"
+    },
+    {
+      "id": "rule_010",
+      "type": "rule",
+      "subtype": "situation",
+      "query": "審判がタイムをかけている間、ボールはどういう扱いになりますか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#5.12(a)"
+      ],
+      "note": "状況型。短い条文（275 字）が引けるかを測る"
+    },
+    {
+      "id": "rule_011",
+      "type": "rule",
+      "subtype": "spec",
+      "query": "バットのグリップに滑り止めを塗ってもいいですか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#3.02(c)#part2"
+      ],
+      "note": "規格型。rule_002 と同じ Rule 3.02 配下のため、同一条文内で正しい項を選び分けられるかを測る",
+      "review": true
+    },
+    {
+      "id": "rule_012",
+      "type": "rule",
+      "subtype": "citation",
+      "query": "公式規則 6.02(a)(1) には何が書かれていますか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#6.02(a)(1)#part1"
+      ],
+      "note": "条文番号の直接指定型。ベクトル検索が数字列に弱いことを確認するための設問。ここが低ければ section カラムの完全一致で分岐する実装（RAG を使わない経路）の根拠になる"
+    },
+    {
+      "id": "rule_013",
+      "type": "rule",
+      "subtype": "confusable",
+      "query": "ボークとはそもそも何ですか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#def:BALK"
+      ],
+      "note": "rule_001（条件の列挙）と紛らわしい対。「何か」と聞かれたら定義チャンク、「どんな場合か」と聞かれたら条件チャンクを返し分けられるかを測る",
+      "review": true
+    },
+
+    {
+      "id": "rule_014",
+      "type": "rule",
+      "subtype": "paraphrase",
+      "query": "三塁の走者をバントで還そうとする作戦を何と呼びますか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#def:SQUEEZE PLAY"
+      ],
+      "note": "作戦の説明から用語を引く。質問文に SQUEEZE / スクイズ の語は無い"
+    },
+    {
+      "id": "rule_015",
+      "type": "rule",
+      "subtype": "paraphrase",
+      "query": "投球が高すぎたり逸れたりして捕手が普通の守備では捕れなかった場合、何と呼ばれますか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#def:WILD PITCH"
+      ],
+      "note": "「暴投」「ワイルドピッチ」を使わずに状況描写のみで引く"
+    },
+    {
+      "id": "rule_016",
+      "type": "rule",
+      "subtype": "paraphrase",
+      "query": "走者が塁と塁の間で挟まれて追いかけられている状態を何といいますか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#def:RUN-DOWN"
+      ],
+      "note": "「ランダウン」「挟殺」を使わない。条文本文は 119 字と短く、情報量が少ないチャンクを引けるかも同時に測る"
+    },
+    {
+      "id": "rule_017",
+      "type": "rule",
+      "subtype": "paraphrase",
+      "query": "野手がボールをしっかり持った状態で走者に触れる行為はどう定義されていますか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#def:TAG"
+      ],
+      "note": "「タッチ」「タッグ」を使わない。日本語の野球用語（タッチ）と規則用語（TAG）がずれている例"
+    },
+    {
+      "id": "rule_018",
+      "type": "rule",
+      "subtype": "paraphrase",
+      "query": "内野ゴロを捕った野手が一塁ではなく前の走者を刺しにいくことを何といいますか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#def:FIELDER’S CHOICE"
+      ],
+      "note": "「フィールダースチョイス」「野選」を使わない",
+      "review": true
+    },
+    {
+      "id": "rule_019",
+      "type": "rule",
+      "subtype": "paraphrase",
+      "query": "最後まで行わずに審判が打ち切った試合はどう扱われますか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#def:CALLED GAME"
+      ],
+      "note": "「コールドゲーム」を使わない。なお和製英語のコールドゲームは CALLED GAME であり、SUSPENDED GAME（一時停止試合）と紛らわしい"
+    },
+    {
+      "id": "rule_020",
+      "type": "rule",
+      "subtype": "paraphrase",
+      "query": "ストライクゾーンを外れた投球を4つ受けた打者はどうなりますか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#def:BASE ON BALLS"
+      ],
+      "note": "「四球」「フォアボール」を使わない"
+    },
+
+    {
+      "id": "rule_021",
+      "type": "rule",
+      "subtype": "situation",
+      "query": "ヘルメットを着けなければならないのは誰ですか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#3.08(a)#part1",
+        "official_baseball_rules_2026.pdf#3.08(b)#part2",
+        "official_baseball_rules_2026.pdf#3.08(c)#part3",
+        "official_baseball_rules_2026.pdf#3.08(d)#part4",
+        "official_baseball_rules_2026.pdf#3.08(e)#part5",
+        "official_baseball_rules_2026.pdf#3.08(f)#part6"
+      ],
+      "note": "親の `#3.08` は「A Professional League shall adopt the following rule...」のリード文のため正解に含めない"
+    },
+    {
+      "id": "rule_022",
+      "type": "rule",
+      "subtype": "situation",
+      "query": "投球が打者に当たったとき、ボールはインプレーのままですか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#5.06(c)(1)#part22"
+      ],
+      "note": "死球時のボールデッド。条文は 1 項目のみで短い"
+    },
+    {
+      "id": "rule_023",
+      "type": "rule",
+      "subtype": "situation",
+      "query": "投球が捕手のマスクや防具に挟まって出てこなくなったらどうなりますか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#5.06(c)(7)#part30",
+        "official_baseball_rules_2026.pdf#5.06(c)(7)#part31"
+      ],
+      "note": "稀な状況。質問文と条文で語彙が比較的一致する（mask / paraphernalia）ため、状況型の中では易しい側"
+    },
+    {
+      "id": "rule_024",
+      "type": "rule",
+      "subtype": "situation",
+      "query": "一塁を走り抜けた打者走者はタッチされてもアウトになりませんか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#5.09(b)(4)#part26"
+      ],
+      "note": "条文は「He is tagged, when the ball is alive, while off his base.」の EXCEPTION 部分に該当が書かれている。本文冒頭と質問の主旨がずれている例",
+      "review": true
+    },
+    {
+      "id": "rule_025",
+      "type": "rule",
+      "subtype": "situation",
+      "query": "三振したのに捕手が球を捕り損ねた場合、打者はどうなりますか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#5.09(a)(3)#part3",
+        "official_baseball_rules_2026.pdf#5.05(a)(2)#part1"
+      ],
+      "note": "振り逃げ。アウトになる条件（5.09(a)(3)）と走者になる条件（5.05(a)(2)）が別条文に分かれており、どちらも正解とする",
+      "review": true
+    },
+    {
+      "id": "rule_026",
+      "type": "rule",
+      "subtype": "situation",
+      "query": "本塁から一塁へ走るとき、ラインの外側を走ってはいけないのですか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#5.09(a)(11)#part13",
+        "official_baseball_rules_2026.pdf#5.09(a)(11)#part14",
+        "official_baseball_rules_2026.pdf#5.09(a)(11)#part15"
+      ],
+      "note": "スリーフットレーン。条文が 3 チャンクに分割されている"
+    },
+
+    {
+      "id": "rule_027",
+      "type": "rule",
+      "subtype": "enumeration",
+      "query": "打者がアウトになるのはどんな場合ですか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#5.09(a)(1)#part1",
+        "official_baseball_rules_2026.pdf#5.09(a)(2)#part2",
+        "official_baseball_rules_2026.pdf#5.09(a)(3)#part3",
+        "official_baseball_rules_2026.pdf#5.09(a)(4)#part4",
+        "official_baseball_rules_2026.pdf#5.09(a)(5)#part5",
+        "official_baseball_rules_2026.pdf#5.09(a)(6)#part6",
+        "official_baseball_rules_2026.pdf#5.09(a)(7)#part7",
+        "official_baseball_rules_2026.pdf#5.09(a)(8)#part8",
+        "official_baseball_rules_2026.pdf#5.09(a)(9)#part11",
+        "official_baseball_rules_2026.pdf#5.09(a)(10)#part12",
+        "official_baseball_rules_2026.pdf#5.09(a)(11)#part13",
+        "official_baseball_rules_2026.pdf#5.09(a)(12)#part16",
+        "official_baseball_rules_2026.pdf#5.09(a)(13)#part17",
+        "official_baseball_rules_2026.pdf#5.09(a)(14)#part18",
+        "official_baseball_rules_2026.pdf#5.09(a)(15)#part19"
+      ],
+      "note": "各項目の先頭チャンクのみを正解とする（Comment の続き part は除外）。親の `#5.09(a)` はリード文のため含めない",
+      "review": true
+    },
+    {
+      "id": "rule_028",
+      "type": "rule",
+      "subtype": "enumeration",
+      "query": "走者がアウトになるのはどんな場合ですか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#5.09(b)(1)#part21",
+        "official_baseball_rules_2026.pdf#5.09(b)(2)#part22",
+        "official_baseball_rules_2026.pdf#5.09(b)(3)#part25",
+        "official_baseball_rules_2026.pdf#5.09(b)(4)#part26",
+        "official_baseball_rules_2026.pdf#5.09(b)(5)#part27",
+        "official_baseball_rules_2026.pdf#5.09(b)(6)#part28",
+        "official_baseball_rules_2026.pdf#5.09(b)(7)#part31",
+        "official_baseball_rules_2026.pdf#5.09(b)(8)#part33",
+        "official_baseball_rules_2026.pdf#5.09(b)(9)#part34",
+        "official_baseball_rules_2026.pdf#5.09(b)(10)#part36",
+        "official_baseball_rules_2026.pdf#5.09(b)(11)#part37",
+        "official_baseball_rules_2026.pdf#5.09(b)(12)#part38",
+        "official_baseball_rules_2026.pdf#5.09(b)(13)#part39"
+      ],
+      "note": "rule_027 と同じ Rule 5.09 配下。打者用（a）と走者用（b）を取り違えないかも同時に測る",
+      "review": true
+    },
+    {
+      "id": "rule_029",
+      "type": "rule",
+      "subtype": "enumeration",
+      "query": "ボールデッドになるのはどんな場合ですか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#5.06(c)(1)#part22",
+        "official_baseball_rules_2026.pdf#5.06(c)(2)#part23",
+        "official_baseball_rules_2026.pdf#5.06(c)(3)#part24",
+        "official_baseball_rules_2026.pdf#5.06(c)(4)#part25",
+        "official_baseball_rules_2026.pdf#5.06(c)(5)#part26",
+        "official_baseball_rules_2026.pdf#5.06(c)(6)#part27",
+        "official_baseball_rules_2026.pdf#5.06(c)(7)#part30",
+        "official_baseball_rules_2026.pdf#5.06(c)(8)#part32"
+      ],
+      "note": "def:DEAD BALL（定義）ではなく条件列挙の条文を引けるか。rule_013 と同型の「定義 vs 条件」の切り分けを条文側で測る",
+      "review": true
+    },
+    {
+      "id": "rule_030",
+      "type": "rule",
+      "subtype": "enumeration",
+      "query": "打者の反則行為として禁止されているのはどんな行為ですか",
+      "category_hint": "rules",
+      "relevant_chunk_ids": [
+        "official_baseball_rules_2026.pdf#6.03(a)(1)#part1",
+        "official_baseball_rules_2026.pdf#6.03(a)(2)#part2",
+        "official_baseball_rules_2026.pdf#6.03(a)(3)#part3",
+        "official_baseball_rules_2026.pdf#6.03(a)(4)#part4",
+        "official_baseball_rules_2026.pdf#6.03(a)(5)#part7"
+      ],
+      "note": "rule_008（打順間違い）と同じ Rule 6.03 配下。(a) 反則行為と (b) 打順間違いを区別できるかを測る",
       "review": true
     }
   ]

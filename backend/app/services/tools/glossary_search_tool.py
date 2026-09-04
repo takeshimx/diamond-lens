@@ -18,11 +18,13 @@ def glossary_search_tool(
     category: Optional[str] = None,
     top_k: int = 5,
 ) -> dict:
-    """MLB の用語定義・指標の意味を知識ベースから検索する。
+    """MLB の用語定義・指標の意味、および公式野球規則の条文を検索する。
 
     Args:
         query: 検索したい内容（ユーザーの質問をそのまま渡してよい）
-        category: 'batting' / 'pitching' / 'statcast' の絞り込み。不明なら None
+        category: 'batting' / 'pitching' / 'statcast' / 'rules' の絞り込み。
+                  距離閾値と HyDE の適用判定がこの値を鍵にしているため、
+                  必ず指定すること（不明時に None を渡しても動くが精度が落ちる）
         top_k: 取得件数
 
     Returns:
@@ -44,6 +46,9 @@ def glossary_search_tool(
         # USE_GLOSSARY_RERANK=true のときだけ LLM による並べ直しが走る。
         # 効果を測ってから有効化する方針のため既定は false。
         rerank=bool(get_settings().use_glossary_rerank),
+        # USE_GLOSSARY_HYDE=true のときだけ検索用クエリの書き換えが走る。
+        # 英語文書のカテゴリ（rules）以外では書き換え自体が起きない。
+        hyde=bool(get_settings().use_glossary_hyde),
     )
 
     if not hits:

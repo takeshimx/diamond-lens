@@ -68,6 +68,9 @@ def rerank_hits(
             model=RERANK_MODEL,
             response_mime_type="application/json",
             feature="glossary_rerank",
+            # node を渡さないと、この呼び出しのログ (中身は候補番号の配列) が
+            # Trace Viewer の FINAL RESULT に最終回答として表示されてしまう。
+            node="reranker",
             request_id=request_id,
             user_query=query,
         )
