@@ -94,7 +94,7 @@ An AI-powered analytics interface for exploring Major League Baseball statistics
 
 **Capabilities**:
 - **🧠 LLM-driven NLU via tool_use**: The orchestrator's outer LLM directly extracts structured arguments (`name`, `season`, `query_type`, `metrics`, …) — no internal NLU LLM call inside the tool.
-- **🔧 Common Tools**: `backend/app/services/tools/` houses `get_batter_stats_tool`, `get_pitcher_stats_tool`, `mlb_matchup_history_tool`, `mlb_matchup_analytics_tool` shared by both paths. Optional `query_semantic_metrics_tool` for dbt Semantic Layer (Cloud Run only when `USE_SEMANTIC_LAYER=true`).
+- **🔧 Common Tools**: `backend/app/services/tools/` houses `get_batter_stats_tool`, `get_pitcher_stats_tool`, `mlb_matchup_history_tool`, `mlb_matchup_analytics_tool` shared by both paths. Optional `query_semantic_metrics_tool` for dbt Semantic Layer (Cloud Run only when `USE_SEMANTIC_LAYER=true`), and `glossary_search_tool` for document RAG (registered only when `USE_GLOSSARY_RAG=true`).
 - **🗄️ output_format='data' default**: Tools return raw rows with `bigquery_latency_ms`. The orchestrator either streams a Markdown summary directly, or — if `synthesize_response=True` — runs an extra LLM call to compose a natural-language answer.
 - **💰 Token Budget pool separation (Phase 3-A)**: `chat` and `report` pools tracked independently so a heavy report generation cannot starve chat (and vice-versa).
 - **📊 Adaptive UI**: Automatically switches between narrative, interactive charts, data tables, and `StrategyReportCard` based on tool output.
@@ -116,35 +116,49 @@ An AI-powered analytics interface for exploring Major League Baseball statistics
 - **👍👎 User Feedback UI**: Thumbs up/down buttons on every AI response with detailed feedback form for negative ratings
 - **📋 Feedback Categories**: Structured categorization (`inaccurate`, `slow`, `irrelevant`, `wrong_player`, `wrong_stats`) with optional free-text reason
 - **🗄️ BigQuery Logging**: All feedback (rating, category, reason) is recorded to BigQuery alongside the original LLM interaction log
-- **🔄 Golden Dataset Pipeline**: Three-step workflow to continuously improve LLM accuracy from user feedback
+- **🔎 Review Queue in the Trace Viewer**: 👎 traces are surfaced with `👎 ONLY` + `未処理のみ` filters; annotating one removes it from the queue
+- **✍️ Expected-Answer Annotation**: The reviewer records what the parsed arguments *should* have been; choices are served from the tool-schema enums so the UI can never drift out of sync
+- **🔀 Automated PR**: Approving opens a pull request against `golden_dataset.json` — git stays the source of truth for the CI gate
+
+**What this is (and is not)**: nothing is learned automatically. Neither the model weights nor the prompts change. What grows is the **test suite** — a 👎 becomes a regression test, so the same failure can never ship unnoticed again. Fixing it is still a human's job; the flywheel guarantees it stays fixed. See [ADR-021](docs/adr/021-hitl-golden-flywheel.md).
 
 **HITL Feedback Loop**:
 ```
 User rates response 👎 + selects category + writes reason
          │
          ▼
-  BigQuery logs (feedback recorded)
+  BigQuery logs (joined back by request_id, not trace_id)
          │
+  ═══════╪══════════ human works here, inside the Trace Viewer ══════════
+         ▼
   ┌──────┴───────┐
-  │   Extract     │  python backend/scripts/extract_golden_dataset.py
-  │   bad queries │  → pending_review.json (with TODO placeholders)
+  │  Review queue │  GET /api/v1/traces?only_bad_rating&only_unexpected
+  │               │  → 👎 traces that nobody has handled yet
   └──────┬───────┘
          ▼
   ┌──────┴───────┐
-  │  Human Review │  Developer fills in correct expected values
-  │  (manual)     │  → reviewed: true
+  │  Annotate     │  Failure label (7 axes) + expected answer
+  │               │  → POST /traces/{id}/expected → trace_expectations (BQ)
   └──────┬───────┘
          ▼
   ┌──────┴───────┐
-  │   Approve     │  python backend/scripts/approve_to_golden.py
-  │   to golden   │  → golden_dataset.json (test cases grow)
+  │  Approve      │  POST /traces/promote   ← one button
   └──────┴───────┘
+  ═══════╪══════════════ automated from here ════════════════════════════
          ▼
-  CI/CD Evaluation Gate runs with expanded golden dataset
+  Fetch latest golden from GitHub → hold unpromotable cases
+         → branch → commit → pull request
+         ▼
+  Merge → CI/CD Evaluation Gate runs with the expanded golden dataset
 ```
 
-**API Endpoint**:
-- `POST /api/v1/qa/feedback` - Submit user feedback (rating, category, reason)
+Cases are **held rather than promoted** when they would break the golden dataset's own structure tests — an unimplemented `query_type`, or a category with fewer than three cases. Held expectations stay in BigQuery and promote themselves once the gap is closed.
+
+**API Endpoints**:
+- `POST /api/v1/qa/feedback` — Submit user feedback (rating, category, reason)
+- `GET  /api/v1/traces/expected-options` — Vocabulary for the annotation form (from tool schema)
+- `POST /api/v1/traces/{trace_id}/expected` — Record the expected answer
+- `POST /api/v1/traces/promote` — Approve and open the golden-dataset PR
 
 ### 7. Rate Limiting & Quota Management
 **Status**: ✅ Production-ready
@@ -259,20 +273,25 @@ CI/CD Drift Check → Compare active model's training data vs latest season
 
 **Overview**: A quality assurance framework where a separate LLM (Gemini Flash) automatically scores the output quality of each processing step across multiple dimensions. Designed to log production request I/O to BigQuery and run batch sample evaluations.
 
-**5 Judge Services**:
+**Active Judges (2)** — verified against actual call sites, 2026-09-07:
 
-| # | Judge | Evaluation Target | Evaluation Dimensions | File |
-|---|---|---|---|---|
-| 1 | **Parse Accuracy** | LLM query parse results | query_type accuracy, metrics extraction, player name resolution, intent understanding | `llm_judge_service.py` |
-| 2 | **Synthesizer Quality** | AI-generated responses | Factual accuracy, analytical depth, language quality, structure, completeness (+ context relevance on RAG paths) | `synthesizer_judge_service.py` |
-| 3 | **Reflection Decision** | Self-correction loop | Trigger appropriateness, root cause identification, correction quality, over-correction risk | `reflection_judge_service.py` |
-| 4 | **Routing Accuracy** | Supervisor routing | Route accuracy, ambiguity handling, reasoning quality | `routing_judge_service.py` |
-| 5 | **Drift Alert Quality** | Data drift detection results | Statistical validity, practical significance, actionability, domain relevance | `drift_alert_judge_service.py` |
+| # | Judge | Evaluation Target | Evaluation Dimensions | Status | File |
+|---|---|---|---|---|---|
+| 2 | **Synthesizer Quality** | AI-generated responses on the production chat path | Factual accuracy, analytical depth, language quality, structure, completeness (+ context relevance on RAG paths) | ✅ **Production** — sampled & async via `online_judge_service.py` | `synthesizer_judge_service.py` |
+| 1 | **Parse Accuracy** | LLM query parse results against the golden dataset | query_type accuracy, metrics extraction, player name resolution, intent understanding | ⚠️ **Offline only** — invoked by `evaluate_with_llm_judge.py`; no production call site | `llm_judge_service.py` |
+
+**Implemented but not wired (3)** — unit-tested, referenced only from tests:
+
+| # | Judge | Intended Target | File |
+|---|---|---|---|
+| 3 | Reflection Decision | `StrategyAgent`'s self-correction loop | `reflection_judge_service.py` |
+| 4 | Routing Accuracy | Supervisor routing — **target no longer exists** since `SupervisorAgent` was retired ([ADR-010](docs/adr/010-chat-orchestrator-replaces-langgraph.md)) | `routing_judge_service.py` |
+| 5 | Drift Alert Quality | Second opinion on KS/PSI drift detection (the models' *input distribution*, not the models themselves) | `drift_alert_judge_service.py` |
 
 **Operational Architecture**:
 ```
-[Real-time] User query → Log step I/O to BigQuery (0 additional Gemini calls)
-[Batch]     Sample from BQ → 5 Judges score → Results saved to BQ
+[Online] Chat response → sampled → Synthesizer Judge scores async → BQ online_judge_verdicts
+[Offline] golden_dataset.json → evaluate_with_llm_judge.py → Parse Judge → JSON results
 ```
 
 **E2E Script**:

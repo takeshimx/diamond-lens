@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional
 from google.cloud import bigquery
 
 from backend.app.config.settings import get_settings
+from backend.app.services.trace_expectation_service import get_latest_expectation
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ PROJECT_ID = _settings.gcp_project_id
 DATASET_ID = _settings.bigquery_dataset_id
 LOGS_TABLE = f"{PROJECT_ID}.{DATASET_ID}.llm_interaction_logs"
 LABELS_TABLE = f"{PROJECT_ID}.{DATASET_ID}.trace_labels"
+EXPECTATIONS_TABLE = f"{PROJECT_ID}.{DATASET_ID}.trace_expectations"
 
 _client: Optional[bigquery.Client] = None
 
@@ -57,6 +59,8 @@ def list_traces(
     limit: int = 100,
     only_unlabeled: bool = False,
     only_failed: bool = False,
+    only_bad_rating: bool = False,
+    only_unexpected: bool = False,
 ) -> List[Dict[str, Any]]:
     """trace の一覧を返す。1 trace = 1 行に集約する。
 
@@ -65,6 +69,10 @@ def list_traces(
         limit: 返す trace 数の上限
         only_unlabeled: True ならラベル未付与の trace のみ
         only_failed: True なら失敗ステップを含む trace のみ
+        only_bad_rating: True なら 👎 が付いた trace のみ
+        only_unexpected: True なら期待値が未付与の trace のみ。
+            only_bad_rating と併用すると「まだ処理していない 👎」になり、
+            レビュー待ち行列として機能する（処理すると一覧から消える）。
     """
     query = f"""
     WITH steps AS (
@@ -88,7 +96,10 @@ def list_traces(
         )                                               AS first_query,
         ARRAY_AGG(DISTINCT node IGNORE NULLS)           AS nodes,
         MAX(session_id)                                 AS session_id,
-        MAX(endpoint)                                   AS endpoint
+        MAX(endpoint)                                   AS endpoint,
+        -- 👎 を突き合わせるキー。1 trace = 1 request_id であることは
+        -- 実データで確認済み（多重なら MAX が先頭 1 件に潰す）。
+        MAX(request_id)                                 AS request_id
       FROM `{LOGS_TABLE}`
       WHERE node IS NOT NULL
         AND trace_id IS NOT NULL
@@ -100,9 +111,31 @@ def list_traces(
       SELECT trace_id, label, note, labeled_at
       FROM `{LABELS_TABLE}`
       QUALIFY ROW_NUMBER() OVER (PARTITION BY trace_id ORDER BY labeled_at DESC) = 1
+    ),
+    -- 👍👎 は本体行の更新ではなく user_query='[FEEDBACK_UPDATE]' の別行として
+    -- INSERT される（Streaming Buffer が UPDATE を許さないため）。
+    -- その行は node が NULL なので steps CTE には入らず、trace_id も
+    -- フィードバック送信時の ContextVar 由来で **実データ上 NULL** である。
+    -- したがって trace_id では結べない。request_id で突き合わせる。
+    feedback AS (
+      SELECT request_id, user_rating, feedback_category, feedback_reason
+      FROM `{LOGS_TABLE}`
+      WHERE user_rating IS NOT NULL
+        AND request_id IS NOT NULL
+        AND DATE(timestamp) >= DATE_SUB(CURRENT_DATE(), INTERVAL @days DAY)
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY request_id ORDER BY timestamp DESC) = 1
+    ),
+    -- 期待値が付与済みかどうか。これが無いと 👎 の一覧が「溜まるだけで捌けない」
+    -- 行列になり、次に何を処理すべきかが分からなくなる。
+    latest_expectation AS (
+      SELECT trace_id, query_type AS expected_query_type
+      FROM `{EXPECTATIONS_TABLE}`
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY trace_id ORDER BY created_at DESC) = 1
     )
     SELECT
       s.trace_id,
+      -- USING (request_id) で結合しているため修飾子なしで参照する
+      request_id,
       s.started_at,
       s.ended_at,
       s.step_count,
@@ -117,11 +150,19 @@ def list_traces(
       s.endpoint,
       l.label,
       l.note,
-      l.labeled_at
+      l.labeled_at,
+      f.user_rating,
+      f.feedback_category,
+      f.feedback_reason,
+      e.expected_query_type
     FROM steps s
-    LEFT JOIN latest_label l USING (trace_id)
+    LEFT JOIN latest_label       l USING (trace_id)
+    LEFT JOIN latest_expectation e USING (trace_id)
+    LEFT JOIN feedback           f USING (request_id)
     WHERE (@only_unlabeled = FALSE OR l.label IS NULL)
       AND (@only_failed = FALSE OR s.failed_steps > 0)
+      AND (@only_bad_rating = FALSE OR f.user_rating = 'bad')
+      AND (@only_unexpected = FALSE OR e.expected_query_type IS NULL)
     ORDER BY s.started_at DESC
     LIMIT @limit
     """
@@ -131,6 +172,8 @@ def list_traces(
             bigquery.ScalarQueryParameter("limit", "INT64", limit),
             bigquery.ScalarQueryParameter("only_unlabeled", "BOOL", only_unlabeled),
             bigquery.ScalarQueryParameter("only_failed", "BOOL", only_failed),
+            bigquery.ScalarQueryParameter("only_bad_rating", "BOOL", only_bad_rating),
+            bigquery.ScalarQueryParameter("only_unexpected", "BOOL", only_unexpected),
         ]
     )
     rows = _get_client().query(query, job_config=job_config).result()
@@ -152,9 +195,58 @@ def list_traces(
             "label": r["label"],
             "note": r["note"],
             "labeled_at": r["labeled_at"].isoformat() if r["labeled_at"] else None,
+            "request_id": r["request_id"],
+            "user_rating": r["user_rating"],
+            "feedback_category": r["feedback_category"],
+            "feedback_reason": r["feedback_reason"],
+            # 期待値が付与済みかどうか。一覧で「処理済み」を見分けるために使う。
+            "expected_query_type": r["expected_query_type"],
+            "has_expectation": r["expected_query_type"] is not None,
         }
         for r in rows
     ]
+
+
+def _fetch_feedback(request_id: str) -> Optional[Dict[str, Any]]:
+    """request_id に紐づく最新の 👍👎 を 1 件返す。
+
+    フィードバックは `update_feedback` が別行として INSERT する。その行は
+    node も trace_id も NULL なので、trace_id 検索では取得できない。
+    """
+    query = f"""
+    SELECT user_rating, feedback_category, feedback_reason
+    FROM `{LOGS_TABLE}`
+    WHERE request_id = @request_id
+      AND user_rating IS NOT NULL
+    ORDER BY timestamp DESC
+    LIMIT 1
+    """
+    try:
+        rows = list(
+            _get_client()
+            .query(
+                query,
+                job_config=bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ScalarQueryParameter(
+                            "request_id", "STRING", request_id
+                        )
+                    ]
+                ),
+            )
+            .result()
+        )
+    except Exception as e:
+        logger.warning(f"feedback read failed (suppressed): {e}")
+        return None
+    if not rows:
+        return None
+    r = rows[0]
+    return {
+        "user_rating": r["user_rating"],
+        "feedback_category": r["feedback_category"],
+        "feedback_reason": r["feedback_reason"],
+    }
 
 
 def get_trace(trace_id: str) -> Dict[str, Any]:
@@ -261,12 +353,25 @@ def get_trace(trace_id: str) -> Dict[str, Any]:
         with_answer = [s for s in pool if s.get("response_answer")]
         summary = (with_answer or pool)[-1]
 
+    # 👍👎 は trace_id を持たない別行に入るため、上の trace_id 検索では拾えない。
+    # trace 内の request_id で引き直して summary に載せる。
+    # （これが無いと詳細画面の rating チップが永久に出ない）
+    request_id = next(
+        (r for r in (s.get("request_id") for s in steps + summaries) if r), None
+    )
+    feedback = _fetch_feedback(request_id) if request_id else None
+    if feedback and summary is not None:
+        summary.update(feedback)
+
     return {
         "trace_id": trace_id,
+        "request_id": request_id,
         "steps": steps,
         "summary": summary,
         "labels": labels,
         "current_label": labels[0]["label"] if labels else None,
+        "feedback": feedback,
+        "expectation": get_latest_expectation(trace_id),
     }
 
 

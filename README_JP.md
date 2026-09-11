@@ -94,7 +94,7 @@
 
 **機能**:
 - **🧠 tool_use による LLM 駆動 NLU**: Orchestrator 外側 LLM が直接構造化引数 (`name`, `season`, `query_type`, `metrics`, ...) を抽出。ツール内 NLU LLM 呼び出しは廃止。
-- **🔧 共通ツール**: `backend/app/services/tools/` に集約された `get_batter_stats_tool`, `get_pitcher_stats_tool`, `mlb_matchup_history_tool`, `mlb_matchup_analytics_tool` を両経路で共有。`USE_SEMANTIC_LAYER=true` 時は `query_semantic_metrics_tool` (dbt Semantic Layer) に切替（Cloud Run 専用）。
+- **🔧 共通ツール**: `backend/app/services/tools/` に集約された `get_batter_stats_tool`, `get_pitcher_stats_tool`, `mlb_matchup_history_tool`, `mlb_matchup_analytics_tool` を両経路で共有。`USE_SEMANTIC_LAYER=true` 時は `query_semantic_metrics_tool` (dbt Semantic Layer) に切替（Cloud Run 専用）。`USE_GLOSSARY_RAG=true` 時は文書 RAG 用の `glossary_search_tool` を registry に追加登録。
 - **🗄️ output_format='data' デフォルト**: ツールは生データと `bigquery_latency_ms` を返却。Orchestrator は Markdown 整形版を即返却。`synthesize_response=True` 時のみ追加 LLM 呼び出しで自然言語化。
 - **💰 Token Budget プール分離 (Phase 3-A)**: `chat` / `report` プールを独立管理。レポート 1 本生成でチャット枠が枯渇するリスクを解消。
 - **📊 アダプティブ UI**: ツール出力に応じてナラティブ・テーブル・チャート・`StrategyReportCard` を自動切替。
@@ -116,35 +116,49 @@
 - **👍👎 ユーザーフィードバックUI**: 全AI回答にThumbs Up/Downボタンを配置し、Bad評価時は詳細フィードバックフォームを表示
 - **📋 フィードバックカテゴリ**: 構造化されたカテゴリ分類（`inaccurate`, `slow`, `irrelevant`, `wrong_player`, `wrong_stats`）と自由記述の理由欄
 - **🗄️ BigQueryロギング**: フィードバック（評価・カテゴリ・理由）をLLMインタラクションログと共にBigQueryに記録
-- **🔄 ゴールデンデータセットパイプライン**: ユーザーフィードバックからLLM精度を継続的に改善する3ステップワークフロー
+- **🔎 Trace Viewer のレビュー待ち行列**: `👎 ONLY` + `未処理のみ` で未対応の 👎 だけを表示。期待値を付与すると行列から消える
+- **✍️ 期待値の付与**: 「本来どう解釈されるべきだったか」を記録。選択肢は tool schema の enum からサーバが配信するため、UI 側に綴りのズレが生じない
+- **🔀 PR の自動作成**: 承認すると `golden_dataset.json` への Pull Request が立つ。CI ゲートの基準は git を正とする
+
+**この仕組みが何をするか（しないか）**: 自動で学習することはございません。モデルの重みもプロンプトも変わりません。増えるのは**テストケース**です。👎 が回帰テストに変換され、同じ失敗が気づかれずに出荷されなくなります。直すのは人であり、この仕組みが保証するのは**直した後に二度と壊れないこと**です。詳細は [ADR-021](docs/adr/021-hitl-golden-flywheel.md) を参照してください。
 
 **HITLフィードバックループ**:
 ```
 ユーザーが回答を 👎 評価 + カテゴリ選択 + 理由記入
          │
          ▼
-  BigQuery ログ（フィードバック記録）
+  BigQuery ログ（trace_id ではなく request_id で突合）
          │
+  ═══════╪═════════ ここから人の作業（Trace Viewer 内で完結） ═════════
+         ▼
   ┌──────┴───────┐
-  │   抽出        │  python backend/scripts/extract_golden_dataset.py
-  │   bad クエリ  │  → pending_review.json（TODOプレースホルダー付き）
+  │ レビュー待ち  │  GET /api/v1/traces?only_bad_rating&only_unexpected
+  │ 行列          │  → まだ誰も処理していない 👎
   └──────┬───────┘
          ▼
   ┌──────┴───────┐
-  │  人間レビュー  │  開発者が正しい expected 値を記入
-  │  （手動）     │  → reviewed: true に変更
+  │ 期待値を付与  │  失敗ラベル（7軸）+ 正解の期待値
+  │               │  → POST /traces/{id}/expected → trace_expectations (BQ)
   └──────┬───────┘
          ▼
   ┌──────┴───────┐
-  │   承認        │  python backend/scripts/approve_to_golden.py
-  │   → golden    │  → golden_dataset.json（テストケースが増加）
+  │   承認        │  POST /traces/promote   ← ボタン 1 つ
   └──────┴───────┘
+  ═══════╪═══════════════ ここから自動 ══════════════════════════════
          ▼
-  CI/CD 評価ゲートが拡張されたゴールデンデータセットで実行
+  GitHub から golden の最新を取得 → 昇格できないものは保留
+         → ブランチ作成 → コミット → PR 作成
+         ▼
+  マージ → CI/CD 評価ゲートが拡張されたゴールデンデータセットで実行
 ```
+
+golden 自身の構造テストを壊すもの（`query_maps` に未実装の `query_type`、同カテゴリ 3 件未満）は**昇格させず保留**します。保留分は BigQuery に残り、不足が解消された時点で自動的に昇格します。
 
 **APIエンドポイント**:
 - `POST /api/v1/qa/feedback` - ユーザーフィードバック送信（評価・カテゴリ・理由）
+- `GET  /api/v1/traces/expected-options` - 期待値入力欄の選択肢（tool schema 由来）
+- `POST /api/v1/traces/{trace_id}/expected` - 期待値の付与
+- `POST /api/v1/traces/promote` - 承認して golden への PR を作成
 
 ### 7. レートリミット & クォータ管理
 **ステータス**: ✅ 本番環境対応
@@ -259,20 +273,25 @@ CI/CD ドリフトチェック → アクティブモデルの学習データ vs
 
 **概要**: AIシステムの各処理ステップの出力品質を、別のLLM（Gemini Flash）が自動的に多次元で採点する品質保証フレームワーク。本番リクエストの入出力をBigQueryにログし、バッチ処理でサンプル評価を実行する設計。
 
-**5つの Judge サービス**:
+**稼働中の Judge は 2 つ**（2026-09-07 時点、実コードの呼び出し元を確認）:
 
-| # | Judge | 評価対象 | 評価次元 | ファイル |
-|---|---|---|---|---|
-| 1 | **パース精度** | LLMクエリパース結果 | query_type正確性、metrics抽出、選手名解決、意図理解 | `llm_judge_service.py` |
-| 2 | **Synthesizer品質** | AI生成レスポンス | 事実正確性、分析深度、言語品質、構造、完全性（＋RAG経路のみ文脈関連性） | `synthesizer_judge_service.py` |
-| 3 | **Reflection判断** | 自己修正ループ | トリガー適切性、根本原因特定、修正品質、過修正リスク | `reflection_judge_service.py` |
-| 4 | **ルーティング精度** | Supervisorルーティング | ルーティング正確性、曖昧性対応、判断根拠の質 | `routing_judge_service.py` |
-| 5 | **ドリフトアラート品質** | データドリフト検知結果 | 統計的妥当性、実用的重要性、対応可能性、ドメイン関連性 | `drift_alert_judge_service.py` |
+| # | Judge | 評価対象 | 評価次元 | 状態 | ファイル |
+|---|---|---|---|---|---|
+| 2 | **Synthesizer品質** | 本番チャット経路の AI 生成レスポンス | 事実正確性、分析深度、言語品質、構造、完全性（＋RAG経路のみ文脈関連性） | ✅ **本番稼働** — `online_judge_service.py` 経由でサンプリング・非同期採点 | `synthesizer_judge_service.py` |
+| 1 | **パース精度** | ゴールデンデータセットに対する LLM のパース結果 | query_type正確性、metrics抽出、選手名解決、意図理解 | ⚠️ **オフライン専用** — `evaluate_with_llm_judge.py` からのみ。本番コードからの参照なし | `llm_judge_service.py` |
+
+**実装済み・未配線の 3 つ**（ユニットテストからのみ参照）:
+
+| # | Judge | 想定していた対象 | ファイル |
+|---|---|---|---|
+| 3 | Reflection判断 | `StrategyAgent` の自己修正ループ | `reflection_judge_service.py` |
+| 4 | ルーティング精度 | Supervisor ルーティング。**`SupervisorAgent` 廃止により対象が消失**（[ADR-010](docs/adr/010-chat-orchestrator-replaces-langgraph.md)） | `routing_judge_service.py` |
+| 5 | ドリフトアラート品質 | KS/PSI ドリフト検知へのセカンドオピニオン（対象は ML モデルの**入力データ分布**であり、モデル自体ではない） | `drift_alert_judge_service.py` |
 
 **運用アーキテクチャ**:
 ```
-【リアルタイム】ユーザー質問 → 各ステップの入出力を BQ にログ（Gemini 追加呼び出し 0回）
-【バッチ評価】BQ からサンプル抽出 → 5つの Judge で一括採点 → 評価結果を BQ に保存
+【オンライン】チャット応答 → サンプリング → Synthesizer Judge が非同期採点 → BQ online_judge_verdicts
+【オフライン】golden_dataset.json → evaluate_with_llm_judge.py → Parse Judge → JSON 出力
 ```
 
 **E2Eスクリプト**:

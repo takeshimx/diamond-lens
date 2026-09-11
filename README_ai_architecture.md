@@ -20,7 +20,8 @@
 | [8. Reflection Loop](#8-reflection-loop) | 自己修正フロー |
 | [9. Request Lifecycle](#9-request-lifecycle-1-クエリの旅) | 1 クエリの旅 |
 | [9.5. Token Budget プール分離](#95-token-budget-プール分離-phase-3-a) | chat / report 別予算管理 (Phase 3-A) |
-| [9.7. Trace Viewer と失敗ラベリング](#97-trace-viewer-と失敗ラベリング) | 実行経路の閲覧・失敗ラベル付与 (ADR-053) |
+| [6.1. HITL フライホイール](#61-hitl-フライホイール👎--回帰テスト) | 👎 を回帰テストに変換し PR まで自動化 (ADR-021) |
+| [9.7. Trace Viewer と失敗ラベリング](#97-trace-viewer-と失敗ラベリング) | 実行経路の閲覧・失敗ラベル付与・期待値付与 (ADR-053 / ADR-021) |
 | [10. CI/CD 統合状況](#10-cicd-統合状況とギャップ) | 現状とギャップ |
 | [11. Glossary RAG](#11-glossary-rag-agentic-retrieval--llm-リランク) | 用語集の検索・リランク・評価 |
 
@@ -29,6 +30,10 @@
 ## 1. 全体像
 
 > **2026-05-17 改訂**: チャット側を **`ChatOrchestrator` (素の Gemini SDK + tool_use ループ)** へ刷新。旧 `SupervisorAgent` + 4 sub-agent (Batter/Pitcher/Matchup/Stats) の LangGraph 構造を畳み、LLM 呼び出し回数を 4 回→ 2 回 (synthesize_response=False で 1 回) に削減。`StrategyAgent` のみ LangGraph 維持。
+>
+> **2026-09-04 時点の図に反映済み**: Glossary RAG (`glossary_search_tool` + リランク / HyDE / カテゴリ別閾値、§11)、Context Caching (§2.5)、Trace Viewer と失敗ラベリング (§9.7)、Synthesizer Judge の本番オンライン採点 (§5)。
+>
+> **LangGraph の現在地**: 現役は `StrategyAgent` のみ。`SupervisorAgent` / `BatterAgent` / `PitcherAgent` / `MatchupAgent` / `StatsAgent` は `backend/app/services/agents/` に残置され、`ai_agent_service.run_mlb_agent` 経由で非ストリーム系エンドポイントから到達可能な状態でございます（削除は保留）。チャットのストリーム経路 (`/qa/agentic-stats-stream`) は `ChatOrchestrator` のみを使用いたします。
 
 AI コアは **「Gateway を必ず通す → 自動でログ & コスト計測 → 別軸で Judge が品質採点」** という三層構造でございます。
 
@@ -41,12 +46,16 @@ graph TB
         OffTopic[Off-topic 検知]
     end
 
-    subgraph ChatPath["Chat Path (新)"]
-        ChatOrch["ChatOrchestrator<br/>素の Gemini SDK + tool_use loop<br/>(synthesize_response=False がデフォルト)"]
+    subgraph ChatPath["Chat Path (現行)"]
+        ChatOrch["ChatOrchestrator<br/>素の Gemini SDK + tool_use loop<br/>MAX_TOOL_ITERATIONS=6<br/>合成要否は SYNTHESIS_REQUIRED_TOOLS で判定"]
     end
 
-    subgraph StrategyPath["Strategy Path"]
+    subgraph StrategyPath["Strategy Path (LangGraph 現役)"]
         StrategyAgent["StrategyAgent (LangGraph)<br/>Planner → ParallelExec → Aggregator → Reflection → Strategist"]
+    end
+
+    subgraph LegacyPath["Legacy Path (残置・削除保留)"]
+        LegacyAgents["ai_agent_service.run_mlb_agent<br/>SupervisorAgent + Batter/Pitcher/Matchup/Stats<br/>(LangGraph)"]
     end
 
     subgraph CommonTools["Common Tools (backend/app/services/tools/)"]
@@ -55,12 +64,19 @@ graph TB
         T3[mlb_matchup_history_tool]
         T4[mlb_matchup_analytics_tool]
         T5["query_semantic_metrics_tool<br/>(USE_SEMANTIC_LAYER=true 時)"]
+        T6["glossary_search_tool<br/>(USE_GLOSSARY_RAG=true 時)"]
+    end
+
+    subgraph RAG["Glossary RAG (§11)"]
+        VecSearch["BQ ML.DISTANCE COSINE<br/>カテゴリ別閾値 (glossary 0.275 / rules 0.35)<br/>rules は HyDE で英語化して埋め込み"]
+        Rerank["rerank_service<br/>Gemini リランク → 上位 5 件<br/>失敗時は fail-open"]
     end
 
     subgraph Gateway["LLM Gateway 層 (単一窓口)"]
         CallGemini["call_gemini()"]
         LCCallback["LangchainUsageCallback<br/>(pool='chat' / 'report')"]
         PromptReg[Prompt Registry<br/>active / shadow]
+        PromptCache["prompt_cache_service<br/>Context Caching (§2.5)"]
     end
 
     subgraph Budget["Token Budget (Phase 3-A)"]
@@ -71,22 +87,25 @@ graph TB
 
     subgraph Observability["Observability 層 (BQ)"]
         LogService[LLMLoggerService<br/>非同期書込]
-        BQLogs[(BQ: llm_interaction_logs<br/>tokens / cost / latency / trace_id / pool)]
+        BQLogs[(BQ: llm_interaction_logs<br/>tokens / cost / latency / trace_id / pool<br/>node / iteration / tool_calls)]
+        TraceViewer["Trace Viewer (§9.7)<br/>GET /api/v1/traces<br/>trace_labels / trace_expectations<br/>(append-only)"]
     end
 
-    subgraph Judges["Judge Layer (品質採点・非同期)"]
-        J1[#1 ParseJudge]
-        J2[#2 SynthesizerJudge]
-        J3[#3 ReflectionJudge]
-        J4[#4 RoutingJudge]
-        J5[#5 DriftAlertJudge]
+    subgraph Judges["Judge Layer (稼働中は 2 種のみ)"]
+        J2["#2 SynthesizerJudge ✅ 本番<br/>サンプリング採点・非同期<br/>RAG 経路は context_relevance も"]
+        J1["#1 ParseJudge ⚠️ オフライン専用<br/>ゴールデンセット評価スクリプトのみ"]
     end
 
     User --> Guardrail
     Guardrail -->|pass / chat| ChatOrch
     Guardrail -->|pass / strategy| StrategyAgent
+    Guardrail -.->|旧経路| LegacyAgents
     ChatOrch --> CommonTools
     StrategyAgent --> CommonTools
+    LegacyAgents -.-> CommonTools
+    T6 --> VecSearch
+    VecSearch --> Rerank
+    Rerank --> Gateway
     ChatOrch --> Gateway
     StrategyAgent --> Gateway
     Judges --> Gateway
@@ -94,6 +113,7 @@ graph TB
     Gateway --> Budget
     Gateway --> LogService
     LogService --> BQLogs
+    BQLogs --> TraceViewer
 ```
 
 ### 設計の要
@@ -104,6 +124,8 @@ graph TB
 | ユーザー質問の NLU は **Orchestrator の LLM 自身** が責任を持つ | ツール内 `_parse_query_with_llm` (NLU 用 LLM) は廃止。LLM が tool_use で構造化引数を直接生成 |
 | ツールは「動的 SQL → BQ フェッチ → 生データ返却」のみ | `output_format='data'` がデフォルト。ツール内の応答生成 LLM は呼ばない |
 | Token Budget はチャット / レポートで分離 | プール別に超過判定し、レポート 1 本がチャット枠を枯渇させない (Phase 3-A) |
+| 応答合成の要否は **ツール名** で決める | `SYNTHESIS_REQUIRED_TOOLS = {"glossary_search_tool"}`。成績照会は機械整形 (LLM 追加呼び出しなし)、用語集のみ文章化 (§11) |
+| 検索は **常時ではなく LLM が要否を判断** | Agentic RAG。`USE_GLOSSARY_RAG` で `glossary_search_tool` を registry に条件付き登録 |
 
 ---
 
@@ -225,7 +247,15 @@ parse_query_v1.txt:
 | `success`, `error_type`, `error_message` | 失敗観測 | `try/finally` で必ず記録 |
 | `node`, `iteration`, `tool_calls` | **Trace Viewer (§9.7)** | エージェントのステップ単位で caller が明示。`tool_calls` は `LLMLogEntry.set_tool_calls()` が JSON 文字列化 |
 
-> **`model IS NULL` の行が存在いたします。** ツール実行のように LLM を呼ばないステップも trace の一部として 1 行記録するためでございます。`usage_stats_service` は全クエリで `WHERE model IS NOT NULL` により LLM 行のみを集計しているため、コストダッシュボードには影響いたしません（§9.7 参照）。
+> **`model IS NULL` の行が存在いたします。** LLM を呼ばないステップも記録するためで、**3 種類**ございます。
+>
+> | 種別 | `node` | 書き手 |
+> |---|---|---|
+> | ツール実行 | `executor` | `ChatOrchestrator`（§9.7） |
+> | エンドポイントのサマリ | **NULL** | 各エンドポイント（`llm_logger.log(log_entry)` が計 9 箇所） |
+> | Guardrail のブロック | **NULL** | `security_guardrail._log_incident`（§7） |
+>
+> `usage_stats_service` は全クエリで `WHERE model IS NOT NULL` により LLM 行のみを集計しているため、コストダッシュボードには影響いたしません。ただし **`node IS NULL` だけではサマリ行とブロック行を区別できません**（後者は `error_type='injection_attempt'` で識別いたします）。
 
 ### 書き込みフロー
 
@@ -286,31 +316,45 @@ shadow_prompt = get_prompt("parse_query", role="shadow", query="大谷のHR数�
 
 ## 5. Judge Layer (LLM-as-a-Judge)
 
-AI コアの 5 つの判断ポイントに対し、それぞれ専用の LLM Judge を配置しております。全 Judge は **Gateway 経由** で Gemini を呼ぶため、Judge 自身の呼び出しコストも `llm_interaction_logs` に記録されます。
+**現在稼働している Judge は 2 種類でございます**（2026-09-07 時点、実コードの参照を確認）。
+
+| | Judge | 何を採点するか |
+|---|---|---|
+| **本番** | **#2 Synthesizer Judge** | `ChatOrchestrator` の応答を、サンプリングで非同期採点 |
+| **オフライン** | **#1 Parse Judge** | ゴールデンセット 14 ケースに対するパース精度（評価スクリプト実行時のみ） |
+
+Judge は **Gateway 経由** で Gemini を呼ぶため、Judge 自身の呼び出しコストも `llm_interaction_logs` に記録されます。
+
+> **未配線の 3 種について**: `ReflectionJudge` / `RoutingJudge` / `DriftAlertJudge` は実装とユニットテストは済んでおりますが、**どこからも呼ばれておりません**。特に `RoutingJudge` は、採点対象だった `SupervisorAgent` の routing を [[010-chat-orchestrator-replaces-langgraph]] で廃止したため、**対象そのものを失っております**。以下の一覧では取り消し済みの状態として記載いたします。
 
 ```mermaid
 graph LR
-    Q[User Query] --> R{Supervisor Routing}
-    R -->|採点| J4[#4 RoutingJudge]
-    R --> P[LLM Parser]
-    P -->|採点| J1[#1 ParseJudge]
-    P --> Ref{Reflection?}
-    Ref -->|採点| J3[#3 ReflectionJudge]
-    Ref --> S[Synthesizer]
-    S -->|採点| J2[#2 SynthesizerJudge]
+    Chat["ChatOrchestrator<br/>(本番チャット経路)"] -->|サンプリング・非同期| OJ[online_judge_service]
+    OJ --> J2["#2 SynthesizerJudge ✅ 本番稼働<br/>factual_accuracy / analytical_depth /<br/>language_quality / structure / completeness<br/>+ RAG 経路のみ context_relevance"]
+    J2 --> BQV[(BQ: online_judge_verdicts)]
 
-    D[Data Drift Detector] -->|採点| J5[#5 DriftAlertJudge]
+    Golden[(golden_dataset.json<br/>14 ケース)] -->|手動 / CI 実行| Script[evaluate_with_llm_judge.py]
+    Script --> J1["#1 ParseJudge ⚠️ オフライン専用<br/>本番コードからの参照なし"]
+    J1 --> JSONOut[llm_judge_results_*.json]
+
+    subgraph Dormant["実装済み・未配線 (テストからのみ import)"]
+        J3["#3 ReflectionJudge<br/>想定対象: StrategyAgent の Reflection"]
+        J4["#4 RoutingJudge<br/>想定対象: 旧 Supervisor の routing<br/>= 対象が既に存在しない"]
+        J5["#5 DriftAlertJudge<br/>想定対象: KS/PSI ドリフト検知の妥当性"]
+    end
 ```
 
 ### Judge 一覧
 
-| # | Judge | ファイル | 評価対象 | 主要次元 (1-5) | 閾値 |
-|---|---|---|---|---|---|
-| 1 | **Parse Judge** | [llm_judge_service.py](backend/app/services/llm_judge_service.py) | 自然言語 → 構造化クエリのパース精度 | query_type / metrics / entity / intent | overall ≥ 3.5 |
-| 2 | **Synthesizer Judge** | [synthesizer_judge_service.py](backend/app/services/synthesizer_judge_service.py) | レポート・回答テキストの品質 | factual_accuracy / analytical_depth / language_quality / structure / completeness ＋ RAG 経路のみ context_relevance | overall ≥ 3.5 |
-| 3 | **Reflection Judge** | [reflection_judge_service.py](backend/app/services/reflection_judge_service.py) | 自己修正トリガーと修正策の妥当性 | 過修正の有無を含む | — |
-| 4 | **Routing Judge** | [routing_judge_service.py](backend/app/services/routing_judge_service.py) | Supervisor の routing 判断 | batter / pitcher / stats / matchup の分類精度 | — |
-| 5 | **Drift Alert Judge** | [drift_alert_judge_service.py](backend/app/services/drift_alert_judge_service.py) | データドリフト統計検知のセカンドオピニオン | アクションが本当に必要か | ACTION_THRESHOLD ≥ 3.5 |
+| # | Judge | ファイル | 評価対象 | 主要次元 (1-5) | 閾値 | **配線状況** |
+|---|---|---|---|---|---|---|
+| 2 | **Synthesizer Judge** | [synthesizer_judge_service.py](backend/app/services/synthesizer_judge_service.py) | レポート・回答テキストの品質 | factual_accuracy / analytical_depth / language_quality / structure / completeness ＋ RAG 経路のみ context_relevance | overall ≥ 3.5 | ✅ **本番稼働**。`ChatOrchestrator` → [online_judge_service.py](backend/app/services/online_judge_service.py) 経由でサンプリング採点 |
+| 1 | **Parse Judge** | [llm_judge_service.py](backend/app/services/llm_judge_service.py) | 自然言語 → 構造化クエリのパース精度 | query_type / metrics / entity / intent | overall ≥ 3.5 | ⚠️ **オフライン専用**。[evaluate_with_llm_judge.py](backend/scripts/evaluate_with_llm_judge.py) からのみ。本番コードからの参照なし |
+| 3 | **Reflection Judge** | [reflection_judge_service.py](backend/app/services/reflection_judge_service.py) | 自己修正トリガーと修正策の妥当性 | 過修正の有無を含む | — | ❌ **未配線**（テストからのみ import） |
+| 4 | **Routing Judge** | [routing_judge_service.py](backend/app/services/routing_judge_service.py) | Supervisor の routing 判断 | batter / pitcher / stats / matchup の分類精度 | — | ❌ **未配線かつ対象消失**。`SupervisorAgent` 廃止により採点対象が存在しない |
+| 5 | **Drift Alert Judge** | [drift_alert_judge_service.py](backend/app/services/drift_alert_judge_service.py) | データドリフト統計検知（KS / PSI）のセカンドオピニオン。対象は ML モデルの**入力データ分布**であり、モデル自体ではない | アクションが本当に必要か | ACTION_THRESHOLD ≥ 3.5 | ❌ **未配線**（テストからのみ import） |
+
+> **なぜ未配線のまま残しているか**: #3 / #5 は接続先（StrategyAgent の Reflection、ドリフト検知エンドポイント）が存在するため、配線は後から可能でございます。#4 は対象が消えたため、実質的に **アーキテクチャ変更に取り残された成果物**でございます。削除せず記録として残しております（[[053-agent-trace-viewer-failure-labeling]] と同じく、「計装対象を見誤る」類の失敗の証跡として）。
 
 ### Parse Judge の評価出力（例）
 
@@ -361,9 +405,10 @@ RAG の品質評価では **RAG Triad**（context relevance / groundedness / ans
 
 ```mermaid
 flowchart TB
-    Prod[Production traffic<br/>llm_interaction_logs] -->|HITL 抽出| Pending[pending_review.json]
-    Pending -->|人手レビュー| Approve[approve_to_golden.py]
-    Approve --> Golden[(golden_dataset.json<br/>現在 14 ケース)]
+    Prod[Production traffic<br/>llm_interaction_logs] -->|request_id で突合| Queue[Trace Viewer<br/>レビュー待ち行列]
+    Queue -->|人が期待値を付与| Exp[(trace_expectations<br/>append-only)]
+    Exp -->|承認 POST /traces/promote| PR[GitHub PR]
+    PR -->|マージ| Golden[(golden_dataset.json<br/>現在 40 ケース)]
 
     Golden --> RunEval[evaluate_with_llm_judge.py]
     RunEval --> Parser1[Batting Parser]
@@ -383,13 +428,29 @@ flowchart TB
 
 | ファイル | 役割 |
 |---|---|
-| [backend/tests/golden_dataset.json](backend/tests/golden_dataset.json) | 14 ケース（季打 / 季投 / splits / 通算） |
-| [backend/tests/pending_review.json](backend/tests/pending_review.json) | HITL レビュー待ちキュー |
-| [backend/scripts/extract_golden_dataset.py](backend/scripts/extract_golden_dataset.py) | BQ ログから候補を抽出 |
-| [backend/scripts/approve_to_golden.py](backend/scripts/approve_to_golden.py) | レビュー済みを Golden へ昇格 |
+| [backend/tests/golden_dataset.json](backend/tests/golden_dataset.json) | 40 ケース（季打 / 季投 / splits / 通算）。14 件では 1 件が閾値の 7 ポイントを占め、LLM の非決定性でゲートが反転していたため拡充 |
+| [backend/app/services/golden_promotion_service.py](backend/app/services/golden_promotion_service.py) | 昇格判定（I/O なし）。UI 経由と CLI 経由が同じ関数を使う |
+| [backend/app/services/golden_pr_service.py](backend/app/services/golden_pr_service.py) | GitHub API 経由で PR を作成（§6.1） |
+| [backend/scripts/approve_to_golden.py](backend/scripts/approve_to_golden.py) | ローカル用の副経路（PAT 未設定・オフライン時） |
 | [backend/scripts/evaluate_with_llm_judge.py](backend/scripts/evaluate_with_llm_judge.py) | ルールベース + Judge 並列実行 |
 | [backend/scripts/evaluate_llm_accuracy.py](backend/scripts/evaluate_llm_accuracy.py) | CI 用ゲート（accuracy ≥ 80% で exit 0） |
 | [backend/tests/test_llm_evaluation.py](backend/tests/test_llm_evaluation.py) | Golden の構造検証（LLM 非依存） |
+
+### 6.1. HITL フライホイール（👎 → 回帰テスト）
+
+判断の経緯は [ADR-021](docs/adr/021-hitl-golden-flywheel.md) に記録してございます。ここでは実装上の要点のみ挙げます。
+
+**自動で学習はいたしません。** モデルの重みもプロンプトも変わらず、増えるのは**テストケース**でございます。👎 が「忘れられる BQ の 1 行」から「消えない赤いテスト」に変わり、同じ失敗が気づかれずに再発しなくなります。直すのは人で、この仕組みが保証するのは**直した後に壊れないこと**でございます。
+
+| 要点 | 内容 |
+|---|---|
+| **結合キーは `request_id`** | 👎 は `user_query='[FEEDBACK_UPDATE]'` の別行として INSERT され、その行は `node` も **`trace_id` も NULL**（実データで確認）。`trace_id` では結べません |
+| **`only_failed` では拾えない** | Guardrail の拒否は全ステップ `success = true` のまま記録されます。ユーザー評価は独立した軸として `only_bad_rating` を持ちます |
+| **語彙は tool schema の enum** | `QUERY_TYPE_CONFIG` を展開すると splits が `batting_splits.risp` になり、LLM が実際に出す `query_type` + `split_type` の 2 フィールド構造と噛み合いません |
+| **出口は PR** | golden は CI の合格ラインそのもの。BQ を正にすると基準が知らぬ間に書き換わります。ファイルは必ず GitHub から読みます（コンテナ内の写しはビルド時点で古い） |
+| **保留規則** | 未実装 `query_type` / カテゴリ 3 件未満は昇格させず BQ に残します。「赤い PR が修正待ちチケットになる」のは**直せる失敗に限る**ためです |
+
+**採点範囲の限界**: `evaluate_llm_accuracy.py` はツール引数のみを比較し、ツールを実行いたしません。したがって「パースは正しいが下流が壊れている」種類のバグは golden では捕捉できず、`evaluate_with_llm_judge.py` か対象コードの単体テストが担います。
 
 ### テストケース構造
 
@@ -434,7 +495,44 @@ graph LR
 | 2 | MLB ドメイン外（料理・天気・コーディング依頼など）の検知 |
 | 3 | 異常な入力長・制御文字・反復構造 |
 
-ブロック時も `llm_interaction_logs` に `error_type = guardrail_*` で記録され、傾向を分析可能でございます。
+ブロック時も `llm_interaction_logs` に 1 行記録されます（[security_guardrail.py:225-236](backend/app/services/security_guardrail.py#L225-L236) の `_log_incident`）。
+
+### 記録される値と、その既知の粗さ
+
+| カラム | 実際に入る値 | 制約 |
+|---|---|---|
+| `error_type` | **`injection_attempt` 固定** | Layer 1/2/3 のどれで落ちても同じ値。**どの層で落ちたかは `error_message` の文字列を読まないと分からない** |
+| `error_message` | `Guardrail blocked: {detected_pattern}` | 実質ここだけが層の識別子 |
+| `endpoint` | **`/qa/agentic-stats` にハードコード** | ストリーム経路からブロックされても同じ値が入る。**経路別のブロック傾向を集計で切り分けられない** |
+| `user_query` | 先頭 200 文字のみ | プライバシー配慮 |
+| `model` | **NULL** | LLM を呼ばずに落としているため |
+
+ブロック傾向を分析する設計意図に対し、**記録の粒度が追いついていない箇所**でございます。層別の `error_type` と `endpoint` の動的化は未対応です。
+
+### 実行順序（Guardrail は「最初」ではない）
+
+```
+① RequestIDMiddleware    trace_id / request_id 採番
+② RateLimitMiddleware    流量超過なら 429
+③ FirebaseAuthMiddleware ID トークン検証。不正なら 401
+④ monitoring_middleware  レイテンシ計測
+   ── ここからルートハンドラ ──
+⑤ Token Budget           日次上限超過なら 503（LLM を呼ばない）
+⑥ Security Guardrail ★   ここで初めて「入力の中身」を検査
+⑦ LLM
+```
+
+安いチェックから順に並べ、高コストな検査に到達する前に落とす構成でございます。①〜⑤は「誰が・どれだけ」を見るのに対し、Guardrail は**入力の中身を最初に検査する関門**でございます。
+
+### ブロック時の返し方は経路で異なる（**4xx は返さない**）
+
+| 経路 | Guardrail の実行位置 | ブロック時の応答 |
+|---|---|---|
+| ストリーム (`/qa/agentic-stats-stream`) | [chat_orchestrator.py:523](backend/app/services/chat_orchestrator.py#L523)（`run_stream` 内） | **HTTP 200 のまま**、SSE の `{type:"error", error_type:"blocked"}` イベント。`session_start` / `agent_start` を送信済みでステータスコードを変更できないため |
+| 非ストリーム (`/qa/player-stats`) | [ai_analytics_endpoints.py:96-105](backend/app/api/endpoints/ai_analytics_endpoints.py#L96-L105) | **HTTP 200**、JSON に `blocked: true` |
+| `ChatOrchestrator.run()`（テスト・バッチ） | [chat_orchestrator.py:441](backend/app/services/chat_orchestrator.py#L441) | `PromptInjectionError` を送出 |
+
+エンドポイント層と Orchestrator 内の**二重チェック**になっているのは、Orchestrator を別経路（MCP 等）から呼ばれても素通ししないためでございます。
 
 ---
 
@@ -444,7 +542,11 @@ graph LR
 
 ### StrategyAgent の Reflection (現役)
 
-`should_reflect()` でリトライ要否を判定し、必要なら **クエリを書き直して再実行** する自己修正フローでございます。
+`should_reflect()` でリトライ要否を判定し、必要なら **エラー内容をプロンプトに載せて planner に戻し、再計画させる** 自己修正フローでございます（[strategy_agent.py:318](backend/app/services/agents/strategy_agent.py#L318)）。
+
+> **注意**: `ReflectionJudge` はこのフローに**配線されておりません**（`strategy_agent.py` に judge の参照はゼロ）。修正策の妥当性は現在**採点されておりません**。§5 の配線状況を参照ください。
+
+> **正確には「クエリの書き直し」ではございません。** `reflection_node` はエラー種別（カラム名の誤認識・0 行・SQL 構文）を文章でプロンプトに載せ、`self.model.invoke()` で LLM に再提案させます。戻り先は `planner` で、そこから改めてツール呼び出しが計画されます。
 
 ```mermaid
 sequenceDiagram
@@ -453,7 +555,6 @@ sequenceDiagram
     participant Exec as ParallelExecutor
     participant Agg as Aggregator
     participant Reflect as Reflection
-    participant Judge3 as ReflectionJudge
     participant Strategist
     participant Logger as LLMLogger
 
@@ -462,9 +563,8 @@ sequenceDiagram
     Exec->>Agg: 結果集約
     Agg->>Reflect: should_reflect?
     alt 空結果 / SQL エラー
-        Reflect->>Reflect: クエリ書き直し
-        Reflect->>Exec: 再試行 (retry_count++)
-        Reflect->>Judge3: 修正策の妥当性採点
+        Reflect->>Reflect: エラー内容をプロンプトに載せて再計画
+        Reflect->>Planner: 戻る (retry_count++、上限 max_retries=2)
     end
     Agg->>Strategist: レポート生成
     Strategist->>Logger: is_retry / retry_count /<br/>reflection_pre_query / post_query を記録
@@ -503,7 +603,8 @@ sequenceDiagram
     API->>Guard: check(query)
     alt blocked
         Guard->>BQ: log(error_type=guardrail_*)
-        Guard-->>FE: 4xx
+        Note over FE,Guard: HTTP は 200 のまま。<br/>session_start / agent_start を送信済みのため<br/>ステータスコードは変更できない
+        Guard-->>FE: SSE event {type:"error", error_type:"blocked"}
     end
     Guard->>Orch: run_stream(query)
     Orch->>Orch: LLM #1: tool_use で構造化引数生成<br/>(name=..., season=..., metrics=[...])
@@ -579,7 +680,7 @@ svc.get_remaining(pool="chat")
 
 ## 9.7. Trace Viewer と失敗ラベリング
 
-ファイル: [backend/app/services/trace_query_service.py](backend/app/services/trace_query_service.py) / [trace_label_service.py](backend/app/services/trace_label_service.py) / [backend/app/api/endpoints/trace_endpoints.py](backend/app/api/endpoints/trace_endpoints.py) / [frontend/src/components/TraceViewer.jsx](frontend/src/components/TraceViewer.jsx)
+ファイル: [backend/app/services/trace_query_service.py](backend/app/services/trace_query_service.py) / [trace_label_service.py](backend/app/services/trace_label_service.py) / [trace_expectation_service.py](backend/app/services/trace_expectation_service.py) / [backend/app/api/endpoints/trace_endpoints.py](backend/app/api/endpoints/trace_endpoints.py) / [frontend/src/components/TraceViewer.jsx](frontend/src/components/TraceViewer.jsx)
 
 §9 の `trace_id` は「束ねられる状態」を作りましたが、**読む面がございませんでした**。実際の調査は BQ コンソールに SQL を手打ちする運用でした。ここを画面にしたのが本セクションでございます。詳細な判断経緯は [ADR-053](docs/adr/053-agent-trace-viewer-failure-labeling.md) を参照ください。
 

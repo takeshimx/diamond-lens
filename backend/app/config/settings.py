@@ -198,7 +198,15 @@ class Settings(BaseSettings):
     # ユーザーの入出力は日本語のまま。書き換えるのは検索に使う文字列だけ。
     # 対象カテゴリは query_rewrite_service.HYDE_CATEGORIES で定義する。
     use_glossary_hyde: bool = False
-    
+
+    # HITL フライホイールの出口。Trace Viewer で承認された期待値を
+    # golden_dataset.json に取り込む PR を、この認証情報で作成する
+    # (golden_pr_service)。未設定でもアプリは起動し、PR 作成を呼んだ時にだけ
+    # 明示的に失敗する。
+    github_token: Optional[str] = None          # fine-grained PAT
+    github_repo: Optional[str] = None           # "owner/repo" 形式
+    github_base_branch: str = "main"
+
     class Config:
         """Pydantic設定"""
         # env_file = ".env"

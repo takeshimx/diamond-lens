@@ -49,11 +49,13 @@ subgraph "Application Layer - Cloud Run"
         Frontend[mlb-diamond-lens-frontend<br/>React + Vite<br/>User dashboard]
         MCPServer[MCP Server<br/>Model Context Protocol<br/>Claude Desktop/Cursor]
         
-        subgraph "AI Core (Refactored 2026-05-17)"
+        subgraph "AI Core (2026-09 時点)"
             StandardAI[Standard AI Service<br/>Gemini 2.5 Flash<br/>Simple Q&A]
-            ChatOrch[ChatOrchestrator<br/>素の Gemini SDK + tool_use loop<br/>LLM 1 回 (synthesize_response=False)]
+            ChatOrch["ChatOrchestrator<br/>素の Gemini SDK + tool_use loop<br/>成績照会は LLM 1 回 / 用語集は 2 回"]
             StrategyAgent[StrategyAgent<br/>LangGraph: Planner→ParallelExec→Aggregator→Reflection→Strategist]
-            CommonTools[Common Tools<br/>backend/app/services/tools/<br/>batter/pitcher/matchup × 2]
+            CommonTools["Common Tools<br/>backend/app/services/tools/<br/>batter / pitcher / matchup × 2 / glossary"]
+            GlossaryRAG["Glossary RAG<br/>BQ ベクトル検索 + Gemini リランク<br/>カテゴリ別閾値 / HyDE"]
+            TraceViewer["Trace Viewer<br/>/api/v1/traces + trace_labels"]
         end
     end
 
@@ -65,7 +67,9 @@ subgraph "Application Layer - Cloud Run"
     subgraph "HITL Feedback Loop"
         FeedbackUI[Feedback UI<br/>👍👎 + Category + Reason]
         FeedbackBQ[(BigQuery<br/>llm_interaction_logs<br/>user_rating, category, reason)]
-        PendingReview[pending_review.json<br/>Human Review]
+        TraceAnnotate[Trace Viewer<br/>review queue + expected answer]
+        Expectations[(BigQuery<br/>trace_expectations<br/>append-only)]
+        GoldenPR[GitHub PR<br/>golden_dataset.json]
         GoldenDataset[golden_dataset.json<br/>LLM Evaluation]
     end
 
@@ -94,6 +98,8 @@ subgraph "Application Layer - Cloud Run"
     MCPServer --> StandardAI
     ChatOrch --> CommonTools
     StrategyAgent --> CommonTools
+    CommonTools --> GlossaryRAG
+    ChatOrch --> TraceViewer
     StandardAI --> Frontend
     ChatOrch --> Frontend
     StrategyAgent --> Frontend
@@ -102,7 +108,7 @@ subgraph "Application Layer - Cloud Run"
         TrainingLayer[Training Layer<br/>Local/Notebook<br/>scripts/train_and_register_ft_transformer.py]
         ModelRegistry[Vertex AI Model Registry<br/>GCS Storage<br/>Model Versioning]
         InferenceLayer[Inference Layer - OPTIONAL<br/>Vertex AI Endpoint<br/>Managed Hosting]
-        ApplicationLayer[Application Layer<br/>FastAPI on Cloud Run<br/>Local K-means (default)<br/>OR HTTP to Vertex AI]
+        ApplicationLayer["Application Layer<br/>FastAPI on Cloud Run<br/>Local K-means (default)<br/>OR HTTP to Vertex AI"]
 
         TrainingLayer --> ModelRegistry
         ModelRegistry -.Optional.-> InferenceLayer
@@ -528,24 +534,30 @@ Request → RequestIDMiddleware → RateLimitMiddleware (Global/Session check) �
 | **Feedback Categories** | `inaccurate`, `slow`, `irrelevant`, `wrong_player`, `wrong_stats` |
 | **Storage** | Feedback logged to BigQuery `llm_interaction_logs` table with `user_rating`, `feedback_category`, `feedback_reason` |
 | **API Endpoint** | `POST /api/v1/qa/feedback` |
-| **Extract Script** | `extract_golden_dataset.py` fetches bad-rated queries → `pending_review.json` |
-| **Approve Script** | `approve_to_golden.py` promotes reviewed cases → `golden_dataset.json` |
-| **Review Process** | Manual: developer edits `pending_review.json`, fills correct `expected` values, sets `reviewed: true` |
+| **Review Queue** | `GET /api/v1/traces?only_bad_rating&only_unexpected` — 👎 traces nobody has handled yet. 👎 rows carry `trace_id = NULL`, so they are joined back by `request_id` |
+| **Annotation** | `POST /api/v1/traces/{trace_id}/expected` → BigQuery `trace_expectations` (append-only, mirrors `trace_labels`) |
+| **Vocabulary** | `GET /api/v1/traces/expected-options` serves `query_type` / `split_type` / `metrics` from the **tool-schema enums**, so the form cannot drift out of sync |
+| **Approval** | `POST /api/v1/traces/promote` → `golden_pr_service` opens a pull request. Git, not BigQuery, is the source of truth for the CI gate |
+| **Hold Rules** | Cases that would break golden's structure tests are held, not promoted: unimplemented `query_type`, or a category with < 3 cases. Held rows stay in BigQuery |
+| **Local Fallback** | `scripts/approve_to_golden.py` writes the file directly (offline / no PAT). Shares `golden_promotion_service` with the API path so both agree |
+| **Secrets** | `GITHUB_TOKEN` (fine-grained PAT: Contents RW, Pull requests RW), `GITHUB_REPO`, `GITHUB_BASE_BRANCH` |
 
 **HITL Feedback Loop**:
 
 ```mermaid
 graph TD
     A[User rates response 👎] --> B[BigQuery: feedback logged]
-    B --> C[extract_golden_dataset.py]
-    C --> D[pending_review.json<br/>TODOs as placeholders]
-    D --> E[Developer reviews<br/>fills correct expected values]
-    E --> F[approve_to_golden.py]
-    F --> G[golden_dataset.json<br/>test cases expanded]
-    G --> H[CI/CD Evaluation Gate<br/>LLM accuracy checked]
-    H -->|Accuracy ≥ 80%| I[Deploy]
-    H -->|Accuracy < 80%| J[Block: Fix prompts]
-    J --> H
+    B -->|join by request_id| C[Trace Viewer review queue<br/>only_bad_rating + only_unexpected]
+    C --> D[Human: failure label + expected answer]
+    D --> E[(trace_expectations<br/>append-only)]
+    E --> F{Approve<br/>POST /traces/promote}
+    F -->|holds unpromotable| E
+    F --> G[GitHub PR<br/>golden_dataset.json]
+    G --> H[Human review + merge]
+    H --> I[CI/CD Evaluation Gate<br/>LLM accuracy checked]
+    I -->|Accuracy ≥ 80%| J[Deploy]
+    I -->|Accuracy < 80%| K[Block: fix prompts or logic]
+    K --> I
 ```
 
 ### 8c. ML Model Monitoring & Data Drift Detection

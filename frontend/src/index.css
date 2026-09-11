@@ -216,3 +216,16 @@ input:focus, textarea:focus { outline: none; }
 
 /* Monospaced digit tabular */
 .tabnum { font-variant-numeric: tabular-nums; }
+
+/* ============================================================
+   Placeholder
+   ------------------------------------------------------------
+   ダークテーマでは既定のプレースホルダが入力済みの値に見える。
+   実値 (--ink-1) と明確に差をつけ、誤って「もう入っている」と
+   読まれないようにする。
+   ============================================================ */
+input::placeholder, textarea::placeholder {
+  color: var(--ink-4);
+  opacity: 0.6;
+  font-style: italic;
+}

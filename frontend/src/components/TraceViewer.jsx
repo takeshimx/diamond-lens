@@ -5,7 +5,12 @@ import { TRACE_LABELS, TRACE_LABEL_MAP, nodeColor, nodeMeta } from '../constants
  * Trace Viewer + Failure Labeling (P0-1)
  *
  * llm_interaction_logs を trace_id 単位で束ねたエージェント実行経路を閲覧し、
- * 失敗ラベルを付与する画面。視覚は UsageDashboard と同じ diamond-lens トークンに統一。
+ * 失敗ラベルと「正解の期待値」を付与する画面。
+ * 視覚は UsageDashboard と同じ diamond-lens トークンに統一。
+ *
+ * 期待値は golden_dataset.json への昇格元になる (HITL フライホイール)。
+ * query_type / split_type / metrics の選択肢は必ず GET /traces/expected-options
+ * から取得する。ここに定数を置くと tool schema の enum と同期漏れを起こす。
  */
 
 // ─── Formatters ─────────────────────────────────────────────
@@ -80,6 +85,31 @@ const btn = (active = false, disabled = false) => ({
   fontFamily: 'var(--ff-mono)', fontSize: 10.5, letterSpacing: '0.08em',
   textTransform: 'uppercase', cursor: disabled ? 'not-allowed' : 'pointer',
 });
+
+const EMPTY_EXPECTATION = {
+  query_type: '', split_type: '', metrics: [], player_name: '',
+  season: '', order_by: '', expected_no_tool: false, user_query: '',
+};
+
+const fieldStyle = {
+  width: '100%', padding: '5px 7px', background: 'var(--bg-0)',
+  border: '1px solid var(--rule)', color: 'var(--ink-1)',
+  fontFamily: 'var(--ff-mono)', fontSize: 10.5, outline: 'none',
+};
+
+const Field = ({ label, hint, children }) => (
+  <label style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+    <span className="h-label" style={{
+      fontSize: 9, letterSpacing: '0.12em', color: 'var(--ink-3)',
+    }}>{label}</span>
+    {children}
+    {hint && (
+      <span style={{ fontFamily: 'var(--ff-mono)', fontSize: 9, color: 'var(--ink-4)' }}>
+        {hint}
+      </span>
+    )}
+  </label>
+);
 
 // ─── Step row ───────────────────────────────────────────────
 function StepRow({ step, index }) {
@@ -206,8 +236,23 @@ export default function TraceViewer({ getBackendURL, getAuthHeaders }) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [onlyUnlabeled, setOnlyUnlabeled] = useState(false);
   const [onlyFailed, setOnlyFailed] = useState(false);
+  const [onlyBadRating, setOnlyBadRating] = useState(false);
+  const [onlyUnexpected, setOnlyUnexpected] = useState(false);
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // 期待値入力の選択肢。サーバ (tool schema の enum) が唯一のソース。
+  const [options, setOptions] = useState({
+    query_types: [], split_types: {}, metrics: [], pr_enabled: false,
+  });
+  const [exp, setExp] = useState(EMPTY_EXPECTATION);
+  const [expSaving, setExpSaving] = useState(false);
+  const [expSaved, setExpSaved] = useState(false);
+  // 保存済みの期待値は既定で編集不可。golden の元データなので、
+  // 開いたついでに書き換わる事故を防ぐ。直すときは明示的に解除させる。
+  const [expEditing, setExpEditing] = useState(false);
+  const [promoting, setPromoting] = useState(false);
+  const [promoteResult, setPromoteResult] = useState(null);
 
   const call = useCallback(async (path, options = {}) => {
     const baseURL = getBackendURL ? getBackendURL() : '';
@@ -224,6 +269,8 @@ export default function TraceViewer({ getBackendURL, getAuthHeaders }) {
         days: '30', limit: '100',
         only_unlabeled: String(onlyUnlabeled),
         only_failed: String(onlyFailed),
+        only_bad_rating: String(onlyBadRating),
+        only_unexpected: String(onlyUnexpected),
         force: String(force),
       });
       const json = await call(`/traces?${qs}`);
@@ -233,15 +280,52 @@ export default function TraceViewer({ getBackendURL, getAuthHeaders }) {
     } finally {
       setLoading(false);
     }
-  }, [call, onlyUnlabeled, onlyFailed]);
+  }, [call, onlyUnlabeled, onlyFailed, onlyBadRating, onlyUnexpected]);
 
   useEffect(() => { loadTraces(); }, [loadTraces]);
 
+  // 選択肢は画面が生きている間 1 回だけ取れば足りる（enum は再デプロイまで不変）
+  useEffect(() => {
+    let alive = true;
+    call('/traces/expected-options')
+      .then((json) => {
+        if (!alive) return;
+        setOptions({
+          query_types: json.query_types || [],
+          split_types: json.split_types || {},
+          metrics: json.metrics || [],
+          pr_enabled: !!json.pr_enabled,
+        });
+      })
+      .catch(() => { /* 期待値入力が使えないだけで trace 閲覧は継続できる */ });
+    return () => { alive = false; };
+  }, [call]);
+
   const loadDetail = useCallback(async (traceId) => {
     setSelected(traceId); setDetail(null); setDetailLoading(true); setNote('');
+    setExpSaved(false); setExpEditing(false);
     try {
       const json = await call(`/traces/${traceId}`);
       setDetail(json.data);
+      // 付与済みなら復元し、未付与なら質問文だけ埋めて残りは空にする。
+      // LLM が実際に返した値 (parsed_*) は入れない。間違いをそのまま
+      // 正解として承認してしまう事故を防ぐため、正解は必ず人が選ぶ。
+      const prev = json.data?.expectation;
+      setExp(prev ? {
+        query_type: prev.query_type || '',
+        split_type: prev.split_type || '',
+        metrics: prev.metrics || [],
+        player_name: prev.player_name || '',
+        season: prev.season ?? '',
+        order_by: prev.order_by || '',
+        expected_no_tool: !!prev.expected_no_tool,
+        user_query: prev.user_query || '',
+      } : {
+        ...EMPTY_EXPECTATION,
+        user_query: json.data?.summary?.user_query
+          || json.data?.steps?.find((s) => s.user_query)?.user_query
+          || '',
+      });
     } catch (e) {
       setError(e.message);
     } finally {
@@ -261,14 +345,92 @@ export default function TraceViewer({ getBackendURL, getAuthHeaders }) {
         },
         body: JSON.stringify({ label: labelId, note: note || null }),
       });
-      await loadDetail(selected);
-      await loadTraces(true);
+      // 再取得しない。trace_labels も Streaming Buffer に入るため直後の
+      // SELECT には現れず、付けたラベルが消えたように見える。さらに
+      // loadDetail は期待値フォームも初期化するため、入力途中の内容を失う。
+      setDetail((d) => (d ? {
+        ...d,
+        current_label: labelId,
+        labels: [{ label: labelId, note: note || null }, ...(d.labels || [])],
+      } : d));
+      setTraces((list) => list.map(
+        (t) => (t.trace_id === selected ? { ...t, label: labelId } : t)
+      ));
     } catch (e) {
       setError(e.message);
     } finally {
       setSaving(false);
     }
-  }, [selected, note, call, getAuthHeaders, loadDetail, loadTraces]);
+  }, [selected, note, call, getAuthHeaders]);
+
+  // 通算 (career_*) は年の概念を持たない。UI 上も送信時も season を落とす。
+  const isCareer = exp.query_type.startsWith('career_');
+  // 付与済みの期待値は golden の元データ。開いたついでに書き換わらないよう
+  // 既定でロックし、直すときだけ明示的に解除させる。
+  const expLocked = !!detail?.expectation && !expEditing;
+
+  const saveExpectation = useCallback(async () => {
+    if (!selected) return;
+    setExpSaving(true); setExpSaved(false); setError(null);
+    try {
+      const json = await call(`/traces/${selected}/expected`, {
+        method: 'POST',
+        headers: {
+          ...(getAuthHeaders ? await getAuthHeaders() : {}),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          user_query: exp.user_query,
+          query_type: exp.query_type,
+          split_type: exp.split_type || null,
+          metrics: exp.metrics,
+          player_name: exp.player_name || null,
+          season: (isCareer || exp.season === '') ? null : Number(exp.season),
+          order_by: exp.order_by || null,
+          expected_no_tool: exp.expected_no_tool,
+          request_id: detail?.request_id || null,
+          note: note || null,
+        }),
+      });
+      setExpSaved(true);
+      setExpEditing(false);
+      // ここで trace を再取得してはいけない。BigQuery の Streaming Buffer は
+      // insert 直後の SELECT にまだ現れず、「未登録」と判定されてフォームが
+      // 初期化される（保存は成功しているのに消えたように見える）。
+      // POST が書き込んだ行をそのまま返すので、それで画面を更新する。
+      setDetail((d) => (d ? { ...d, expectation: json.data } : d));
+      // 一覧の「処理済み」表示も同時に更新する。未処理フィルタ表示中なら
+      // その場で行を落とし、待ち行列が減ったことが見て分かるようにする。
+      setTraces((list) => (onlyUnexpected
+        ? list.filter((t) => t.trace_id !== selected)
+        : list.map((t) => (t.trace_id === selected
+          ? { ...t, has_expectation: true, expected_query_type: json.data.query_type }
+          : t))));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setExpSaving(false);
+    }
+  }, [selected, exp, isCareer, note, detail, call, getAuthHeaders, onlyUnexpected]);
+
+  // 人の作業（ラベル付与と期待値入力）はここまで。以降は自動で走る:
+  // golden_dataset.json への取り込み → ブランチ作成 → コミット → PR 作成。
+  // 直接 main へは書かない。golden は CI の合格ラインそのもので、
+  // 変更履歴とレビューを必ず通す必要があるため。
+  const promoteToGolden = useCallback(async () => {
+    setPromoting(true); setPromoteResult(null); setError(null);
+    try {
+      const json = await call('/traces/promote?days=90', {
+        method: 'POST',
+        headers: { ...(getAuthHeaders ? await getAuthHeaders() : {}) },
+      });
+      setPromoteResult(json);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setPromoting(false);
+    }
+  }, [call, getAuthHeaders]);
 
   return (
     <div style={{
@@ -287,12 +449,55 @@ export default function TraceViewer({ getBackendURL, getAuthHeaders }) {
           {traces.length} TRACES · LAST 30D
         </div>
         <div style={{ flex: 1 }} />
+        <button style={btn(onlyBadRating)} onClick={() => setOnlyBadRating((v) => !v)}>👎 ONLY</button>
+        <button style={btn(onlyUnexpected)} onClick={() => setOnlyUnexpected((v) => !v)}>未処理のみ</button>
         <button style={btn(onlyFailed)} onClick={() => setOnlyFailed((v) => !v)}>FAILED ONLY</button>
         <button style={btn(onlyUnlabeled)} onClick={() => setOnlyUnlabeled((v) => !v)}>UNLABELED</button>
         <button style={btn(false, loading)} disabled={loading} onClick={() => loadTraces(true)}>
           {loading ? 'LOADING…' : '↻ REFRESH'}
         </button>
+        <button
+          style={{ ...btn(false, promoting), borderColor: 'var(--amber)', color: 'var(--amber)' }}
+          disabled={promoting}
+          onClick={promoteToGolden}
+          title={options.pr_enabled
+            ? '承認済みの期待値を golden に取り込む PR を作成します'
+            : 'GITHUB_TOKEN / GITHUB_REPO が未設定です'}
+        >{promoting ? 'CREATING PR…' : '承認して PR 作成'}</button>
       </div>
+
+      {promoteResult && (
+        <div className="rule-b" style={{
+          padding: '8px 16px', fontFamily: 'var(--ff-mono)', fontSize: 10.5,
+          color: 'var(--ink-2)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+        }}>
+          {promoteResult.created ? (
+            <>
+              <Chip color="var(--pos)" filled>PR CREATED</Chip>
+              <span>{promoteResult.added.length} 件を昇格しました</span>
+              <a
+                href={promoteResult.pr_url}
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: 'var(--amber)' }}
+              >{promoteResult.pr_url}</a>
+            </>
+          ) : (
+            <>
+              <Chip color="var(--ink-3)">NO CHANGE</Chip>
+              <span>昇格できるものがありませんでした</span>
+            </>
+          )}
+          {Object.keys(promoteResult.held || {}).length > 0 && (
+            <span style={{ color: 'var(--amber)' }}>
+              保留 {Object.keys(promoteResult.held).length} 件:
+              {' '}{Object.values(promoteResult.held)[0]}
+            </span>
+          )}
+          <div style={{ flex: 1 }} />
+          <button style={btn()} onClick={() => setPromoteResult(null)}>閉じる</button>
+        </div>
+      )}
 
       {error && (
         <div style={{
@@ -332,6 +537,16 @@ export default function TraceViewer({ getBackendURL, getAuthHeaders }) {
                     {fmtTime(t.started_at)}
                   </span>
                   <div style={{ flex: 1 }} />
+                  {t.user_rating === 'bad' && (
+                    <Chip color="var(--neg)" filled title={t.feedback_reason || ''}>
+                      👎 {(t.feedback_category || '').toUpperCase()}
+                    </Chip>
+                  )}
+                  {t.has_expectation && (
+                    <Chip color="var(--pos)" title={'期待値: ' + t.expected_query_type}>
+                      ✓ EXPECTED
+                    </Chip>
+                  )}
                   {t.failed_steps > 0 && <Chip color="var(--neg)" filled>{t.failed_steps} FAIL</Chip>}
                   {lbl && <Chip color={lbl.color}>{lbl.en}</Chip>}
                 </div>
@@ -413,6 +628,188 @@ export default function TraceViewer({ getBackendURL, getAuthHeaders }) {
                       履歴 {detail.labels.length} 件（最新を採用）
                     </div>
                   )}
+                </div>
+              </Card>
+
+              {/* Expected answer (HITL) — golden_dataset への昇格元 */}
+              <Card>
+                <CardHead
+                  title="EXPECTED ANSWER"
+                  subtitle={detail.expectation
+                    ? '付与済み: ' + detail.expectation.query_type
+                      + (detail.expectation.split_type ? ' / ' + detail.expectation.split_type : '')
+                    : '本来どう解釈されるべきだったかを入力する'}
+                  right={detail.feedback?.user_rating === 'bad'
+                    ? <Chip color="var(--neg)" filled title={detail.feedback.feedback_reason || ''}>
+                        👎 {(detail.feedback.feedback_category || '').toUpperCase()}
+                      </Chip>
+                    : null}
+                />
+                <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+                  <Field label="QUERY（golden に入る質問文）">
+                    <input
+                      value={exp.user_query}
+                      disabled={expLocked}
+                      onChange={(e) => setExp((v) => ({ ...v, user_query: e.target.value }))}
+                      placeholder="例: 鈴木誠也の2025年の打率は？"
+                      style={fieldStyle}
+                    />
+                  </Field>
+
+                  <label style={{
+                    display: 'flex', alignItems: 'center', gap: 7,
+                    fontFamily: 'var(--ff-mono)', fontSize: 10, color: 'var(--ink-2)',
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={exp.expected_no_tool}
+                      disabled={expLocked}
+                      onChange={(e) => setExp((v) => ({ ...v, expected_no_tool: e.target.checked }))}
+                    />
+                    ツールを呼ばず断るのが正解（データが無い等）
+                  </label>
+
+                  {!exp.expected_no_tool && (
+                    <>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                        <Field label="QUERY TYPE">
+                          <select
+                            value={exp.query_type}
+                            disabled={expLocked}
+                            onChange={(e) => setExp((v) => ({
+                              ...v, query_type: e.target.value, split_type: '',
+                            }))}
+                            style={fieldStyle}
+                          >
+                            <option value="">— 選択 —</option>
+                            {options.query_types.map((q) => (
+                              <option key={q} value={q}>{q}</option>
+                            ))}
+                          </select>
+                        </Field>
+
+                        <Field
+                          label="SPLIT TYPE"
+                          hint={options.split_types[exp.query_type] ? '' : 'splits 系の query type のみ'}
+                        >
+                          <select
+                            value={exp.split_type}
+                            disabled={expLocked || !options.split_types[exp.query_type]}
+                            onChange={(e) => setExp((v) => ({ ...v, split_type: e.target.value }))}
+                            style={fieldStyle}
+                          >
+                            <option value="">— なし —</option>
+                            {(options.split_types[exp.query_type] || []).map((q) => (
+                              <option key={q} value={q}>{q}</option>
+                            ))}
+                          </select>
+                        </Field>
+                      </div>
+
+                      <Field
+                        label="METRICS"
+                        hint={exp.metrics.length + ' 件選択中 — Ctrl または Cmd + クリックで複数選択'}
+                      >
+                        <select
+                          multiple
+                          value={exp.metrics}
+                          disabled={expLocked}
+                          onChange={(e) => setExp((v) => ({
+                            ...v,
+                            metrics: Array.from(e.target.selectedOptions, (o) => o.value),
+                          }))}
+                          style={{ ...fieldStyle, height: 110 }}
+                        >
+                          {options.metrics.map((m) => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+                      </Field>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.8fr 1fr', gap: 10 }}>
+                        <Field
+                          label="PLAYER NAME"
+                          hint="英語フルネーム。空欄だと選手名は採点対象から外れる"
+                        >
+                          <input
+                            value={exp.player_name}
+                            disabled={expLocked}
+                            onChange={(e) => setExp((v) => ({ ...v, player_name: e.target.value }))}
+                            placeholder="例: Clayton Kershaw"
+                            style={fieldStyle}
+                          />
+                        </Field>
+                        {/* 通算成績に年は存在しない。career_* を選んだ時点で入力させない。
+                            年を入れると「その年を指定するのが正解」という誤った期待値になる。 */}
+                        <Field
+                          label="SEASON"
+                          hint={isCareer ? '通算は年を持たない' : ''}
+                        >
+                          <input
+                            type="number"
+                            value={isCareer ? '' : exp.season}
+                            disabled={expLocked || isCareer}
+                            onChange={(e) => setExp((v) => ({ ...v, season: e.target.value }))}
+                            placeholder={isCareer ? '—' : '例: 2025'}
+                            style={fieldStyle}
+                          />
+                        </Field>
+                        <Field label="ORDER BY" hint="ランキング系のみ">
+                          <select
+                            value={exp.order_by}
+                            disabled={expLocked}
+                            onChange={(e) => setExp((v) => ({ ...v, order_by: e.target.value }))}
+                            style={fieldStyle}
+                          >
+                            <option value="">— なし —</option>
+                            {options.metrics.map((m) => (
+                              <option key={m} value={m}>{m}</option>
+                            ))}
+                          </select>
+                        </Field>
+                      </div>
+                    </>
+                  )}
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    {expLocked ? (
+                      <>
+                        <Chip color="var(--pos)">✓ 付与済み</Chip>
+                        <span style={{ fontFamily: 'var(--ff-mono)', fontSize: 10, color: 'var(--ink-4)' }}>
+                          この trace は処理済みです。approve_to_golden.py で golden に昇格します
+                        </span>
+                        <div style={{ flex: 1 }} />
+                        <button onClick={() => setExpEditing(true)} style={btn()}>修正する</button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          disabled={expSaving || !exp.user_query || (!exp.expected_no_tool && !exp.query_type)}
+                          onClick={saveExpectation}
+                          style={{
+                            ...btn(false, expSaving || !exp.user_query || (!exp.expected_no_tool && !exp.query_type)),
+                            borderColor: 'var(--amber)', color: 'var(--amber)',
+                          }}
+                        >{expSaving ? 'SAVING…' : '期待値を保存'}</button>
+                        {detail.expectation && (
+                          <button onClick={() => setExpEditing(false)} style={btn()}>キャンセル</button>
+                        )}
+                        {expSaved && (
+                          <span style={{ fontFamily: 'var(--ff-mono)', fontSize: 10, color: 'var(--pos)' }}>
+                            保存しました
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  <div style={{
+                    fontFamily: 'var(--ff-mono)', fontSize: 9, color: 'var(--ink-4)', lineHeight: 1.6,
+                  }}>
+                    保存してもプロダクトの振る舞いは変わりません。ここで作るのはテストケースです。
+                    昇格後、まだ壊れていれば CI の精度ゲートが落ちます（それが修正待ちの合図です）。
+                  </div>
                 </div>
               </Card>
 

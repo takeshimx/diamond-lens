@@ -138,7 +138,7 @@ RAG 品質評価の定番である **RAG Triad**（context relevance / groundedn
 
 | ファイル | 件数 | 用途 | 育て方 |
 |---|---:|---|---|
-| `backend/tests/golden_dataset.json` | 14 | L3 パース精度・CI ゲート | HITL フライホイール（👎 → `extract_golden_dataset.py` で BQ から抽出 → 人手レビュー → `approve_to_golden.py` で昇格） |
+| `backend/tests/golden_dataset.json` | 40 | L3 パース精度・CI ゲート | HITL フライホイール（👎 → Trace Viewer のレビュー待ち行列 → 人が期待値を付与 → 承認で golden への PR を自動作成）。詳細は [ADR-021](docs/adr/021-hitl-golden-flywheel.md) |
 | `backend/tests/golden/trajectories.jsonl` | 17 | L2 トラジェクトリ | 手動。`p0` タグ 7 件 / `p1` 10 件 |
 | `backend/tests/golden/fixtures.json` | 4 ツール分 | L2 の BQ 固定データ | 手動 |
 | `backend/tests/golden/retrieval_fixtures.json` | 15 | 検索評価 + 誤発火評価 | 手動。型別に direct 3 / paraphrase 5 / confusable 2 / rule 3 / should_not_fire 2 |

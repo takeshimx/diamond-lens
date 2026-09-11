@@ -133,7 +133,7 @@ ADR は「ある時点で、どの選択肢を、なぜ選んだか」を1ファ
 | 018 | LLM-as-a-Judge (5-panel) offline evaluation | 多次元 Judge で自動採点 vs 人手のみ | ✅ | ⭐P1 | EV★ | README #10 |
 | 019 | Shadow evaluation (champion / challenger) | 本番並走でサンプリング比較 vs オフラインのみ | ✅ | ⭐P1 | EV★ | `SHADOW_EVALUATION_PLAN.md` |
 | 020 | CI evaluation gate (golden dataset ≥80% parse accuracy) | デプロイをブロックする品質ゲート vs 手動確認。**※現状 cloudbuild で全ゲート comment-out＝無効。golden は14ケース** | ✅(無効化中) | ⭐P1 | EV★ BP | `README_ai_architecture.md` §10 / README CI/CD STEP 1.5 |
-| 021 | HITL feedback → golden dataset flywheel | 👎抽出→人手レビュー→golden昇格 vs 静的テストセット | ✅ | P2 | EV FM | `README_ai_architecture.md` §6 / README #6 |
+| [021](021-hitl-golden-flywheel.md) | HITL feedback → golden dataset flywheel | 👎→Trace Viewer で期待値付与→承認でPR自動作成 vs 静的テストセット / BQを正 | ✅ **執筆済** | P2 | EV FM | `README_ai_architecture.md` §6.1 / README #6 |
 | 022 | Schema validation gate (query_maps vs live BigQuery) | 実スキーマ突合をCIで強制 vs 実行時に発覚（※同上 comment-out 中） | ✅(無効化中) | P2 | EV BP | README CI/CD STEP 1 |
 
 ### E. ML / MLOps
