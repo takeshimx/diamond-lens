@@ -423,6 +423,32 @@ class ChatOrchestrator:
                 temperature=0,
             )
 
+    def plan_tool_call(self, user_query: str) -> Optional[Dict[str, Any]]:
+        """ツールを実行せず、LLM が選んだツール名と引数だけを返す（評価用）。
+
+        run_stream の 1 周目と同一の設定 (tools / system_instruction / cached_content /
+        temperature=0) で generate_content を 1 回だけ呼ぶ。BQ を叩かないため
+        ゴールデンセットの採点を LLM 1 回分のコストだけで回せる。
+
+        Returns:
+            {"name": <tool name>, "args": {...}} / ツール呼び出しが無ければ None
+        """
+        response = self._client.models.generate_content(
+            model=self.model,
+            contents=[types.Content(role="user", parts=[types.Part(text=user_query)])],
+            config=self._gen_config,
+        )
+        cand = (response.candidates or [None])[0]
+        if cand is None:
+            return None
+        for part in (cand.content.parts or []):
+            if part.function_call:
+                return {
+                    "name": part.function_call.name,
+                    "args": dict(part.function_call.args or {}),
+                }
+        return None
+
     def _execute_tool(self, name: str, args: Dict[str, Any]) -> Any:
         """tool_use の dispatch。@tool 関数は .invoke(args) で呼べる。"""
         tool_fn = self._tool_registry.get(name)

@@ -33,8 +33,16 @@ from backend.app.services.ai_service import _parse_query_with_llm as parse_batti
 from backend.app.services.analytics.pitcher_services import _parse_query_with_llm as parse_pitching
 from backend.app.services.llm_judge_service import LLMJudgeService, JudgeVerdict
 
-# 投手系カテゴリの定義
+# 投手系カテゴリの定義。
+# 列挙は残すが判定には使わない (evaluate_llm_accuracy.py と挙動を揃えるため)。
+# 列挙を 2 スクリプトで二重管理すると、golden_dataset に新カテゴリを追加した際に
+# 片方だけ更新漏れが起きる。判定は命名規約ベースの is_pitching_category() に一本化する。
 PITCHING_CATEGORIES = ["season_pitching", "pitching_splits", "career_pitching"]
+
+
+def is_pitching_category(category: str) -> bool:
+    """投手系カテゴリかを判定する。evaluate_llm_accuracy.py と同一実装。"""
+    return "pitching" in (category or "")
 
 
 # ============================================
@@ -129,7 +137,7 @@ def run_evaluation(output_path: str = None):
         print(f"\n{Colors.BLUE}[{case_id}] \"{query}\"{Colors.RESET}")
 
         # ---- Step 1: LLM パーサー実行（カテゴリに応じて切り替え） ----
-        is_pitching = case.get("category") in PITCHING_CATEGORIES
+        is_pitching = is_pitching_category(case.get("category", ""))
         parser_label = "Pitching" if is_pitching else "Batting"
         try:
             if is_pitching:

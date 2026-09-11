@@ -10,7 +10,22 @@ google-genai SDK 用の FunctionDeclaration スキーマ定義。
 """
 from google.genai import types
 
+from backend.app.config.query_maps import QUERY_TYPE_CONFIG
 from backend.app.services.glossary_rag_service import VALID_CATEGORIES
+
+
+def _split_types(query_type: str) -> list:
+    """split_type の選択肢を query_maps から導出する。
+
+    query_maps が実装（実際に SQL を組む定義）で、この enum は宣言に過ぎない。
+    宣言に実装が持たない値を並べると、LLM がそれを選んだ時点で失敗する。
+    実際、投手側の enum には打者用の split 名 (risp / bases_loaded / monthly 等) が
+    コピーされたまま残り、query_maps の pitching_splits が持つ
+    count_situation / runner_situation / batter_stand を LLM が選べなかった
+    (2026-09-08 修正)。splits 系 query_type は直下のキーがそのまま split_type になる。
+    """
+    return sorted(QUERY_TYPE_CONFIG[query_type].keys())
+
 
 # category の選択肢は glossary_rag_service 側の単一ソースから導出する。
 # ここに直書きすると、除外カテゴリを解禁したときに片方だけ古くなる。
@@ -53,10 +68,7 @@ GET_BATTER_STATS_DECL = types.FunctionDeclaration(
             },
             "split_type": {
                 "type": "STRING",
-                "enum": [
-                    "risp", "bases_loaded", "runner_on_1b", "inning",
-                    "pitcher_throws", "pitch_type", "game_score_situation", "monthly",
-                ],
+                "enum": _split_types("batting_splits"),
                 "description": "状況別カット (query_type='batting_splits' 時に指定)",
             },
             "inning": {
@@ -119,10 +131,8 @@ GET_PITCHER_STATS_DECL = types.FunctionDeclaration(
             "season": {"type": "INTEGER"},
             "split_type": {
                 "type": "STRING",
-                "enum": [
-                    "risp", "bases_loaded", "runner_on_1b", "inning",
-                    "game_score_situation", "monthly",
-                ],
+                "enum": _split_types("pitching_splits"),
+                "description": "状況別カット (query_type='pitching_splits' 時に指定)",
             },
             "inning": {"type": "ARRAY", "items": {"type": "INTEGER"}},
             "strikes": {"type": "INTEGER"},

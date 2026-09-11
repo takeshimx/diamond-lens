@@ -1,6 +1,6 @@
 {
-    "description": "LLM評価用ゴールデンデータセット - パース精度の検証（打撃 + 投手）",
-    "version": "2.0",
+    "description": "LLM評価用ゴールデンデータセット - パース精度の検証（打撃 + 投球 + splits + 通算）。v3.0 で 14 → 40 件に拡充。閾値 80% に対し 1 件 = 2.5% となり、1 件の揺れで PASS/FAIL が反転しないようにした。",
+    "version": "3.0",
     "created_at": "2026-02-22",
     "test_cases": [
         {
@@ -211,6 +211,399 @@
                 "strikes": 2,
                 "balls": 3
             }
+        },
+        {
+            "id": "GD-016",
+            "category": "season_batting",
+            "query": "Juan Sotoの2025年のOPSは？",
+            "season": null,
+            "expected": {
+                "query_type": "season_batting",
+                "metrics_contains": [
+                    "on_base_plus_slugging"
+                ],
+                "season": 2025,
+                "name": "Juan Soto"
+            }
+        },
+        {
+            "id": "GD-017",
+            "category": "season_batting",
+            "query": "2025年の打点ランキングトップ10を表で",
+            "season": null,
+            "expected": {
+                "query_type": "season_batting",
+                "metrics_contains": [
+                    "runs_batted_in"
+                ],
+                "season": 2025,
+                "order_by": "runs_batted_in",
+                "limit": 10,
+                "output_format": "table"
+            }
+        },
+        {
+            "id": "GD-018",
+            "category": "season_batting",
+            "query": "大谷翔平の2026年の本塁打と打点と打率を教えて",
+            "season": null,
+            "expected": {
+                "query_type": "season_batting",
+                "metrics_contains": [
+                    "homerun",
+                    "runs_batted_in",
+                    "batting_average"
+                ],
+                "season": 2026,
+                "name": "Shohei Ohtani"
+            }
+        },
+        {
+            "id": "GD-019",
+            "category": "season_batting",
+            "query": "2025年の盗塁王は誰？",
+            "season": null,
+            "expected": {
+                "query_type": "season_batting",
+                "metrics_contains": [
+                    "stolen_bases"
+                ],
+                "season": 2025,
+                "order_by": "stolen_bases",
+                "name": null
+            }
+        },
+        {
+            "id": "GD-020",
+            "category": "season_batting",
+            "query": "Bobby Witt Jr.の2025年の出塁率と長打率",
+            "season": null,
+            "expected": {
+                "query_type": "season_batting",
+                "metrics_contains": [
+                    "on_base_percentage",
+                    "slugging_percentage"
+                ],
+                "season": 2025,
+                "name": "Bobby Witt Jr."
+            }
+        },
+        {
+            "id": "GD-021",
+            "category": "season_batting",
+            "query": "2030年の本塁打王を教えて",
+            "season": null,
+            "expected": {
+                "query_type": "season_batting",
+                "metrics_contains": [
+                    "homerun"
+                ],
+                "season": 2030,
+                "order_by": "homerun",
+                "name": null
+            },
+            "note": "異常系: 未来シーズン。ツールを呼ばず断るのが正解",
+            "expected_no_tool": true
+        },
+        {
+            "id": "GD-022",
+            "category": "season_pitching",
+            "query": "Tarik Skubalの2025年の奪三振数は？",
+            "season": null,
+            "expected": {
+                "query_type": "season_pitching",
+                "metrics_contains": [
+                    "strikeouts"
+                ],
+                "season": 2025,
+                "name": "Tarik Skubal"
+            }
+        },
+        {
+            "id": "GD-023",
+            "category": "season_pitching",
+            "query": "2025年のWHIPが良い投手トップ5をテキストで",
+            "season": null,
+            "expected": {
+                "query_type": "season_pitching",
+                "metrics_contains": [
+                    "whip"
+                ],
+                "season": 2025,
+                "order_by": "whip",
+                "limit": 5,
+                "output_format": null
+            }
+        },
+        {
+            "id": "GD-024",
+            "category": "season_pitching",
+            "query": "山本由伸の2026年の防御率とFIPは？",
+            "season": null,
+            "expected": {
+                "query_type": "season_pitching",
+                "metrics_contains": [
+                    "era",
+                    "fip"
+                ],
+                "season": 2026,
+                "name": "Yoshinobu Yamamoto"
+            }
+        },
+        {
+            "id": "GD-025",
+            "category": "batting_splits",
+            "query": "Aaron Judgeの2025年の得点圏打率",
+            "season": null,
+            "expected": {
+                "query_type": "batting_splits",
+                "split_type": "risp",
+                "metrics_contains": [
+                    "batting_average"
+                ],
+                "season": 2025,
+                "name": "Aaron Judge"
+            }
+        },
+        {
+            "id": "GD-026",
+            "category": "batting_splits",
+            "query": "大谷翔平の2025年の満塁での打率は？",
+            "season": null,
+            "expected": {
+                "query_type": "batting_splits",
+                "split_type": "bases_loaded",
+                "metrics_contains": [
+                    "batting_average"
+                ],
+                "season": 2025,
+                "name": "Shohei Ohtani"
+            }
+        },
+        {
+            "id": "GD-027",
+            "category": "batting_splits",
+            "query": "Freddie Freemanの2025年の満塁時OPS",
+            "season": null,
+            "expected": {
+                "query_type": "batting_splits",
+                "split_type": "bases_loaded",
+                "metrics_contains": [
+                    "on_base_plus_slugging"
+                ],
+                "season": 2025,
+                "name": "Freddie Freeman"
+            }
+        },
+        {
+            "id": "GD-028",
+            "category": "batting_splits",
+            "query": "大谷翔平の2025年の月別本塁打数を表で",
+            "season": null,
+            "expected": {
+                "query_type": "batting_splits",
+                "split_type": "monthly",
+                "metrics_contains": [
+                    "homerun"
+                ],
+                "season": 2025,
+                "name": "Shohei Ohtani",
+                "output_format": "table"
+            }
+        },
+        {
+            "id": "GD-029",
+            "category": "batting_splits",
+            "query": "Mookie Bettsの2025年の月別打率の推移",
+            "season": null,
+            "expected": {
+                "query_type": "batting_splits",
+                "split_type": "monthly",
+                "metrics_contains": [
+                    "batting_average"
+                ],
+                "season": 2025,
+                "name": "Mookie Betts"
+            }
+        },
+        {
+            "id": "GD-030",
+            "category": "batting_splits",
+            "query": "Gunnar Hendersonの2025年のイニング別打率",
+            "season": null,
+            "expected": {
+                "query_type": "batting_splits",
+                "split_type": "inning",
+                "metrics_contains": [
+                    "batting_average"
+                ],
+                "season": 2025,
+                "name": "Gunnar Henderson"
+            }
+        },
+        {
+            "id": "GD-031",
+            "category": "batting_splits",
+            "query": "大谷翔平の2025年の左投手に対する打率は？",
+            "season": null,
+            "expected": {
+                "query_type": "batting_splits",
+                "split_type": "pitcher_throws",
+                "metrics_contains": [
+                    "batting_average"
+                ],
+                "season": 2025,
+                "name": "Shohei Ohtani"
+            }
+        },
+        {
+            "id": "GD-032",
+            "category": "batting_splits",
+            "query": "Aaron Judgeの2025年の球種別打率を教えて",
+            "season": null,
+            "expected": {
+                "query_type": "batting_splits",
+                "split_type": "pitch_type",
+                "metrics_contains": [
+                    "batting_average"
+                ],
+                "season": 2025,
+                "name": "Aaron Judge"
+            }
+        },
+        {
+            "id": "GD-033",
+            "category": "batting_splits",
+            "query": "Juan Sotoの2025年のゾーン別打率",
+            "season": null,
+            "expected": {
+                "query_type": "batting_splits",
+                "split_type": "zone",
+                "metrics_contains": [
+                    "batting_average"
+                ],
+                "season": 2025,
+                "name": "Juan Soto"
+            }
+        },
+        {
+            "id": "GD-034",
+            "category": "pitching_splits",
+            "query": "Paul Skenesの2025年のイニング別防御率",
+            "season": null,
+            "expected": {
+                "query_type": "pitching_splits",
+                "split_type": "inning",
+                "metrics_contains": [
+                    "era"
+                ],
+                "season": 2025,
+                "name": "Paul Skenes"
+            }
+        },
+        {
+            "id": "GD-035",
+            "category": "pitching_splits",
+            "query": "山本由伸の2025年の初回の防御率は？",
+            "season": null,
+            "expected": {
+                "query_type": "pitching_splits",
+                "split_type": "inning",
+                "metrics_contains": [
+                    "era"
+                ],
+                "season": 2025,
+                "name": "Yoshinobu Yamamoto"
+            }
+        },
+        {
+            "id": "GD-036",
+            "category": "pitching_splits",
+            "query": "Zack Wheelerの2025年のカウント別被打率",
+            "season": null,
+            "expected": {
+                "query_type": "pitching_splits",
+                "split_type": "count_situation",
+                "metrics_contains": [
+                    "batting_average_against"
+                ],
+                "season": 2025,
+                "name": "Zack Wheeler"
+            }
+        },
+        {
+            "id": "GD-037",
+            "category": "pitching_splits",
+            "query": "Tarik Skubalの2025年のランナーあり時の防御率",
+            "season": null,
+            "expected": {
+                "query_type": "pitching_splits",
+                "split_type": "runner_situation",
+                "metrics_contains": [
+                    "era"
+                ],
+                "season": 2025,
+                "name": "Tarik Skubal"
+            }
+        },
+        {
+            "id": "GD-038",
+            "category": "pitching_splits",
+            "query": "ダルビッシュ有の2025年の左打者に対する被打率",
+            "season": null,
+            "expected": {
+                "query_type": "pitching_splits",
+                "split_type": "batter_stand",
+                "metrics_contains": [
+                    "batting_average_against"
+                ],
+                "season": 2025,
+                "name": "Yu Darvish"
+            }
+        },
+        {
+            "id": "GD-039",
+            "category": "career_batting",
+            "query": "大谷翔平の通算打率は？",
+            "season": null,
+            "expected": {
+                "query_type": "career_batting",
+                "metrics_contains": [
+                    "batting_average"
+                ],
+                "name": "Shohei Ohtani",
+                "season": null
+            }
+        },
+        {
+            "id": "GD-040",
+            "category": "career_batting",
+            "query": "Freddie Freemanの通算安打数と通算打点",
+            "season": null,
+            "expected": {
+                "query_type": "career_batting",
+                "metrics_contains": [
+                    "hits",
+                    "runs_batted_in"
+                ],
+                "name": "Freddie Freeman",
+                "season": null
+            }
+        },
+        {
+            "id": "GD-041",
+            "category": "career_batting",
+            "query": "Mookie Bettsの通算OPSを教えて",
+            "season": null,
+            "expected": {
+                "query_type": "career_batting",
+                "metrics_contains": [
+                    "on_base_plus_slugging"
+                ],
+                "name": "Mookie Betts",
+                "season": null
+            }
         }
-    ]
+    ],
+    "updated_at": "2026-09-08"
 }

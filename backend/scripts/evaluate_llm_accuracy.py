@@ -20,7 +20,44 @@ from typing import Dict, Any, List
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from backend.app.services.ai_service import _parse_query_with_llm
+from backend.app.services.chat_orchestrator import ChatOrchestrator
+
+# 採点対象は本番チャット経路 (ChatOrchestrator の function calling) である。
+# 旧 _parse_query_with_llm (第1世代 NLU パーサ) は本番から呼ばれないため、
+# それを採点しても本番品質を保証できない (2026-09-08 に差し替え)。
+_ORCHESTRATOR = None
+
+
+def get_orchestrator() -> ChatOrchestrator:
+    """ChatOrchestrator を 1 度だけ構築して使い回す。
+
+    __init__ で system prompt の Context Cache を作るため、
+    ケースごとに生成すると同じキャッシュを 40 回作りにいくことになる。
+    """
+    global _ORCHESTRATOR
+    if _ORCHESTRATOR is None:
+        _ORCHESTRATOR = ChatOrchestrator()
+    return _ORCHESTRATOR
+
+
+def to_parsed_fields(tool_call: dict) -> dict:
+    """function calling の引数を、ゴールデンセットの expected と同じ形に写す。
+
+    ゴールデンセットのフィールド名は第1世代パーサの出力形式に由来するが、
+    ツール引数名と 1:1 で対応するため、期待値側は変更せずに済む。
+    """
+    args = tool_call.get("args", {}) if tool_call else {}
+    return {
+        "query_type": args.get("query_type"),
+        "metrics": args.get("metrics", []),
+        "name": args.get("name"),
+        "season": args.get("season"),
+        "split_type": args.get("split_type"),
+        "order_by": args.get("order_by"),
+        "limit": args.get("limit"),
+        "output_format": args.get("output_format"),
+        "_tool_name": tool_call.get("name") if tool_call else None,
+    }
 
 # ============================================
 # 設定
@@ -62,9 +99,11 @@ def evaluate_single_case(test_case: Dict[str, Any]) -> Dict[str, Any]:
     expected = test_case["expected"]
 
     print(f"\n{Colors.BLUE}Testing [{case_id}]: {query}{Colors.RESET}")
-    # LLM にパースさせる
+
+    # 本番と同じ経路: LLM に function calling でツールと引数を選ばせる。
+    # ツールは実行しないため BigQuery は叩かず、コストは LLM 1 回分のみ。
     try:
-        result = _parse_query_with_llm(query, season)
+        tool_call = get_orchestrator().plan_tool_call(query)
     except Exception as e:
         print(f"  {Colors.RED}[FAIL] LLM call failed: {e}{Colors.RESET}")
         return {
@@ -73,22 +112,70 @@ def evaluate_single_case(test_case: Dict[str, Any]) -> Dict[str, Any]:
             "critical_failure": True,
             "details": {"error": str(e)}
         }
-    
-    if result is None:
-        print(f"  {Colors.RED}[FAIL] LLM returned None{Colors.RESET}")
+
+    # 異常系ケース: ツールを呼ばずに断るのが正解 (例: データの無いシーズン)
+    expected_no_tool = test_case.get("expected_no_tool", False)
+
+    if tool_call is None:
+        if expected_no_tool:
+            print(f"  {Colors.GREEN}[OK]   no tool selected (expected){Colors.RESET}")
+            return {"id": case_id, "passed": True, "critical_failure": False, "details": {}}
+        print(f"  {Colors.RED}[FAIL] LLM selected no tool{Colors.RESET}")
         return {
             "id": case_id,
             "passed": False,
             "critical_failure": True,
-            "details": {"error": "LLM returned None"}
+            "details": {"error": "no function_call in response"}
         }
-    
+
+    if expected_no_tool:
+        print(f"  {Colors.RED}[FAIL] tool was selected but none expected: {tool_call.get('name')}{Colors.RESET}")
+        return {
+            "id": case_id,
+            "passed": False,
+            "critical_failure": True,
+            "details": {"error": f"unexpected tool: {tool_call.get('name')}"}
+        }
+
+    result = to_parsed_fields(tool_call)
+    print(f"  Tool: {result['_tool_name']}")
+
     # フィールドごとの比較
     field_results = {}
     all_passed = True
     critical_failure = False
 
     for field, expected_value in expected.items():
+        # 実行ごとに揺れる表記差は正規化してから比較する。
+        # order_by は "homerun" と "homerun DESC" の両方が返る。並び順の方向は
+        # SQL 側で決まるため、採点対象はカラム名のみとする。
+        if field == "order_by":
+            def _col(v):
+                return v.split()[0] if isinstance(v, str) and v else v
+            actual = _col(result.get(field))
+            passed = actual == _col(expected_value)
+            field_results[field] = {"expected": _col(expected_value), "actual": actual, "passed": passed}
+            if not passed:
+                all_passed = False
+                print(f"  {Colors.RED}[FAIL] {field}: expected={_col(expected_value)}, actual={actual}{Colors.RESET}")
+            else:
+                print(f"  {Colors.GREEN}[OK]   {field}: {actual}{Colors.RESET}")
+            continue
+
+        # output_format は省略時のデフォルトが 'data'。LLM が明示するかは揺れる。
+        if field == "output_format":
+            def _fmt(v):
+                return "data" if v in (None, "", "data") else v
+            actual = _fmt(result.get(field))
+            passed = actual == _fmt(expected_value)
+            field_results[field] = {"expected": _fmt(expected_value), "actual": actual, "passed": passed}
+            if not passed:
+                all_passed = False
+                print(f"  {Colors.RED}[FAIL] {field}: expected={_fmt(expected_value)}, actual={actual}{Colors.RESET}")
+            else:
+                print(f"  {Colors.GREEN}[OK]   {field}: {actual}{Colors.RESET}")
+            continue
+
         if expected_value is None:
             # null が期待される場合、存在しないか null であることを確認
             actual = result.get(field)
