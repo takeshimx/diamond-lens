@@ -322,11 +322,16 @@ steps:
 # 紐付けは届かない。片方だけ有効にすると
 #   invalid secrets: secretEnv "GEMINI_API_KEY_V2" is used without being defined
 # でビルドが解析段階で拒否される（ステップ 0 個で失敗する）。
-availableSecrets:
-  secretManager:
-    # STEP 1.1 の精度ゲートがゴールデンデータセットを採点するために使う
-    - versionName: projects/${PROJECT_ID}/secrets/GEMINI_API_KEY_V2/versions/latest
-      env: "GEMINI_API_KEY_V2"
+#
+# 逆向きも同様に拒否される。STEP 1.1 を無効化したまま定義だけ残すと
+#   invalid secrets: secretEnv "GEMINI_API_KEY_V2" is defined without being used
+# となる。現在は STEP 1.1 が無効なため、こちらも揃えて無効にしている。
+# STEP 1.1 を戻すときは、この availableSecrets も必ず同時に戻すこと。
+# availableSecrets:
+#   secretManager:
+#     # STEP 1.1 の精度ゲートがゴールデンデータセットを採点するために使う
+#     - versionName: projects/${PROJECT_ID}/secrets/GEMINI_API_KEY_V2/versions/latest
+#       env: "GEMINI_API_KEY_V2"
 #     # private な mlb-analytics-data-dbt を submodule として clone するための GitHub PAT
 #     # （使用ステップ init-submodules が無効なため、こちらも無効のまま）
 #     - versionName: projects/${PROJECT_ID}/secrets/github-pat/versions/latest
