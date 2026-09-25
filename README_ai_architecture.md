@@ -438,7 +438,7 @@ flowchart TB
 
 ### 6.1. HITL フライホイール（👎 → 回帰テスト）
 
-判断の経緯は [ADR-021](docs/adr/021-hitl-golden-flywheel.md) に記録してございます。ここでは実装上の要点のみ挙げます。
+判断の経緯は [ADR-021](adr/021-hitl-golden-flywheel.md) に記録してございます。ここでは実装上の要点のみ挙げます。
 
 **自動で学習はいたしません。** モデルの重みもプロンプトも変わらず、増えるのは**テストケース**でございます。👎 が「忘れられる BQ の 1 行」から「消えない赤いテスト」に変わり、同じ失敗が気づかれずに再発しなくなります。直すのは人で、この仕組みが保証するのは**直した後に壊れないこと**でございます。
 
@@ -682,7 +682,7 @@ svc.get_remaining(pool="chat")
 
 ファイル: [backend/app/services/trace_query_service.py](backend/app/services/trace_query_service.py) / [trace_label_service.py](backend/app/services/trace_label_service.py) / [trace_expectation_service.py](backend/app/services/trace_expectation_service.py) / [backend/app/api/endpoints/trace_endpoints.py](backend/app/api/endpoints/trace_endpoints.py) / [frontend/src/components/TraceViewer.jsx](frontend/src/components/TraceViewer.jsx)
 
-§9 の `trace_id` は「束ねられる状態」を作りましたが、**読む面がございませんでした**。実際の調査は BQ コンソールに SQL を手打ちする運用でした。ここを画面にしたのが本セクションでございます。詳細な判断経緯は [ADR-053](docs/adr/053-agent-trace-viewer-failure-labeling.md) を参照ください。
+§9 の `trace_id` は「束ねられる状態」を作りましたが、**読む面がございませんでした**。実際の調査は BQ コンソールに SQL を手打ちする運用でした。ここを画面にしたのが本セクションでございます。詳細な判断経緯は [ADR-053](adr/053-agent-trace-viewer-failure-labeling.md) を参照ください。
 
 ### 記録されるステップ
 
@@ -731,7 +731,7 @@ svc.get_remaining(pool="chat")
 - **`iteration` 列の意味が経路で揃っておりません。** `ChatOrchestrator` では LLM 呼び出しの通し番号、`StrategyAgent` では reflection の `retry_count` でございます。そのため一覧の「LLM 呼び出し回数」は `COUNTIF(model IS NOT NULL)` で数え直しております
 - **`MAX_TOOL_ITERATIONS` (6) による打ち切りが trace 上で判別できません。** 上限到達は「黙った」のではなく「調べ切れなかった」であり、通常終了と区別すべき事象でございます
 - **エンドポイントが書くサマリ行は `node IS NULL`** でございます。`LLMLogEntry` はインスタンス生成時に timestamp を打つため、リクエスト受信直後に生成して処理完了後に書き込むこの行は「時刻は最古・中身は最終結果」になります。ステップ列に混ぜると順序が壊れるため `summary` として分離しております
-- **`StrategyAgent` 側も同じ計装を実装済みでございますが、現行 UI から到達しないため trace は蓄積されません**（[ADR-053](docs/adr/053-agent-trace-viewer-failure-labeling.md) Context 参照）
+- **`StrategyAgent` 側も同じ計装を実装済みでございますが、現行 UI から到達しないため trace は蓄積されません**（[ADR-053](adr/053-agent-trace-viewer-failure-labeling.md) Context 参照）
 
 ## 10. CI/CD 統合状況とギャップ
 
@@ -876,7 +876,7 @@ If there is a runner, or runners, it is a balk when:
 
 HyDE は net でプラスだが万能ではない。用語名を答えさせる型（`rule_016` ランダウン）では書き換え文に用語が入らず 180 位へ悪化する。
 
-詳細は [ADR-054](docs/adr/054-cross-lingual-rag-hyde-category-thresholds.md)。
+詳細は [ADR-054](adr/054-cross-lingual-rag-hyde-category-thresholds.md)。
 
 ---
 

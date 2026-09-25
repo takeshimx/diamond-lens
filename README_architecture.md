@@ -916,7 +916,7 @@ python scripts/train_stuff_plus.py --season 2025 --min-pitches 100
 | **Vector Store** | BigQuery. `glossary_chunks` (text + metadata columns) / `glossary_embeddings` (768-dim `ARRAY<FLOAT64>`) |
 | **Embedding Model** | `mlb_analytics_dash_25.query_embedding_model` → Vertex AI `text-multilingual-embedding-002` (cross-lingual: JA question × EN document) |
 | **`task_type`** | Asymmetric — `RETRIEVAL_DOCUMENT` on ingest, `RETRIEVAL_QUERY` at search |
-| **Search** | `ML.DISTANCE(..., 'COSINE')` brute force. Chosen over `VECTOR_SEARCH` because the latter takes a fixed table as arg 1 and cannot pre-filter by `category` |
+| **Search** | `ML.DISTANCE(..., 'COSINE')` brute force — exact KNN rather than ANN. Chosen over `VECTOR_SEARCH` + vector index because a vector index is not populated below 10 MB (`BASE_TABLE_TOO_SMALL`), so `VECTOR_SEARCH` degrades to brute force at this scale anyway. Migration trigger: table size > 10 MB, with `category` added to `CREATE VECTOR INDEX ... STORING` to keep the filter a pre-filter |
 | **Pre-filter** | `category` ∈ {batting, pitching, statcast, rules}, selected by the LLM as a **required** tool argument. Structurally prevents cross-domain mismatches. Required because the threshold and HyDE decisions are both keyed on it |
 | **Reranking** | Top-10 candidates → threshold → Gemini returns an index array → top-5. `backend/app/services/rerank_service.py`, routed through the LLM Gateway (`call_gemini`, feature=`glossary_rerank`, node=`reranker`) |
 | **Query Rewriting (HyDE)** | `rules` only. JA question → rulebook-style English, embedded in place of the question. `backend/app/services/query_rewrite_service.py` (`call_gemini`, feature=`glossary_hyde`, node=`hyde`). User input and final answer stay Japanese |
@@ -929,7 +929,7 @@ python scripts/train_stuff_plus.py --season 2025 --min-pitches 100
 | **Failure Modes Handled** | fail-open on BQ error, rerank error and HyDE error; unknown `category` falls back to no filter; citations appended mechanically (never left to the LLM) |
 | **New BQ Resources** | `glossary_chunks`, `glossary_embeddings`, `retrieval_eval_query_embeddings` |
 | **Cost / Latency** | A rules question costs 2 extra Gemini calls and **20–35 s** (HyDE ~10 s → search → rerank ~19.5 s, inherently serial). A glossary question costs 1 extra call |
-| **ADR** | [ADR-047](docs/adr/047-rag-chunking-multilingual-embeddings-reranking.md), [ADR-054](docs/adr/054-cross-lingual-rag-hyde-category-thresholds.md) |
+| **ADR** | [ADR-047](adr/047-rag-chunking-multilingual-embeddings-reranking.md), [ADR-054](adr/054-cross-lingual-rag-hyde-category-thresholds.md) |
 
 ---
 

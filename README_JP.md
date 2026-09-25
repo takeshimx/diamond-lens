@@ -120,7 +120,7 @@
 - **✍️ 期待値の付与**: 「本来どう解釈されるべきだったか」を記録。選択肢は tool schema の enum からサーバが配信するため、UI 側に綴りのズレが生じない
 - **🔀 PR の自動作成**: 承認すると `golden_dataset.json` への Pull Request が立つ。CI ゲートの基準は git を正とする
 
-**この仕組みが何をするか（しないか）**: 自動で学習することはございません。モデルの重みもプロンプトも変わりません。増えるのは**テストケース**です。👎 が回帰テストに変換され、同じ失敗が気づかれずに出荷されなくなります。直すのは人であり、この仕組みが保証するのは**直した後に二度と壊れないこと**です。詳細は [ADR-021](docs/adr/021-hitl-golden-flywheel.md) を参照してください。
+**この仕組みが何をするか（しないか）**: 自動で学習することはございません。モデルの重みもプロンプトも変わりません。増えるのは**テストケース**です。👎 が回帰テストに変換され、同じ失敗が気づかれずに出荷されなくなります。直すのは人であり、この仕組みが保証するのは**直した後に二度と壊れないこと**です。詳細は [ADR-021](adr/021-hitl-golden-flywheel.md) を参照してください。
 
 **HITLフィードバックループ**:
 ```
@@ -285,7 +285,7 @@ CI/CD ドリフトチェック → アクティブモデルの学習データ vs
 | # | Judge | 想定していた対象 | ファイル |
 |---|---|---|---|
 | 3 | Reflection判断 | `StrategyAgent` の自己修正ループ | `reflection_judge_service.py` |
-| 4 | ルーティング精度 | Supervisor ルーティング。**`SupervisorAgent` 廃止により対象が消失**（[ADR-010](docs/adr/010-chat-orchestrator-replaces-langgraph.md)） | `routing_judge_service.py` |
+| 4 | ルーティング精度 | Supervisor ルーティング。**`SupervisorAgent` 廃止により対象が消失**（[ADR-010](adr/010-chat-orchestrator-replaces-langgraph.md)） | `routing_judge_service.py` |
 | 5 | ドリフトアラート品質 | KS/PSI ドリフト検知へのセカンドオピニオン（対象は ML モデルの**入力データ分布**であり、モデル自体ではない） | `drift_alert_judge_service.py` |
 
 **運用アーキテクチャ**:
@@ -681,7 +681,7 @@ PrefixCache.put(...)
 
 **主要な設計判断**:
 - **ベクトルストアに BigQuery を採用**: ChromaDB と sentence-transformers を全廃し、Cloud Run のイメージを肥大化させない。実行時の新規依存はゼロ
-- **`VECTOR_SEARCH` ではなく `ML.DISTANCE` のブルートフォース**: `VECTOR_SEARCH` は第 1 引数がテーブル固定で `category` の事前フィルタができない。打者の質問に投手チャンクが返る事故を構造的に防ぐにはフィルタが必須
+- **`VECTOR_SEARCH` ではなく `ML.DISTANCE` のブルートフォース**: どちらもベクトル検索であり、違いは厳密 KNN か近似 ANN かのみ。**10 MB 未満のテーブルではベクトルインデックスが populate されない**（`BASE_TABLE_TOO_SMALL`）ため、現規模で `VECTOR_SEARCH` を書いても BigQuery 側がブルートフォースに退避するだけで得るものがない。移行の判断基準はテーブルサイズ 10 MB 超で、その際は `category` を `CREATE VECTOR INDEX ... STORING` に含めて pre-filter を維持する必要がある。なお `category` フィルタ自体はいずれの方式でも必須（打者の質問に投手チャンクが返る事故を構造的に防いでいるのはこれ）
 - **クロスリンガル前提**: `text-multilingual-embedding-002` で `task_type` を文書側・質問側で非対称に指定
 - **メタデータをベクトル化対象から除外**: 全チャンク共通の定型文は識別力を下げる
 - **出典は LLM の裁量に委ねず機械的に付加**（実際に要約の過程で落とされた事例があるため）
@@ -697,7 +697,7 @@ PrefixCache.put(...)
 - `scripts/ingest_glossary.py` / `scripts/ingest_rules.py` — 取り込み（source 単位で冪等）
 - `scripts/run_retrieval_eval.py` / `run_misfire_eval.py` — 評価ハーネス
 
-**Tier 2 稼働中**（2026-09）: MLB 公式ルール PDF（897 チャンク）を検索できる。従来は「rule 型の命中@3 が 0.333 で頭打ち」として除外していたが、この数字は**測定バグ**だった（ゴールデンセットが中身のない見出しチャンクを正解に指定していた）。ラベルを是正し、rule 型を 3 問 → 30 問へ拡張、カテゴリ別閾値と HyDE を追加した結果、rule 型の命中@3 は **0.833**（誤発火率 0.000）。詳細は [ADR-054](docs/adr/054-cross-lingual-rag-hyde-category-thresholds.md)。
+**Tier 2 稼働中**（2026-09）: MLB 公式ルール PDF（897 チャンク）を検索できる。従来は「rule 型の命中@3 が 0.333 で頭打ち」として除外していたが、この数字は**測定バグ**だった（ゴールデンセットが中身のない見出しチャンクを正解に指定していた）。ラベルを是正し、rule 型を 3 問 → 30 問へ拡張、カテゴリ別閾値と HyDE を追加した結果、rule 型の命中@3 は **0.833**（誤発火率 0.000）。詳細は [ADR-054](adr/054-cross-lingual-rag-hyde-category-thresholds.md)。
 
 **既知の制約**: ルール質問 1 件につき Gemini 呼び出しが 2 回増え（HyDE + リランク）、応答まで **20〜35 秒**かかる。両者は直列のため並列化できない。Tier 2 のチャンク品質も未修正（12.8% にページ柱が残留）。
 
@@ -706,7 +706,7 @@ PrefixCache.put(...)
 ### 26. エージェント実行トレースビューア & 失敗ラベリング（フルスタック、NEW 2026-09）
 **Status**: ✅ Production-ready（`TRACE` タブ）
 
-**概要**: `llm_interaction_logs` からエージェント 1 回分の実行経路を復元し、読めるステップ列として表示した上で、人手で失敗ラベルを付与する画面。[ADR-032](docs/adr/032-snowflake-trace-id-structured-logging.md) で `trace_id` による**束ねられる状態**は既に作ってあったが、**読む面が存在しなかった**。調査は BigQuery コンソールに SQL を手打ちする運用だった。
+**概要**: `llm_interaction_logs` からエージェント 1 回分の実行経路を復元し、読めるステップ列として表示した上で、人手で失敗ラベルを付与する画面。[ADR-032](adr/032-snowflake-trace-id-structured-logging.md) で `trace_id` による**束ねられる状態**は既に作ってあったが、**読む面が存在しなかった**。調査は BigQuery コンソールに SQL を手打ちする運用だった。
 
 **記録されるステップ**:
 
@@ -732,7 +732,7 @@ PrefixCache.put(...)
 - **新テーブルを作らず既存テーブルに相乗り**: `llm_interaction_logs` に NULLABLE の 3 列（`node` / `iteration` / `tool_calls`）を追加。専用テーブルにすると読むたびに JOIN が必要になり、得るものがない
 - **LLM を呼ばないステップも `model = NULL` で記録**: `usage_stats_service` が全クエリを `WHERE model IS NOT NULL` で絞っているため、ツール実行行はコストダッシュボードに一切現れない
 - **ラベルは別テーブルに追記のみ**: 付け直しは新しい行の INSERT で表現し、読み出し側が `labeled_at` の最新を採用する。**いつ判断が変わったか**を残すため
-- **実際に動いている経路を計装した**: 当初は `StrategyAgent`（LangGraph 5 ノード）をコード構造だけで対象に選んだが、実ログでは**呼び出しがゼロ**で、現行 UI からどの経路でも到達しないことが判明した。この判断過程の失敗を [ADR-053](docs/adr/053-agent-trace-viewer-failure-labeling.md) に記録している
+- **実際に動いている経路を計装した**: 当初は `StrategyAgent`（LangGraph 5 ノード）をコード構造だけで対象に選んだが、実ログでは**呼び出しがゼロ**で、現行 UI からどの経路でも到達しないことが判明した。この判断過程の失敗を [ADR-053](adr/053-agent-trace-viewer-failure-labeling.md) に記録している
 
 **ラベル軸**: `correct` / `wrong_tool` / `wrong_params` / `right_answer_wrong_path` / `should_have_abstained` / `retrieval_miss` / `tool_error`
 

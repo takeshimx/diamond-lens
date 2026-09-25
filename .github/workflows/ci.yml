@@ -47,6 +47,11 @@ jobs:
             tests/test_llm_evaluation.py \
             tests/test_security.py \
             tests/test_build_dynamic_sql.py \
+            tests/test_guardrail.py \
+            tests/test_llm_judge.py \
+            tests/test_data_drift.py \
+            tests/test_glossary_rag_service.py \
+            tests/test_model_registry.py \
             -v --tb=short \
             --cov=app --cov-report=term-missing
 

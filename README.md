@@ -120,7 +120,7 @@ An AI-powered analytics interface for exploring Major League Baseball statistics
 - **✍️ Expected-Answer Annotation**: The reviewer records what the parsed arguments *should* have been; choices are served from the tool-schema enums so the UI can never drift out of sync
 - **🔀 Automated PR**: Approving opens a pull request against `golden_dataset.json` — git stays the source of truth for the CI gate
 
-**What this is (and is not)**: nothing is learned automatically. Neither the model weights nor the prompts change. What grows is the **test suite** — a 👎 becomes a regression test, so the same failure can never ship unnoticed again. Fixing it is still a human's job; the flywheel guarantees it stays fixed. See [ADR-021](docs/adr/021-hitl-golden-flywheel.md).
+**What this is (and is not)**: nothing is learned automatically. Neither the model weights nor the prompts change. What grows is the **test suite** — a 👎 becomes a regression test, so the same failure can never ship unnoticed again. Fixing it is still a human's job; the flywheel guarantees it stays fixed. See [ADR-021](adr/021-hitl-golden-flywheel.md).
 
 **HITL Feedback Loop**:
 ```
@@ -285,7 +285,7 @@ CI/CD Drift Check → Compare active model's training data vs latest season
 | # | Judge | Intended Target | File |
 |---|---|---|---|
 | 3 | Reflection Decision | `StrategyAgent`'s self-correction loop | `reflection_judge_service.py` |
-| 4 | Routing Accuracy | Supervisor routing — **target no longer exists** since `SupervisorAgent` was retired ([ADR-010](docs/adr/010-chat-orchestrator-replaces-langgraph.md)) | `routing_judge_service.py` |
+| 4 | Routing Accuracy | Supervisor routing — **target no longer exists** since `SupervisorAgent` was retired ([ADR-010](adr/010-chat-orchestrator-replaces-langgraph.md)) | `routing_judge_service.py` |
 | 5 | Drift Alert Quality | Second opinion on KS/PSI drift detection (the models' *input distribution*, not the models themselves) | `drift_alert_judge_service.py` |
 
 **Operational Architecture**:
@@ -687,7 +687,7 @@ Term-name queries reach hit@3 = 1.000. Tool misfire rate is 0.000 (glossary is n
 
 **Key Design Decisions**:
 - **BigQuery as the vector store**: dropped ChromaDB + sentence-transformers entirely, so the Cloud Run image does not grow. Zero new runtime dependencies
-- **`ML.DISTANCE` brute force over `VECTOR_SEARCH`**: `VECTOR_SEARCH` requires a fixed table as its first argument and cannot pre-filter by `category`, which is what structurally prevents pitcher chunks from answering batter questions
+- **`ML.DISTANCE` brute force over `VECTOR_SEARCH`**: both are vector search — brute force is simply exact KNN instead of ANN. Below 10 MB a vector index is never populated (`BASE_TABLE_TOO_SMALL`), so `VECTOR_SEARCH` would fall back to brute force anyway and buy nothing at this scale. The migration trigger is table size crossing 10 MB, at which point `category` must go into `CREATE VECTOR INDEX ... STORING` so the pre-filter stays a pre-filter. The `category` filter is mandatory either way — it is what structurally prevents pitcher chunks from answering batter questions
 - **Cross-lingual by design**: `text-multilingual-embedding-002` with asymmetric `task_type` (document vs query)
 - **Metadata excluded from embeddings**: boilerplate shared by every chunk destroys discriminative power
 - **Citations appended mechanically**, never left to the LLM's discretion (it silently dropped them in practice)
@@ -703,7 +703,7 @@ Term-name queries reach hit@3 = 1.000. Tool misfire rate is 0.000 (glossary is n
 - `scripts/ingest_glossary.py` / `scripts/ingest_rules.py` — ingestion (idempotent per source)
 - `scripts/run_retrieval_eval.py` / `run_misfire_eval.py` — evaluation harness
 
-**Tier 2 is live** (2026-09): the MLB Official Baseball Rules PDF (897 chunks) is searchable. It had been excluded on the belief that rule-type hit@3 stalled at 0.333 — that number turned out to be a **measurement bug**: the golden set pointed at heading-only stub chunks. After fixing the labels, growing the rule set from 3 to 30 questions, and adding the per-category threshold plus HyDE, rule-type hit@3 is **0.833** (misfire rate 0.000). See [ADR-054](docs/adr/054-cross-lingual-rag-hyde-category-thresholds.md).
+**Tier 2 is live** (2026-09): the MLB Official Baseball Rules PDF (897 chunks) is searchable. It had been excluded on the belief that rule-type hit@3 stalled at 0.333 — that number turned out to be a **measurement bug**: the golden set pointed at heading-only stub chunks. After fixing the labels, growing the rule set from 3 to 30 questions, and adding the per-category threshold plus HyDE, rule-type hit@3 is **0.833** (misfire rate 0.000). See [ADR-054](adr/054-cross-lingual-rag-hyde-category-thresholds.md).
 
 **Known limitation**: a rules question costs 2 extra Gemini calls (HyDE + rerank) and takes **20–35 s** end to end. The two stages are inherently serial. Tier 2 chunk quality is also unfixed (12.8% carry page running-heads).
 
@@ -712,7 +712,7 @@ Term-name queries reach hit@3 = 1.000. Tool misfire rate is 0.000 (glossary is n
 ### 26. Agent Trace Viewer & Failure Labeling (Full Stack, NEW 2026-09)
 **Status**: ✅ Production-ready (`TRACE` tab)
 
-**Overview**: Reconstructs an agent run from `llm_interaction_logs` and renders it as a readable step sequence, then lets a human attach a failure label. [ADR-032](docs/adr/032-snowflake-trace-id-structured-logging.md) already made the rows *joinable* by `trace_id`; what was missing was anything that reads them. Debugging previously meant hand-typing SQL in the BigQuery console.
+**Overview**: Reconstructs an agent run from `llm_interaction_logs` and renders it as a readable step sequence, then lets a human attach a failure label. [ADR-032](adr/032-snowflake-trace-id-structured-logging.md) already made the rows *joinable* by `trace_id`; what was missing was anything that reads them. Debugging previously meant hand-typing SQL in the BigQuery console.
 
 **What a trace records**:
 
@@ -738,7 +738,7 @@ A second LLM call here is **by design, not a retry**. A genuine "the first tool 
 - **Rode on the existing table instead of a new one**: three NULLABLE columns (`node`, `iteration`, `tool_calls`) on `llm_interaction_logs`. A dedicated trace table would force a JOIN on every read for no gain
 - **Non-LLM steps are logged with `model = NULL`**: `usage_stats_service` filters every query by `WHERE model IS NOT NULL`, so tool-execution rows never touch the cost dashboard
 - **Labels are append-only** in a separate `trace_labels` table: re-labeling inserts a new row and the reader takes the latest `labeled_at`, preserving *when the judgement changed*
-- **Instrumented the path that actually runs**: the first attempt targeted `StrategyAgent` (LangGraph, 5 nodes) purely from code structure. Real logs showed **zero** invocations — no current UI path reaches it. Recorded as a failure of process in [ADR-053](docs/adr/053-agent-trace-viewer-failure-labeling.md)
+- **Instrumented the path that actually runs**: the first attempt targeted `StrategyAgent` (LangGraph, 5 nodes) purely from code structure. Real logs showed **zero** invocations — no current UI path reaches it. Recorded as a failure of process in [ADR-053](adr/053-agent-trace-viewer-failure-labeling.md)
 
 **Label axes**: `correct` / `wrong_tool` / `wrong_params` / `right_answer_wrong_path` / `should_have_abstained` / `retrieval_miss` / `tool_error`
 

@@ -5,11 +5,17 @@ docs/knowledge/*.md 由来の用語集チャンクを BigQuery 上でセマン�
 サーバレス・Pay-as-you-go: 検索 1 回につき Vertex AI の埋め込み API を 1 コールのみ。
 
 設計:
-  - VECTOR_SEARCH ではなく ML.DISTANCE を使う。
-    VECTOR_SEARCH は第 1 引数がテーブル固定でサブクエリを取れず、
-    category による事前フィルタができないため（打者の質問に投手チャンクが
-    返る誤検索を構造的に防ぐには、フィルタが必須）。
-    件数が増えたらベクトルインデックス + VECTOR_SEARCH へ切り替える。
+  - VECTOR_SEARCH ではなく ML.DISTANCE を使う (厳密 KNN の総当たり)。
+    glossary_embeddings が 10 MB 未満のうちはベクトルインデックスが
+    populate されず (BASE_TABLE_TOO_SMALL)、VECTOR_SEARCH を書いても
+    BigQuery 側がブルートフォースに退避するだけで実体が変わらないため。
+    テーブルが 10 MB を超えたらベクトルインデックス + VECTOR_SEARCH へ
+    切り替える。その際 category は CREATE VECTOR INDEX ... STORING に
+    含めること。stored column でないカラムで絞ると post-filter になり、
+    上位 K 件を取った後に削られて結果が目減りする。
+    (category による事前フィルタは必須。打者の質問に投手チャンクが返る
+     誤検索を構造的に防いでいるのはこのフィルタである。)
+    https://cloud.google.com/bigquery/docs/vector-index
   - task_type='RETRIEVAL_QUERY' を指定し、文書側 ('RETRIEVAL_DOCUMENT') と
     非対称な埋め込みを生成する。
 """

@@ -78,7 +78,7 @@
 |---|---|---|---|
 | 精度改善の手段 | **LLM リランク**（候補 10 件を Gemini が並べ直す） | 距離閾値のチューニング | 最近傍の**不正解 0.1684 < 正解 0.1816**。分布が重なっており、どこに線を引いても分離不能。これを実測で示したのがリランク採用の直接の根拠 |
 | ベクトルストア | **BigQuery**（`ML.DISTANCE` ブルートフォース） | ChromaDB を復活させる | Cloud Run のイメージ肥大化が RAG 無効化の直接原因だった。BQ なら新規ライブラリゼロ |
-| 同上 | 同上 | `VECTOR_SEARCH` + インデックス | 第 1 引数がテーブル固定でサブクエリを取れず、`category` の**事前フィルタができない**。43 件規模ならブルートフォースで十分 |
+| 同上 | 同上 | `VECTOR_SEARCH` + インデックス | **10 MB 未満のテーブルではインデックスが populate されず**（`BASE_TABLE_TOO_SMALL`）、書いても BigQuery 側がブルートフォースに退避する。現規模では実益なし。移行基準は件数ではなくテーブルサイズ 10 MB |
 | 埋め込み | `text-multilingual-embedding-002`、`task_type` を**非対称指定**（文書 `RETRIEVAL_DOCUMENT` / 質問 `RETRIEVAL_QUERY`） | 単一 task_type | 質問は日本語・文書は英語混じりのクロスリンガル検索を 1 モデルで吸収する |
 | 語彙ギャップ | リランクで後段解決 | 各エントリに「想定質問」を手書き追加 | 43 件だから成立するだけで、**文書数に比例して人手が増えスケールしない** |
 | チャンク | `## 見出し` 1 つ = 1 チャンク。**メタデータはベクトル化対象から除外**し別カラムへ | チャンク全文を埋め込む | 全チャンク共通の定型文が識別力を下げる |
@@ -138,7 +138,7 @@ RAG 品質評価の定番である **RAG Triad**（context relevance / groundedn
 
 | ファイル | 件数 | 用途 | 育て方 |
 |---|---:|---|---|
-| `backend/tests/golden_dataset.json` | 40 | L3 パース精度・CI ゲート | HITL フライホイール（👎 → Trace Viewer のレビュー待ち行列 → 人が期待値を付与 → 承認で golden への PR を自動作成）。詳細は [ADR-021](docs/adr/021-hitl-golden-flywheel.md) |
+| `backend/tests/golden_dataset.json` | 40 | L3 パース精度・CI ゲート | HITL フライホイール（👎 → Trace Viewer のレビュー待ち行列 → 人が期待値を付与 → 承認で golden への PR を自動作成）。詳細は [ADR-021](adr/021-hitl-golden-flywheel.md) |
 | `backend/tests/golden/trajectories.jsonl` | 17 | L2 トラジェクトリ | 手動。`p0` タグ 7 件 / `p1` 10 件 |
 | `backend/tests/golden/fixtures.json` | 4 ツール分 | L2 の BQ 固定データ | 手動 |
 | `backend/tests/golden/retrieval_fixtures.json` | 15 | 検索評価 + 誤発火評価 | 手動。型別に direct 3 / paraphrase 5 / confusable 2 / rule 3 / should_not_fire 2 |
@@ -240,7 +240,7 @@ RAG 品質評価の定番である **RAG Triad**（context relevance / groundedn
 | LLM プロバイダが抽象化されていない | `llm_gateway_service` はコスト計上とログ記録の単一窓口であり、プロバイダの抽象化はしていない。窓口関数は `call_gemini()` 1 本、ツール宣言も `google.genai` の型で直書き。**モデル切替は可能だがプロバイダ切替は不可** | 意図的に未着手（単一プロバイダで要件を満たしているため）。着手する場合はツール宣言のプロバイダ中立化と `ChatOrchestrator` の tool_use ループが最大の工事 |
 | リランクのレイテンシ | 実測 **2〜15 秒のばらつき**あり。原因未特定 | 追加計測が必要。用語集の質問に限定して発火するため全体影響は限定的 |
 | 公式ルール PDF が未活用 | `rules` カテゴリは取り込み済みだが `EXCLUDED_CATEGORIES` で検索対象から除外中。条文を `(a)(1)` 単位で割り直しても hit@3 は 0.333 | チャンク境界が条文構造と噛み合っていない。Definitions of Terms が Rule 9.23 に吸収されている構造上の問題も残る |
-| ブルートフォース検索の線形性 | 件数に対して線形。用語集 43 件 + ルール 897 チャンク。現規模では十分 | 数万件を超えたら `VECTOR_SEARCH` + インデックスを検討。ただし事前フィルタができなくなるトレードオフがある |
+| ブルートフォース検索の線形性 | 件数に対して線形。用語集 43 件 + ルール 897 チャンク。現規模では十分 | `glossary_embeddings` が 10 MB を超えたら `VECTOR_SEARCH` + インデックスへ移行（768 次元 × 8 バイト ≒ 6 KB/行 の概算で約 1,700 行が目安。実測は未確認）。10 MB 未満ではインデックスが populate されず移行しても意味がない。移行時は `category` を `STORING` に含めないと post-filter になり上位 K 件が目減りする |
 
 ---
 
@@ -265,11 +265,11 @@ RAG 品質評価の定番である **RAG Triad**（context relevance / groundedn
 
 | 内容 | 場所 |
 |---|---|
-| LLM-as-a-Judge の決定 | `docs/adr/018-llm-as-a-judge-offline-evaluation.md` |
-| Shadow Evaluation の決定 | `docs/adr/019-shadow-evaluation.md` |
-| CI 評価ゲートの決定 | `docs/adr/020-ci-evaluation-gate.md` |
-| データドリフト検知の決定 | `docs/adr/025-data-drift-detection.md` |
-| RAG 再構築とリランクの決定 | `docs/adr/047-rag-chunking-multilingual-embeddings-reranking.md` |
+| LLM-as-a-Judge の決定 | `adr/018-llm-as-a-judge-offline-evaluation.md` |
+| Shadow Evaluation の決定 | `adr/019-shadow-evaluation.md` |
+| CI 評価ゲートの決定 | `adr/020-ci-evaluation-gate.md` |
+| データドリフト検知の決定 | `adr/025-data-drift-detection.md` |
+| RAG 再構築とリランクの決定 | `adr/047-rag-chunking-multilingual-embeddings-reranking.md` |
 | RAG 再構築の実施ログ | `docs/plan_docs/RAG_REBUILD_PLAN.md` |
 | Shadow Evaluation の設計プラン | `docs/plan_docs/SHADOW_EVALUATION_PLAN.md` |
 | 検索評価の生レポート | `docs/reports/retrieval_eval_*.md` |
