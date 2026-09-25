@@ -40,7 +40,12 @@ jobs:
       - name: Run pytest
         env:
           PYTHONPATH: ${{ github.workspace }}
+          # Settings (app/config/settings.py) の必須フィールドはこの 2 つのみ。
+          # ローカルではリポジトリ直下の .env から供給されるが、CI には .env が
+          # 無いため明示的に渡す。欠けると Settings の生成が失敗し、
+          # import 時に Settings に触れるテストが collection 段階でエラーになる。
           GCP_PROJECT_ID: test-project
+          BIGQUERY_DATASET_ID: test-dataset
         run: |
           pytest \
             tests/test_query_maps.py \
