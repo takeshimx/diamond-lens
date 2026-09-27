@@ -321,7 +321,7 @@ shadow_prompt = get_prompt("parse_query", role="shadow", query="大谷のHR数�
 | | Judge | 何を採点するか |
 |---|---|---|
 | **本番** | **#2 Synthesizer Judge** | `ChatOrchestrator` の応答を、サンプリングで非同期採点 |
-| **オフライン** | **#1 Parse Judge** | ゴールデンセット 14 ケースに対するパース精度（評価スクリプト実行時のみ） |
+| **オフライン** | **#1 Parse Judge** | ゴールデンセット 40 ケースに対するパース精度（評価スクリプト実行時のみ） |
 
 Judge は **Gateway 経由** で Gemini を呼ぶため、Judge 自身の呼び出しコストも `llm_interaction_logs` に記録されます。
 
@@ -333,7 +333,7 @@ graph LR
     OJ --> J2["#2 SynthesizerJudge ✅ 本番稼働<br/>factual_accuracy / analytical_depth /<br/>language_quality / structure / completeness<br/>+ RAG 経路のみ context_relevance"]
     J2 --> BQV[(BQ: online_judge_verdicts)]
 
-    Golden[(golden_dataset.json<br/>14 ケース)] -->|手動 / CI 実行| Script[evaluate_with_llm_judge.py]
+    Golden[(golden_dataset.json<br/>40 ケース)] -->|手動 / CI 実行| Script[evaluate_with_llm_judge.py]
     Script --> J1["#1 ParseJudge ⚠️ オフライン専用<br/>本番コードからの参照なし"]
     J1 --> JSONOut[llm_judge_results_*.json]
 
@@ -816,11 +816,11 @@ SYNTHESIS_REQUIRED_TOOLS = frozenset({"glossary_search_tool"})
 | 網羅率 recall@k | 正解集合のうち上位 k 件に入った割合（ML の定義通り） |
 | MRR | 正解の最上位順位の逆数の平均 |
 | 誤発火率 | 検索不要な質問でツールが呼ばれた割合（[run_misfire_eval.py](backend/scripts/run_misfire_eval.py)） |
-| context_relevance | 引いた文書の質問との関連度（1-5）。**本番トラフィックに対する Synthesizer Judge のオンライン採点**。上 4 つはオフラインのゴールデンセット 13 問に対する指標だが、これのみ実トラフィックを測る（[Judge Layer](#5-judge-layer-llm-as-a-judge) 参照） |
+| context_relevance | 引いた文書の質問との関連度（1-5）。**本番トラフィックに対する Synthesizer Judge のオンライン採点**。上 4 つはオフラインのゴールデンセット 40 問（用語集 10 / 規則 30）に対する指標だが、これのみ実トラフィックを測る（[Judge Layer](#5-judge-layer-llm-as-a-judge) 参照） |
 
 質問側の埋め込みを BQ にキャッシュしているため、構成比較を何度回しても追加課金は発生しない。
 
-**実測（13 問）**
+**実測（2026-08 時点・用語集 13 問）**。40 問体制の最新値は下の「デプロイゲート」を参照。
 
 | | 命中@3 | 命中@5 | MRR |
 |---|---:|---:|---:|
@@ -828,6 +828,29 @@ SYNTHESIS_REQUIRED_TOOLS = frozenset({"glossary_search_tool"})
 | + リランク | **0.769** | **0.923** | **0.762** |
 
 誤発火率 **0.000**。用語名を含む質問（direct 型）は命中@3 が 1.000。
+
+### デプロイゲート（`--gate`）
+
+`--gate` を付けて実行すると、**hit@5 が閾値を下回った時点で終了コード 1** を返す。
+
+| グループ | 対象型 | 閾値 | 実測（2026-09-27, 40 問） |
+|---|---|---:|---:|
+| `glossary` | direct / paraphrase / confusable | **0.900** | 0.900 (9/10) |
+| `rule` | rule | **0.700** | 0.733 (22/30) |
+
+```bash
+python -m backend.scripts.run_retrieval_eval --rerank --gate
+```
+
+**用語集と規則で閾値を分ける理由**: 文書構造も難易度も異なるため、1 つの数字に混ぜると「どちらが劣化したのか」が分からなくなる。実際、全体では 0.775 だが内訳は 0.900 と 0.733 で、劣化の所在が平均に埋もれる。
+
+**hit@5 単独で判定し、hit@3 と MRR は診断用に留める理由**: 本番の `DEFAULT_TOP_K` が 5 であり、k=5 が LLM への受け渡し境界と一致するため。相関の強い 3 指標に同時に閾値を課しても、誤検知の確率が上がるだけで検出力は上がらない。
+
+閾値の数値は `run_retrieval_eval.py` の `GATE_THRESHOLDS` を唯一のソースとする（cloudbuild や本書に数値を転記して二重管理にしない）。
+
+**既定では終了コード 0 を返す**。構成比較の探索実行（リランク OFF など）まで落ちると比較ができなくなるため、判定は `--gate` 指定時のみ有効になる。
+
+CI/CD への組み込みは [cloudbuild.yaml](cloudbuild.yaml) の STEP 1.1.6 に定義済みだが、**コメントアウトして無効化している**。リランクで Gemini を 40 問分呼ぶため、デプロイのたびに課金と実行時間が乗るという理由（STEP 1.1 / 1.1.5 と同じ）。現在は RAG に手を入れたときに手元で実行する運用。測定項目全体の一覧は [docs/FITNESS_FUNCTIONS.md](docs/FITNESS_FUNCTIONS.md) を参照。
 
 ### 閾値では精度が上がらないことの実証
 

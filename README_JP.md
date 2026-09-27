@@ -108,6 +108,8 @@
 - **💾 Context Caching (Gemini)**: 長い固定プレフィックス（`parse_query_v1`, `oracle_semantic_v1`）を `client.caches.create()` で登録し、リクエストでは `cached_content` 参照のみ送信。input トークン課金を ~$0.30/M → ~$0.03/M (~1/10) に削減。インスタンス毎の in-memory registry、1 時間 TTL、失敗時は自動フォールバック ([`prompt_cache_service.py`](backend/app/services/prompt_cache_service.py))
 - **📊 LLM I/Oロギング**: 全LLMインタラクション（クエリ、パース結果、レイテンシ、エラー）を`llm_logger_service.py`経由でBigQueryに非同期ロギング。可観測性とドリフト検出に活用
 - **🚦 LLM評価ゲート**: ゴールデンデータセット（`golden_dataset.json`）に対してLLMを実行し、精度が80%を下回った場合にデプロイを停止するCI/CD品質ゲート
+- **🔍 検索精度ゲート**: `run_retrieval_eval.py --gate` がゴールデン 40 問に対して RAG の検索精度を採点し、`hit@5` がグループ別閾値（`glossary` 0.900 / `rule` 0.700）を下回ると終了コード 1 を返す。閾値を分けているのは、用語集と公式規則で文書構造も難易度も異なるため。1 つの数字に混ぜると、どちらが劣化したのかが平均に埋もれる
+- **📋 Fitness Function 台帳**: [docs/FITNESS_FUNCTIONS.md](docs/FITNESS_FUNCTIONS.md) に、測定項目・閾値・現在値・**実際に強制されているか**を一覧化。LLM を呼ぶゲートはデプロイ毎の課金を抑えるため `cloudbuild.yaml` で意図的に無効化しており、スクリプトはパイプラインではなく手元で実行する運用
 
 ### 6. Human-in-the-Loop（HITL）フィードバックシステム
 **ステータス**: ✅ 本番環境対応
@@ -670,7 +672,7 @@ PrefixCache.put(...)
     → LLM が要約して回答生成。出典は機械的に付加
 ```
 
-**実測値**（ゴールデンセット 13 問、`backend/scripts/run_retrieval_eval.py`）:
+**実測値**（2026-08 時点・用語集 13 問、`backend/scripts/run_retrieval_eval.py`）。規則 30 問を加えた 40 問体制の最新値とゲート閾値は [README_eval.md](README_eval.md) §7-1 を参照:
 
 | | 命中@3 | 命中@5 | MRR |
 |---|---:|---:|---:|

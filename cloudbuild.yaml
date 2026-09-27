@@ -61,6 +61,41 @@ steps:
   #       python scripts/run_trajectory_eval.py
   #   secretEnv: ["GEMINI_API_KEY_V2"]
 
+  # ----------------------------------------------------------------------
+  # STEP 1.1.6: Retrieval (RAG) Accuracy GATE
+  #   hit@5 がグループ別閾値を下回ったらデプロイ停止。
+  #   閾値は run_retrieval_eval.py の GATE_THRESHOLDS が単一のソース
+  #   （glossary 0.900 / rule 0.700）。ここに数値を書かないこと。
+  #
+  #   無効化の理由 (2026-09-27):
+  #   リランクで Gemini を 40 問分呼ぶため、デプロイのたびに課金と実行時間が
+  #   乗る。STEP 1.1 / 1.1.5 を止めているのと同じ理由。RAG に手を入れたときに
+  #   手元で実行する運用とする:
+  #     python -m backend.scripts.run_retrieval_eval --rerank --gate
+  #
+  #   有効化するときの注意:
+  #   - 末尾の availableSecrets も必ず同時に戻す（片方だけだとビルドが
+  #     解析段階で拒否される。詳細はそちらのコメント参照）
+  #   - 他ゲートと違い `cd backend` しない。スクリプトが
+  #     backend/tests/golden/ と docs/reports/ をリポジトリルート起点の
+  #     相対パスで参照するため
+  #   - 質問の埋め込みキャッシュが未登録だと exit 1 になる。
+  #     その場合は先に --warm-cache が必要（課金あり）
+  # ----------------------------------------------------------------------
+  # - id: "retrieval-eval-gate"
+  #   name: "python:3.11"
+  #   entrypoint: "bash"
+  #   args:
+  #     - "-c"
+  #     - |
+  #       pip install -q -r backend/requirements.txt
+  #       export PYTHONPATH=/workspace
+  #       export GCP_PROJECT_ID=${PROJECT_ID}
+  #       export BIGQUERY_DATASET_ID=mlb_analytics_dash_25
+  #       export GEMINI_API_KEY_V2=$$GEMINI_API_KEY_V2
+  #       python -m backend.scripts.run_retrieval_eval --rerank --gate
+  #   secretEnv: ["GEMINI_API_KEY_V2"]
+
   # # ----------------------------------------------------------------------
   # # STEP 1.2: ML Data Drift Check GATE (Critical ドリフト検出時はデプロイ停止)
   # # ----------------------------------------------------------------------

@@ -57,6 +57,14 @@ jobs:
             tests/test_data_drift.py \
             tests/test_glossary_rag_service.py \
             tests/test_model_registry.py \
+            tests/test_query_rewrite_service.py \
+            tests/test_trace_expectation.py \
+            tests/test_reflection_judge.py \
+            tests/test_routing_judge.py \
+            tests/test_synthesizer_judge.py \
+            tests/test_drift_alert_judge.py \
+            tests/utils/test_snowflake.py \
+            tests/utils/test_trace_id_propagation.py \
             -v --tb=short \
             --cov=app --cov-report=term-missing
 

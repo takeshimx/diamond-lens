@@ -46,6 +46,21 @@ REPORT_DIR = Path("docs/reports")
 EXCLUDED_TYPES = {"should_not_fire"}
 K_VALUES = (3, 5)
 
+# --gate 指定時の合否基準。hit@5 のみを判定に使い、hit@3 と MRR は診断用に留める。
+# 本番の top_k が 5 であること（glossary_rag_service.DEFAULT_TOP_K）に合わせた。
+#
+# 用語集と公式規則で閾値を分ける。両者は文書構造も難易度も異なり、1 つの数字に
+# 混ぜると「どちらが劣化したのか」が分からなくなるため。
+#   glossary 0.900 = 10 問中 9 問（1 問 = 0.100）。2026-09-27 実測がちょうど 0.900
+#   rule     0.700 = 30 問中 21 問（1 問 = 0.033）。実測 0.733 に 1 問分の余裕を持たせた
+GATE_METRIC = "hit@5"
+GATE_THRESHOLDS = {"glossary": 0.900, "rule": 0.700}
+
+
+def gate_group(fixture_type: str) -> str:
+    """閾値グループを返す。direct / paraphrase / confusable は用語集として束ねる。"""
+    return "rule" if fixture_type == "rule" else "glossary"
+
 
 # ---------------------------------------------------------------- fixtures
 
@@ -406,6 +421,11 @@ def main() -> None:
                              "課金: Gemini x 対象問数 + 書き換え文の埋め込み（未キャッシュ分のみ）")
     parser.add_argument("--report", type=str, default=None,
                         help="Markdown レポートの出力先。省略時は docs/reports/ に自動命名")
+    parser.add_argument("--gate", action="store_true",
+                        help=f"グループ別の {GATE_METRIC} 閾値 "
+                             f"（{', '.join(f'{g} {t:.3f}' for g, t in GATE_THRESHOLDS.items())}）"
+                             "を下回ったら終了コード 1 を返す。"
+                             "既定では常に 0 を返す（構成比較の探索実行を落とさないため）")
     args = parser.parse_args()
 
     fixtures = load_fixtures()
@@ -509,6 +529,26 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(body + "\n", encoding="utf-8")
     print(f"\nreport written: {out}")
+
+    if args.gate:
+        failed = []
+        for group, threshold in GATE_THRESHOLDS.items():
+            subset = [r for r in rows if gate_group(r["type"]) == group]
+            if not subset:
+                continue
+            score = aggregate(subset)[GATE_METRIC]
+            passed = score >= threshold
+            print(f"\n[gate] {group}: {GATE_METRIC} {score:.3f} "
+                  f"(threshold {threshold:.3f}, n={len(subset)}) "
+                  f"{'PASS' if passed else 'FAIL'}")
+            if not passed:
+                failed.append(group)
+                # 落ちた質問を出す。値だけでは何を直せばよいか分からないため。
+                for r in subset:
+                    if r["scores"][GATE_METRIC] == 0.0:
+                        print(f"    miss: {r['id']} {r['query'][:50]}")
+        if failed:
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":

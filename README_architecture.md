@@ -492,9 +492,13 @@ sequenceDiagram
 | **LLM I/O Logging** | `llm_logger_service.py` logs all LLM interactions to BigQuery asynchronously |
 | **Logged Fields** | User query, parsed result, prompt version, latency, errors, routing result, user feedback, reflection loop metadata (is_retry, retry_count, retry_reason), cached_tokens (Context Caching hit ratio) |
 | **Evaluation Gate** | `evaluate_llm_accuracy.py` runs LLM against golden dataset in CI/CD |
-| **Golden Dataset** | `golden_dataset.json` with test cases covering batting, pitching, splits, career (expandable via HITL) |
+| **Golden Dataset** | `golden_dataset.json` with 40 test cases covering batting, pitching, splits, career (expandable via HITL) |
 | **Pass Threshold** | 80% accuracy required to proceed with deployment |
 | **Critical Fields** | `query_type` mismatch causes immediate failure regardless of overall accuracy |
+| **Retrieval Gate** | `run_retrieval_eval.py --gate` exits 1 when RAG `hit@5` falls below per-group thresholds (`glossary` 0.900, `rule` 0.700). `GATE_THRESHOLDS` in the script is the single source of the numbers |
+| **Gate Inventory** | [docs/FITNESS_FUNCTIONS.md](docs/FITNESS_FUNCTIONS.md) — every measured item, its threshold, current value, and whether it is actually enforced |
+
+**Gate activation status**: every LLM-invoking gate in `cloudbuild.yaml` (STEP 1.1 accuracy, 1.1.5 trajectory, **1.1.6 retrieval**, 1.2 drift) is currently **commented out** to keep per-deploy build time and Gemini billing down. The scripts and thresholds exist and are run manually; they are not enforced by the pipeline. Re-enabling any of them requires restoring the `availableSecrets` block at the same time, or the build is rejected at parse time.
 
 ### 8a. Rate Limiting & Quota Management
 

@@ -108,6 +108,8 @@ An AI-powered analytics interface for exploring Major League Baseball statistics
 - **💾 Context Caching (Gemini)**: Long fixed prompt prefixes (`parse_query_v1`, `oracle_semantic_v1`) registered via `client.caches.create()` and referenced per-request through `cached_content`. Reduces input token billing from ~$0.30/M to ~$0.03/M tokens (~1/10). Per-instance in-memory registry with 1-hour TTL and fail-open fallback ([`prompt_cache_service.py`](backend/app/services/prompt_cache_service.py))
 - **📊 LLM I/O Logging**: Async logging of all LLM interactions (queries, parsed results, latency, errors) to BigQuery via `llm_logger_service.py` for observability and drift detection
 - **🚦 LLM Evaluation Gate**: CI/CD quality gate that runs LLM against a golden dataset (`golden_dataset.json`) and blocks deployment if accuracy drops below 80%
+- **🔍 Retrieval Accuracy Gate**: `run_retrieval_eval.py --gate` scores RAG retrieval against 40 golden questions and exits 1 when `hit@5` falls below per-group thresholds — `glossary` 0.900, `rule` 0.700. Thresholds are split because the two corpora differ in structure and difficulty; a single blended number hides which side regressed
+- **📋 Fitness Function Inventory**: [docs/FITNESS_FUNCTIONS.md](docs/FITNESS_FUNCTIONS.md) lists every measured item with its threshold, current value, and **whether it is actually enforced**. LLM-invoking gates in `cloudbuild.yaml` are deliberately disabled to control per-deploy billing, so the scripts are run manually rather than by the pipeline
 
 ### 6. Human-in-the-Loop (HITL) Feedback System
 **Status**: ✅ Production-ready

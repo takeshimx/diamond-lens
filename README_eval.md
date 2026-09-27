@@ -3,7 +3,7 @@
 > **この文書の役割**: 本プロジェクトの評価システムについて、構成・**設計判断とその理由**・実測値を 1 枚にまとめた参照文書。
 > 手順書ではないため、実行コマンドは末尾に最小限だけ置く。決定の詳細は各 ADR、実施ログは `docs/plan_docs/` を参照。
 >
-> **最終更新**: 2026-08-24
+> **最終更新**: 2026-09-27
 
 ---
 
@@ -113,7 +113,7 @@ RAG 品質評価の定番である **RAG Triad**（context relevance / groundedn
 | RAG Triad の辺 | 日本語 | 本プロジェクトでの実装 | 測定範囲 |
 |---|---|---|---|
 | Context Relevance | 引いた文書は質問に関係あるか | `synthesizer_judge` の `context_relevance` | **本番トラフィック**（5% サンプリング） |
-| 同上 | 同上 | `run_retrieval_eval.py` の hit@k / recall@k / MRR | オフライン golden 13 問 |
+| 同上 | 同上 | `run_retrieval_eval.py` の hit@k / recall@k / MRR | オフライン golden 40 問（用語集 10 / 規則 30） |
 | Groundedness | 回答は引いた文書に根拠を持つか | `synthesizer_judge` の `factual_accuracy`。判定プロンプトに実際のツール戻り値を「元データ」として渡している | 本番トラフィック |
 | Answer Relevance | 回答は質問に答えているか | `synthesizer_judge` の `completeness` | 本番トラフィック |
 
@@ -141,7 +141,7 @@ RAG 品質評価の定番である **RAG Triad**（context relevance / groundedn
 | `backend/tests/golden_dataset.json` | 40 | L3 パース精度・CI ゲート | HITL フライホイール（👎 → Trace Viewer のレビュー待ち行列 → 人が期待値を付与 → 承認で golden への PR を自動作成）。詳細は [ADR-021](adr/021-hitl-golden-flywheel.md) |
 | `backend/tests/golden/trajectories.jsonl` | 17 | L2 トラジェクトリ | 手動。`p0` タグ 7 件 / `p1` 10 件 |
 | `backend/tests/golden/fixtures.json` | 4 ツール分 | L2 の BQ 固定データ | 手動 |
-| `backend/tests/golden/retrieval_fixtures.json` | 15 | 検索評価 + 誤発火評価 | 手動。型別に direct 3 / paraphrase 5 / confusable 2 / rule 3 / should_not_fire 2 |
+| `backend/tests/golden/retrieval_fixtures.json` | 42 | 検索評価 + 誤発火評価 | 手動。型別に direct 3 / paraphrase 5 / confusable 2 / should_not_fire 2 / **rule 30** |
 
 **型を分けている理由**: 平均値だけ見ると改善の効いた場所が分からない。用語名を含む `direct` は元から 1.000 で伸びしろがなく、実際に効いたのは `paraphrase`（言い換え）と `confusable`（紛らわしい対）だった。型別に切ることで初めてそれが見える。
 
@@ -165,7 +165,10 @@ RAG 品質評価の定番である **RAG Triad**（context relevance / groundedn
 
 ## 7. 実測値
 
-### 検索精度（ゴールデンセット 13 問。`should_not_fire` 2 問は対象外）
+### 検索精度（2026-08 時点・用語集 13 問。`should_not_fire` 2 問は対象外）
+
+> 以下は規則 30 問を追加する前の旧セットでの実測値。測定条件を示すため当時の数値のまま残す。
+> 40 問体制での最新値と、そこから定めたゲート閾値は §7-1 を参照。
 
 | 構成 | hit@3 | hit@5 | MRR |
 |---|---:|---:|---:|
@@ -193,6 +196,24 @@ RAG 品質評価の定番である **RAG Triad**（context relevance / groundedn
 | 0.350 | 0.800 | 3.70 | 0.000 |
 
 0.275 以上に緩めても正解は増えず無関係な結果だけが増える。0.275 未満では「該当なし」が出始める。
+
+### 7-1. 検索精度（2026-09-27・40 問体制）とゲート閾値
+
+規則 30 問を加えた現行セットでの実測値。`--gate` はこの内訳に対して判定する。
+
+| グループ | 対象型 | n | hit@3 | hit@5 | MRR | **ゲート閾値** |
+|---|---|---:|---:|---:|---:|---:|
+| `glossary` | direct / paraphrase / confusable | 10 | 0.900 | **0.900** | — | **`>= 0.900`** |
+| `rule` | rule | 30 | 0.733 | **0.733** | 0.713 | **`>= 0.700`** |
+| （全体） | — | 40 | 0.775 | 0.775 | 0.747 | 判定に使わない |
+
+**グループを分ける理由**: 用語集と公式規則は文書構造も難易度も異なる。全体値 0.775 は内訳 0.900 / 0.733 を平均したもので、**どちらが劣化したのかが埋もれる**。
+
+**hit@5 のみを判定に使う理由**: 本番の `DEFAULT_TOP_K` が 5 であり、k=5 が LLM への受け渡し境界と一致する。hit@3 と MRR は相関が強く、同時に閾値を課しても誤検知が増えるだけなので診断用に留める。
+
+**注意**: 現構成では全型で hit@3 と hit@5 が一致している。距離閾値を通過する候補が平均 3 件程度で、4〜5 位が存在しないため。通過件数が増えれば両者は分離する。
+
+閾値の数値は `run_retrieval_eval.py` の `GATE_THRESHOLDS` を唯一のソースとし、cloudbuild や本書には転記しない。
 
 ### L2 トラジェクトリ
 
@@ -233,8 +254,8 @@ RAG 品質評価の定番である **RAG Triad**（context relevance / groundedn
 | 項目 | 現状 | 今後の一手 |
 |---|---|---|
 | CI 評価ゲートが無効 | `cloudbuild.yaml` の `llm-evaluation-gate` / `schema-validation-gate` / `ml-drift-check-gate` は全面コメントアウト中。レイヤー別デプロイ時の実行時間・課金を避けるための運用措置。**設計とスクリプトは存在するが CI で強制されていない** | 最大の負債。golden 拡充と併せて有効化する |
-| GitHub Actions の対象漏れ | `pytest`（4 ファイルを名指し）+ `ruff` のみ。`test_glossary_rag_service.py` は**まだ対象に入っていない** | ファイル列挙方式のため追加漏れが起きる。ディレクトリ指定へ移行する |
-| ゴールデンセットが小規模 | 14 / 17 / 13 件規模。誤発火率 0.000 は「現時点で問題が検出されなかった」以上の意味を持たない | HITL フライホイール（§5）で育てる |
+| GitHub Actions の pytest 対象 | `pytest`（15 ファイルを名指し）+ `ruff`。`backend/tests/` の 19 本のうち `test_ai_agent.py` / `test_ft_transformer.py` / `test_mlb_data_engine.py` / `test_strategy_agent.py` の 4 本は対象外 | **意図的な除外であり漏れではない**（2026-09-27 確定）。ディレクトリ指定への移行は行わない |
+| ゴールデンセットが小規模 | 40 / 17 / 42 件（2026-09-27 実測）。誤発火率 0.000 は「現時点で問題が検出されなかった」以上の意味を持たない | HITL フライホイール（§5）で育てる |
 | Judge の非決定性 | 同じ入力でスコアが揺れる。PASS 閾値 3.5 もヒューリスティック | Judge を唯一の判定にせず、ルールベース評価と併用。L2 は Judge を使わず決定的 assert に倒している |
 | Judge のモデルバイアス | `gemini-3.6-flash` の偏り・誤判定リスクが残る。生成側と同一プロバイダのため、Gemini 特有の癖を Judge が見逃す可能性がある。プロンプト改訂も評価結果に影響する | Judge プロンプトのバージョン管理と、人手ラベルとの一致率測定。プロバイダをまたぐ Judge（他社モデル）には LLM Gateway のプロバイダ抽象化が前提となるため、そちらから着手する |
 | LLM プロバイダが抽象化されていない | `llm_gateway_service` はコスト計上とログ記録の単一窓口であり、プロバイダの抽象化はしていない。窓口関数は `call_gemini()` 1 本、ツール宣言も `google.genai` の型で直書き。**モデル切替は可能だがプロバイダ切替は不可** | 意図的に未着手（単一プロバイダで要件を満たしているため）。着手する場合はツール宣言のプロバイダ中立化と `ChatOrchestrator` の tool_use ループが最大の工事 |
