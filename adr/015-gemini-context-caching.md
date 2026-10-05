@@ -71,6 +71,19 @@ Lifecycle management was implemented in `prompt_cache_service` to **register the
 - A prefix under 1,024 tokens is ineligible for Gemini caching and silently falls back — a case where the effect is zero.
 - Because the cache key includes version and hash, every prompt revision ([[014-prompt-as-config]]) creates a new cache.
 
+## Compliance
+
+| | |
+|---|---|
+| **Invariant** | Cache hits actually happen. `cached_tokens` must not quietly return to 0 — the exact state that existed before this ADR and went unnoticed. |
+| **How it is checked** | Aggregate `cached_tokens` over `llm_interaction_logs`: the share of chat rows with `cached_tokens > 0`, and the ratio of cached to total input tokens. The Gateway already records both ([[013-centralized-llm-gateway]]), so no new instrumentation is needed. |
+| **Enforcement** | 👁 Observed only. No threshold, no alert, no scheduled query. |
+| **Reading (2026-10-05)** | Not measured on a schedule. |
+
+This is the ADR with the **clearest silent-failure mode in the project**. Three ordinary changes degrade it to the uncached path with no error and no log line: editing a prompt so the fixed prefix falls under Gemini's 1,024-token minimum, altering anything in the cache key (`prompt_name | version | model | mode | tools | sha256`), or a cache-creation failure — which fails open by design.
+
+Fail-open is the right availability choice and is not in question here. What it costs is detectability: **the system behaves correctly and bills more**, which no test and no user complaint will ever surface. The material to detect it has been accumulating in BigQuery since the Gateway was built; only the query and the threshold are missing. A daily "share of chat rows with `cached_tokens > 0`" with a floor is the natural fitness function.
+
 ## Why This Matters
 
 - **Cost optimization**: this lowers cost-per-request directly and is a concrete implementation of inference optimization.

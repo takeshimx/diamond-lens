@@ -49,6 +49,9 @@ jobs:
         run: |
           pytest \
             tests/test_query_maps.py \
+            tests/test_architecture.py \
+            tests/test_strategy_agent.py \
+            tests/test_shadow_logger.py \
             tests/test_llm_evaluation.py \
             tests/test_security.py \
             tests/test_build_dynamic_sql.py \
@@ -65,6 +68,7 @@ jobs:
             tests/test_drift_alert_judge.py \
             tests/utils/test_snowflake.py \
             tests/utils/test_trace_id_propagation.py \
+            -m "not slow and not legacy" \
             -v --tb=short \
             --cov=app --cov-report=term-missing
 

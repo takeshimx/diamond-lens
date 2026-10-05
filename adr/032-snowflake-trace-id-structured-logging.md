@@ -43,6 +43,19 @@ A **Snowflake-style `trace_id`** is minted per request, **propagated automatical
 - A ContextVar is not always inherited across thread or task boundaries, so **execution on another thread (async log writes, parallel tool execution) needs explicit propagation** — a detail that must be kept in mind.
 - The Snowflake generator (clock synchronization, worker id) is ours to implement and operate.
 
+## Compliance
+
+| | |
+|---|---|
+| **Invariant** | Every log structure carries the request's `trace_id`, including across thread boundaries, and an explicitly passed value wins over the ContextVar. |
+| **How it is checked** | `backend/tests/utils/test_trace_id_propagation.py` asserts propagation into `LLMLogEntry` and `ShadowComparisonEntry` and the explicit-override precedence; `test_snowflake.py` covers ID generation. |
+| **Enforcement** | ✅ Both run in CI (`.github/workflows/ci.yml`) / 👁 in production — the NULL rate in `llm_interaction_logs` is not monitored. |
+| **Reading (2026-10-05)** | Propagation tests passing in CI. |
+
+The production-side check needs care, because **the obvious version of it is wrong**. A naive "`trace_id` NULL rate must be 0" would fire constantly: feedback is INSERTed as a separate `[FEEDBACK_UPDATE]` row from a *different* request, so it legitimately has `trace_id` NULL — verified against real data in [[021-hitl-golden-flywheel]] §1. Any such fitness function must exclude those rows, and the same applies to tool rows written with `model IS NULL` ([[053-agent-trace-viewer-failure-labeling]]).
+
+This is a useful instance of a general rule: a threshold set without first pulling a row from the real table produces a gate that cries wolf and gets switched off. The thread-boundary caveat in Consequences is the actual risk the tests cover — a new async write path that forgets to propagate explicitly would break correlation silently, and only the unit tests stand between that and production.
+
 ## Why This Matters
 
 - **Granular tracing / observability**: it implements cross-cutting observability through a correlation ID, following industry-standard building blocks (Snowflake IDs, structured logging).

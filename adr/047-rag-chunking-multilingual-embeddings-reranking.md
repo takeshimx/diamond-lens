@@ -136,6 +136,21 @@ The threshold was set to **0.275** based on measurement. Loosening beyond 0.275 
 - **The golden set is small, at 12 questions.** A misfire rate of 0.000 means no more than "no problem was detected at this point."
 - **The legacy ChromaDB implementation is still present** (`rag_service.py`, `rag_endpoints.py`, `document_loader.py`, `index_knowledge_base.py`). Following the project's "do not delete" policy, the new implementation runs alongside it in separate files.
 
+## Compliance
+
+| | |
+|---|---|
+| **Invariant** | Glossary retrieval hit@5 stays at or above **0.900** with reranking on. Below that, the tool is handing the LLM a candidate set that does not contain the answer. |
+| **How it is checked** | `backend/scripts/run_retrieval_eval.py --rerank --gate` exits 1 when hit@5 falls under its group threshold, printing the failing question ids and text. |
+| **Enforcement** | ✅ as a manual run / ⏸ in CD — `retrieval-eval-gate` (STEP 1.1.6) is commented out in `cloudbuild.yaml` because reranking calls Gemini 40 times per run. |
+| **Reading (2026-10-05)** | Glossary hit@5 = **0.900** (9/10), sitting exactly on the threshold. |
+
+**Only hit@5 gates, and that is a deliberate narrowing.** Production `DEFAULT_TOP_K` is 5, so k=5 is the actual handoff boundary to the LLM; hit@3 and MRR are diagnostic because gating three correlated metrics multiplies false alarms without adding signal. Thresholds are also split by corpus rather than blended — see [[054-cross-lingual-rag-hyde-category-thresholds]], where a single averaged number would have hidden which side regressed.
+
+Two signals in this ADR are explicitly **not** thresholds, and should stay that way. The distance cutoff of 0.275 is a runtime guard, not a gate — and the central finding here is that distance cannot separate correct from incorrect at all, so no threshold on it would mean what it appears to mean. The misfire rate of 0.000 rests on n=2; recording it as observation is the honest treatment, and promoting it to a gate would be a number pretending to be evidence.
+
+The scale assumption is the one thing nothing watches: brute-force `ML.DISTANCE` is linear in row count, and the migration criterion is `glossary_embeddings` exceeding **10 MB**. That is a table-size check nobody runs today.
+
 ## Why This Matters
 
 - **Search and RAG design**: it answers "why not put everything in RAG" by backing the split — SQL for structured numbers, RAG only for unstructured text — with both implementation and measurement.

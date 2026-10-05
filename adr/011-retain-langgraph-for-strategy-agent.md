@@ -115,6 +115,21 @@ In other words, the planner is the step in which **a Gemini instance equipped wi
 - Tool definitions are shared (`tools/`), but some logic still differs per path — chat retries naturally, while Strategy has an explicit reflection node.
 - Physical deletion of the legacy LangGraph sub-agents (`SupervisorAgent` and friends) is still pending, so convergence on a state where `langgraph` is used only by `strategy_agent.py` awaits that cleanup.
 
+## Compliance
+
+| | |
+|---|---|
+| **Invariant** | `langgraph` is imported by `strategy_agent.py` and nothing else. The moment a second module imports it, "localized to one file" has quietly stopped being true. |
+| **How it is checked** | A dependency fitness function in [backend/tests/test_architecture.py](../backend/tests/test_architecture.py): `test_langgraph_imports_do_not_spread` compares the set of files importing `langgraph` against an allowlist, and `test_langgraph_allowlist_has_no_stale_entries` checks the reverse. Imports are read with `ast`, not `grep`, so function-scoped imports cannot slip past. |
+| **Enforcement** | ✅ Runs in CI on every PR (`.github/workflows/ci.yml`). |
+| **Reading (2026-10-05)** | **5 files** import `langgraph`: `services/agents/strategy_agent.py` (intended) plus `batter_agents.py` / `pitcher_agents.py` / `matchup_agent.py` / `ai_agent_service.py` (legacy). All five are on the allowlist. |
+
+**The gate pins the boundary at 5 files, not at 1.** That is deliberate. The gap between 1 and 5 is not a violation of this decision but the **pending physical deletion** recorded in Consequences, and asserting the ideal today would produce a gate that is red for reasons nobody can fix until Phase 2-G lands. A permanently red gate gets ignored, and an ignored gate protects nothing. What the allowlist does protect is the direction of travel: a sixth file importing `langgraph` fails the build.
+
+The second test is what makes the allowlist shrink. When the legacy sub-agents are deleted, `test_langgraph_allowlist_has_no_stale_entries` turns red until the allowlist is cut down to `strategy_agent.py` alone — so the cleanup cannot be half-done and forgotten.
+
+The check can only see import structure. It cannot tell whether `StrategyAgent`'s graph still has the five nodes this ADR describes; that is covered by `backend/tests/test_strategy_agent.py` (see [[012-classified-bounded-reflection-retries]]).
+
 ## Why This Matters
 
 - **Choosing where multi-agent / hierarchical delegation belongs**: a record of where LangGraph was kept and where it was folded away, decided on functional characteristics (determinism vs. free-form conversation). Paired with ADR-010, it is the core ADR documenting the rationale behind the technology choice.

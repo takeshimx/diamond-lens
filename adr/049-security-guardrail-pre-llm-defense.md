@@ -51,6 +51,21 @@ A block writes an incident log to BigQuery (`error_type="injection_attempt"`, wi
 - Keyword-based off-topic detection can misjudge in both directions: malicious input containing MLB keywords passes, and legitimate input without them is rejected.
 - The pattern dictionary needs ongoing maintenance.
 
+## Compliance
+
+| | |
+|---|---|
+| **Invariant** | Dangerous input is rejected **before** any LLM call, and a failure in incident logging never blocks the main flow. |
+| **How it is checked** | `backend/tests/test_guardrail.py` and `backend/tests/test_security.py` exercise the three layers and the fail-open logging path. |
+| **Enforcement** | ✅ Both run in CI (`.github/workflows/ci.yml`). |
+| **Reading (2026-10-05)** | Passing. Blocks are written to BigQuery as `error_type="injection_attempt"` rows; nothing aggregates them. |
+
+**The tests can only cover patterns that are already in the dictionary.** That is not a shortcoming of the tests but the defining limit of a regex-and-keyword defense, recorded in Consequences: a novel phrasing passes the guardrail and passes CI identically. A green suite here means "no known pattern regressed," never "input is safe."
+
+What would add genuine signal is production data the system already collects and no one reads: the `injection_attempt` incident rows. Their volume and their text are the only source of *new* patterns, and feeding them back into the dictionary is the same flywheel shape [[021-hitl-golden-flywheel]] applies to parse failures — applied to attacks instead.
+
+One concrete reconciliation is worth automating. The `query_type` allow-list is **split across three places** with different contents (6 values in the tool schema, 5 in `query_maps`, 4 in `validate_query_params`), and the guardrail's is the narrowest — which is why `career_pitching` is rejected as invalid input ([[021-hitl-golden-flywheel]], debt note). A test asserting the three lists agree, or documenting each intended difference, would turn that class of accident into a build failure.
+
 ## Why This Matters
 
 - **Safety / guardrails**: pre-LLM guardrails are standard practice in generative-AI safety design and form the first layer of defense in depth.

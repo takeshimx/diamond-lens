@@ -63,6 +63,21 @@ The golden dataset now holds **40 cases** (expanded from 14 in commit 9ce1209). 
 - The 80% threshold is a heuristic, and the decision to raise it as the golden set grows has not yet been made.
 - Because the gate calls a real LLM, every deploy carries additional token cost and build time.
 
+## Compliance
+
+| | |
+|---|---|
+| **Invariant** | A deploy is blocked when golden parse accuracy falls below 80%, or when even one critical failure is present. |
+| **How it is checked** | `scripts/evaluate_llm_accuracy.py` as `llm-evaluation-gate` (STEP 1.1), scoring `golden_dataset.json` against a real LLM. |
+| **Enforcement** | ⏸ **Currently disabled.** STEP 1.1 is commented out in `cloudbuild.yaml`, together with the `availableSecrets` block that supplies its API key. |
+| **Reading (2026-10-05)** | Golden set 40 cases, `PASS_THRESHOLD = 0.8`. Nothing is scored per deploy. |
+
+**This ADR is itself a fitness function**, so its Compliance section is not about how the measurement works — the Decision covers that — but about whether the gate is switched on. It is not.
+
+**The TL;DR above is stale on this point.** It states the gate is currently enabled, which was accurate at the 2026-09-21 review and stopped being accurate when the gate was disabled to unblock deploys (`b49343d`, `d7add73`). The ledger in [docs/FITNESS_FUNCTIONS.md](../docs/FITNESS_FUNCTIONS.md) §2-1 records the current state as ⏸, and that is the authoritative reading.
+
+Re-enabling has a recorded prerequisite: the `availableSecrets` block must be restored **in the same commit**, because Cloud Build rejects a secret declared without a consumer and a consumer without its secret. The cloudbuild comments carry this instruction; it is repeated here because a disabled gate is the kind of thing that gets re-enabled by someone reading the ADR rather than the YAML.
+
 ## Why This Matters
 
 - **A deployment quality gate**: pre-deploy quality gates are standard MLOps/LLMOps practice. This records the split between CI (PR, static checks) and CD (just before deploy, real LLM gate) along with its cost — merges cannot be blocked, so feedback arrives late.

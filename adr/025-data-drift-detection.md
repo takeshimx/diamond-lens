@@ -68,6 +68,19 @@ Baseline (training distribution) and target (latest distribution) are pulled fro
 - The thresholds (PSI 0.1 / 0.2, the KS alpha) are heuristics and need per-domain tuning.
 - Choosing the baseline — which period's distribution to compare against — remains an operational judgment that changes the result.
 
+## Compliance
+
+| | |
+|---|---|
+| **Invariant** | Distribution shift is quantified before a model is retrained or deployed: PSI > 0.1 warns, PSI > 0.2 blocks, across feature / prediction / concept drift. |
+| **How it is checked** | `scripts/check_data_drift.py` as `ml-drift-check-gate` (STEP 1.2) for the deploy decision; `backend/tests/test_data_drift.py` for the statistics themselves. |
+| **Enforcement** | ⏸ for the gate (commented out in `cloudbuild.yaml`) / ✅ for the unit tests, which run in CI. |
+| **Reading (2026-10-05)** | Thresholds PSI 0.1 / 0.2. Listed in [docs/FITNESS_FUNCTIONS.md](../docs/FITNESS_FUNCTIONS.md) §2-1 as ⏸. |
+
+The split between the two rows matters. **The unit tests prove the statistics compute correctly; nothing currently proves the models are not running on drifted data.** A KS statistic that is calculated perfectly and never compared against production is not a fitness function — it is a library.
+
+Two things stay outside any check even when the gate is re-enabled. **Baseline selection is a manual judgment** — which period's distribution counts as "training" changes the result, and the chosen window is not recorded anywhere, so a PSI reading cannot be reproduced after the fact. And concept drift, the kind this ADR calls the nastiest, is detected as divergence between prediction and actual, which means it **needs ground truth and therefore arrives late by construction**. The gate protects the deploy decision; it does not protect a model already in service.
+
 ## Why This Matters
 
 - **Model monitoring**: monitoring is standard MLOps practice. This records a statistically grounded drift gate together with the reasoning behind its thresholds.

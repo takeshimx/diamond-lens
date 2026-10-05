@@ -44,6 +44,21 @@ The requirement: **compare old and new safely on real traffic, without affecting
 - Because writes run on an async daemon thread, shadow logs can be lost if the process dies abruptly (no production impact, but evaluation data is missing).
 - Managing and scoring champion/challenger pairs adds operational overhead.
 
+## Compliance
+
+| | |
+|---|---|
+| **Invariant** | A shadow-side failure never changes what the user receives and never adds to production latency. **`log()` itself never raises** — the guarantee belongs to the service, not to each caller. |
+| **How it is checked** | Five tests in [backend/tests/test_shadow_logger.py](../backend/tests/test_shadow_logger.py): `to_dict()` raising, `Thread.start()` raising, BigQuery insert failing, the write going to a `daemon=True` thread, and the uninitialized-client path returning quietly. |
+| **Enforcement** | ✅ Runs in CI on every PR (`.github/workflows/ci.yml`) / 👁 row volume in `shadow_comparisons` is visible but still unwatched. |
+| **Reading (2026-10-05)** | 5 passed. Volume not measured on a schedule. |
+
+**Writing these tests exposed a real hole, which is why they were written before the fix.** Two of the five failed on the original implementation. `_write_to_bigquery` was correctly wrapped, but `entry.to_dict()` and `Thread.start()` execute on the **caller's** thread inside `log()`, outside any `try` — so a serialization failure or a thread-exhaustion error would propagate straight into the production flow.
+
+It had not caused an incident only because both call sites in `ai_agent_service.py` happen to wrap `log()` in their own `try/except`. That is isolation **by caller discipline**, and it breaks the moment a third call site is added without the wrapper. `log()` now swallows and logs instead, so the guarantee is a property of the service. The existing caller-side wrappers were left in place.
+
+The second signal is volume, and it remains unaddressed. Zero rows in `shadow_comparisons` is indistinguishable from "working, nothing to compare" at a glance, so **the mechanism can be silently off and look healthy**. The fire-and-forget design also means rows are lost when a container dies abruptly ([[051-append-only-llm-logging]]), so a row count is a floor, never an exact tally — acceptable for an "is it running" check, not for anything needing completeness.
+
 ## Why This Matters
 
 - **Online evaluation that never interrupts production**: champion/challenger is a standard MLOps pattern, letting new models and prompts be validated without any user impact.

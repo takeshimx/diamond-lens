@@ -164,6 +164,19 @@ The decision logic lives in `golden_promotion_service`, and both the UI path (`g
 
 `career_pitching` is **declared in the tool schema but absent from both `query_maps` and the guardrail whitelist**. The allow-list for `query_type` is split across three places (6 values in the tool schema, 5 in `query_maps`, 4 in `validate_query_params`), with the guardrail's being the narrowest. As a result, pitchers' career totals and some splits are rejected as "invalid input." Since the pitchers' career-totals table is not yet in place, this is left alone.
 
+## Compliance
+
+| | |
+|---|---|
+| **Invariant** | The yardstick CI scores against (`golden_dataset.json`) changes **only** through a reviewed, merged PR — never by a write from the running application. And its contents stay structurally valid, so a bad case fails loudly rather than bending the bar. |
+| **How it is checked** | The first half is structural: the approve button calls the GitHub API, and no code path lets CI read criteria from BigQuery. The second half is `tests/test_llm_evaluation.py` — required fields, duplicate ids, `query_type` present in `QUERY_TYPE_CONFIG`, at least 3 cases per category. |
+| **Enforcement** | ✅ `test_llm_evaluation.py` runs in CI on every PR / plus human review at merge. |
+| **Reading (2026-10-05)** | Golden set 40 cases. Structural rules enforced; promotion decisions logged in `trace_expectations`. |
+
+This is the one decision in the project **governed primarily by a process gate rather than a measurement**, and deliberately so. The reasoning is in §5: when code breaks a test turns red, but when the yardstick breaks nothing turns red at all. A fitness function cannot police the data a fitness function reads — only review can. Keeping the golden set in git is what makes `git blame` and `git revert` available for the bar itself.
+
+Two gaps are worth naming. **The held queue has no age signal**: cases that violate the structural rules stay in BigQuery indefinitely, and nothing reports how many are waiting or for how long, so the backlog is invisible until someone looks. And the structural rules check shape, not correctness — **an expected value that is simply wrong passes every rule** and is caught only by a human reading the PR diff, which is exactly the failure mode §5 illustrates with `batting_splits` versus `career_batting`.
+
 ## References
 
 - [ADR-053: Agent Trace Viewer and failure labeling](053-agent-trace-viewer-failure-labeling.md) — the 7 failure-label axes and trace instrumentation

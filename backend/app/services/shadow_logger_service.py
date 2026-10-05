@@ -115,17 +115,27 @@ class ShadowLoggerService:
             logger.warning(f"Failed to initialize ShadowLoggerService: {e}")
 
     def log(self, entry: ShadowComparisonEntry):
-        """ペア比較ログを別スレッドで書き込み（メイン応答をブロックしない）"""
+        """ペア比較ログを別スレッドで書き込み（メイン応答をブロックしない）
+
+        シャドー評価の鉄則として、この関数は決して例外を送出しない。
+        entry.to_dict() と Thread.start() は書き込みスレッドではなく
+        呼び出し元スレッドで実行されるため、ここを塞がないと本番フローへ
+        例外が漏れる。呼び出し側の try/except に依存していると、新しい
+        呼び出し箇所が 1 つ囲み忘れた時点でその保証が破れる。
+        """
         if not self.client:
             logger.warning("ShadowLoggerService not initialized, skipping log")
             return
 
-        thread = threading.Thread(
-            target=self._write_to_bigquery,
-            args=(entry.to_dict(),),
-            daemon=True,
-        )
-        thread.start()
+        try:
+            row_data = entry.to_dict()
+            threading.Thread(
+                target=self._write_to_bigquery,
+                args=(row_data,),
+                daemon=True,
+            ).start()
+        except Exception as e:
+            logger.error(f"Failed to enqueue shadow comparison (suppressed): {e}")
 
     def _write_to_bigquery(self, row_data: Dict[str, Any]):
         try:

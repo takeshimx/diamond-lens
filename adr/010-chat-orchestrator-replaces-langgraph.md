@@ -122,6 +122,19 @@ LLM calls dropped from **4 to 2 — or 1 with `synthesize_response=False`** ([RE
 
 **Migration status**: accepted after canary operation behind the feature flag (`USE_LEGACY_CHAT_AGENT=false`). Physically deleting the legacy LangGraph sub-agents (`SupervisorAgent`, `BatterAgent`, `PitcherAgent`, `MatchupAgent`, `StatsAgent`, `MLBStatsAgent`, `AgentState`) is deferred pending the owner's decision.
 
+## Compliance
+
+| | |
+|---|---|
+| **Invariant** | Exactly one LLM interprets a chat question. Any stage that re-parses the user's intent between the question and the tool call reintroduces the telephone game this ADR removed. |
+| **How it is checked** | Trajectory evaluation `pass^3` over the golden trajectories — the same question is run three times and the tool-call path must match on all three. Single-run pass/fail is meaningless for a non-deterministic agent, which is why the triple is the unit. |
+| **Enforcement** | ⏸ `trajectory-eval-gate` (STEP 1.1.5) is commented out in `cloudbuild.yaml` for billing reasons. |
+| **Reading (2026-10-05)** | 17 trajectory cases (`p0` 7 / `p1` 10). The `p0` set must be 3/3 for the gate to pass; it is not currently being run per deploy. |
+
+Why a trajectory gate rather than an answer-quality gate: the invariant here is about **the path**, not the text. An answer can be right while the orchestrator took a wrong route, and that is precisely the regression — a reintroduced interpretation stage — this ADR needs to catch. [[018-llm-as-a-judge-offline-evaluation]] scores the output; this scores the route.
+
+The structural half of the invariant (no new LLM client appearing in the chat path) is covered by the allowlist grep in [[013-centralized-llm-gateway]]'s Compliance section. The feature flag `USE_LEGACY_CHAT_AGENT` remains the rollback lever, not a check.
+
 ## Why This Matters
 
 - **Modernizing the agent architecture**: this is the move to a function-calling loop in which the LLM selects tools directly. It is the core ADR recording why LangGraph was folded away in the chat path (a right-tool-for-the-job judgment), together with its trade-offs.

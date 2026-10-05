@@ -48,6 +48,21 @@ The token budget was split into **two pools plus one derived cap: chat / report 
 - The per-pool limits (`LLM_DAILY_TOKEN_BUDGET_CHAT` and friends) are heuristics with no guarantee of being an optimal split.
 - Operating two sets of thresholds — the existing combined alert and the new per-pool ones — adds overhead.
 
+## Compliance
+
+| | |
+|---|---|
+| **Invariant** | A request is rejected when **either** its own pool limit **or** the combined hard cap is exceeded, and usage is recorded against the pool the path belongs to. |
+| **How it is checked** | `is_budget_exceeded(pool)` is evaluated on the live request path, so the rule is enforced by execution rather than by a test. |
+| **Enforcement** | ✅ Runtime guard (not CI). Listed in [docs/FITNESS_FUNCTIONS.md](../docs/FITNESS_FUNCTIONS.md) §2-4. |
+| **Reading (2026-10-05)** | Enforced per container. |
+
+Two limits are worth stating plainly, because the guard looks stronger than it is.
+
+**The cap is per container, not per service.** Counts live in memory behind a `threading.Lock`, so with `max_instances = 20` on Cloud Run the effective daily ceiling is up to 20× the configured budget, and a container restart resets it to zero. As a cost *defense* this is still useful; as a cost *guarantee* it does not hold. That is the known trade recorded in Alternatives and deferred to [[048-distributed-rate-limit]] — this row simply makes the current reading explicit rather than implied.
+
+**Pool isolation itself is untested.** The decision that matters here is that report work cannot starve chat, and no test asserts it: a regression that recorded report usage against `pool="chat"` would restore the original problem while every limit still appeared to function. A unit test over `record_usage` / `is_budget_exceeded` across both pools would be cheap and is the missing piece.
+
 ## Why This Matters
 
 - **Managing LLM-specific state**: a cost-control decision that manages a distinctly LLM-native piece of state — the token budget — on a per-pool basis.

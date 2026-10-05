@@ -56,12 +56,32 @@ What was adopted.
 ## Consequences
 - What got better / what got worse / what new operational load or technical debt appeared.
 
+## Compliance
+How adherence to this decision is governed. See "The Compliance section" below.
+
+| | |
+|---|---|
+| **Invariant** | What must stay true for this decision to still hold. |
+| **How it is checked** | The fitness function, test, or manual review that detects a violation. |
+| **Enforcement** | ✅ enforced / ⏸ intentionally disabled / 👁 observed only / ❌ not implemented. |
+| **Reading (YYYY-MM-DD)** | The measured value or current state, dated. |
+
 ## Why This Matters
 Why this decision matters to the project as a whole (see the theme codes below).
 
 ## References
 Links to related PRs, design documents and README sections.
 ```
+
+### The Compliance section
+
+`Fundamentals of Software Architecture` (Richards / Ford, ch.19.3.1.6) recommends a **Compliance** section as a non-standard but valuable addition to an ADR. Its purpose is to force one question at decision time: **how will we know if this decision stops being followed?** The architect states whether adherence is checked by hand or automated as a **fitness function** — a measured threshold enforced in CI — and what else the codebase would need for that measurement to be possible.
+
+Three conventions apply here.
+
+- **The status glyphs are the ones in [docs/FITNESS_FUNCTIONS.md](../docs/FITNESS_FUNCTIONS.md)** (✅ / ⏸ / 👁 / ❌). That file is the single ledger of every measured item; a Compliance section states the invariant and points at it, rather than duplicating thresholds that would drift.
+- **Record the reading honestly, including when the check fails or does not exist.** A Compliance section that only lists green checks is worth nothing. Several here record ⏸ or ❌ on purpose — a gate switched off for billing is information, and so is a rule that nothing enforces.
+- **Omit the section when there is nothing to govern.** Not every decision has an invariant that can erode. ADR-052 (no fine-tuning) states a project-wide position that maps onto no file, and ADR-040 (MCP exposure) is a one-off integration whose adherence does not drift. Writing a contrived Compliance section for those would dilute the ones that mean something.
 
 ---
 
@@ -227,6 +247,8 @@ Tiers are calibrated by **how much a decision shapes this project's design**, an
 ## Maintenance guidelines
 
 - When a significant technical decision is made, add an ADR in the same PR (also stated in the Contributing section of `README_architecture.md`).
+- **Write a Compliance section unless there is genuinely nothing to govern**, and date its reading. When a gate is switched on or off, update both the ADR's Compliance row and [docs/FITNESS_FUNCTIONS.md](../docs/FITNESS_FUNCTIONS.md) — they drifted apart once already (ADR-020's TL;DR claimed the accuracy gate was live after it had been disabled).
+- Architecture characteristics selected and deliberately rejected project-wide are inventoried in [docs/ARCHITECTURE_CHARACTERISTICS.md](../docs/ARCHITECTURE_CHARACTERISTICS.md). A new ADR that trades one characteristic for another should be reflected there.
 - Keep the "Architecture Decisions" section of `README_architecture.md` in sync with this file's numbers and titles.
 - If the index (this file) and a body file diverge in granularity, treat the index as authoritative and update the body.
 - If the project's areas of focus change, revisit the **theme codes** and each row's **Theme column** (and let the Tier follow).

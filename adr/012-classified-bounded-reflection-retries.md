@@ -64,6 +64,21 @@ An explicit reflection loop is **live only in `StrategyAgent` (LangGraph)**. On 
 
 Note also that the unit tests in [test_reflection_loop.py](../backend/tests/test_reflection_loop.py) **originate from the legacy sub-agents** (`BatterAgent` / `PitcherAgent` / `MatchupAgent`), where the branch targets are named `oracle` / `reflection`. The live `StrategyAgent.should_reflect()` applies the same classification logic but branches to `strategist` / `reflection` — only the node names differ, the rules are identical in spirit. The legacy sub-agents have not been physically deleted, so these tests still exist.
 
+## Compliance
+
+| | |
+|---|---|
+| **Invariant** | Non-retryable errors never re-enter the loop, and `retry_count` never exceeds `max_retries` (= 2). Both halves matter: dropping the classification wastes money, dropping the cap removes the termination guarantee. |
+| **How it is checked** | Unit tests on `should_reflect()` — cap reached / non-retryable keywords / SQL syntax error / empty result / normal flow, asserted per case. |
+| **Enforcement** | ✅ Runs in CI on every PR. `backend/tests/test_strategy_agent.py` is in the `.github/workflows/ci.yml` list, executed with `-m "not slow and not legacy"`. |
+| **Reading (2026-10-05)** | 26 tests in `test_strategy_agent.py`, of which 5 cover `should_reflect()` directly (lines 72–113). 25 run in CI; 1 `slow` (parallel-execution timing) and 6 `legacy` (SupervisorAgent routing, parametrized) are deselected. |
+
+**A correction to this ADR's References**: `backend/tests/test_reflection_loop.py`, cited above, was deleted in commit `24640e9`; its coverage was reworked into `test_strategy_agent.py` in the same commit. The link is stale.
+
+**How the exclusion was lifted**: the file carried a module-level `pytestmark = pytest.mark.slow`, added because the SupervisorAgent path attempts a real BigQuery connection. By then the individual marks already existed — `@pytest.mark.legacy` on the three SupervisorAgent tests, `@pytest.mark.slow` on the timing test — so the blanket exclusion was doing a second time what the per-test marks already did, at the cost of hiding 25 sound tests. Removing it and selecting with `-m` in CI was the whole change. Marker selection is preferred over splitting the file because the reason for each exclusion then sits directly above the test it applies to, and the `legacy` mark doubles as the deletion marker for Phase 2-G.
+
+One limit is worth keeping in view: `StrategyAgent` receives zero traffic ([[053-agent-trace-viewer-failure-labeling]]), so production reports nothing about this rule. These tests are not a supplement to a production signal — they are the only signal there is.
+
 ## Why This Matters
 
 - **Bounding self-reflection**: it records, with its trade-offs, the production-minded self-correction decision to use "error classification plus a bound" rather than unbounded self-repair.

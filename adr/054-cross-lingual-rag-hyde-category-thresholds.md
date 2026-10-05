@@ -165,6 +165,23 @@ Net clearly positive, but not universal.
 - **A side effect of unspecified `node` surfaced.** Because `call_gemini` did not set `node`, the rerank's log row (whose content is an array of candidate numbers) was treated by `trace_query_service` as the endpoint's summary row, and the array was displayed as the FINAL RESULT in the Trace Viewer. Both fixes went in: setting `node`, and defensively selecting the summary row by the presence of `total_latency_ms` ([[053-agent-trace-viewer-failure-labeling]]).
 - **Tier 2 chunk quality is still unfixed.** Ingestion bugs remain: 12.8% residual page headers, 4.6% lead-in-only stubs, `def:WIND-UP POSITION` split into 28 pieces, and more. Fixing them requires re-ingestion (897 embeddings), so it was split out as separate work.
 
+## Compliance
+
+| | |
+|---|---|
+| **Invariant** | Rule retrieval hit@5 stays at or above **0.700**, with the `rules`-specific threshold at 0.35 and HyDE applied to that category only. |
+| **How it is checked** | The same harness as [[047-rag-chunking-multilingual-embeddings-reranking]]: `run_retrieval_eval.py --rerank --hyde --gate`, with `GATE_THRESHOLDS` splitting glossary (0.900) from rule (0.700). |
+| **Enforcement** | ✅ as a manual run / ⏸ in CD (STEP 1.1.6, disabled for billing). |
+| **Reading (2026-10-05)** | Rules hit@5 = **0.733** (22/30) — **0.033 above the line, a margin of roughly one question.** |
+
+The split threshold is the point. A blended 0.775 looks comfortable and conceals that the two corpora are 0.900 and 0.733; **one number across two populations of different difficulty cannot say which side moved**, which is the whole job of a fitness function.
+
+**The deeper lesson of this ADR is that a fitness function is only as trustworthy as its labels.** The 0.333 that justified disabling this feature was not a quality problem — it came from golden fixtures pointing at an empty heading chunk, and it then distorted the next decision too, since the threshold had silently prevented reranking from ever executing. A gate reading a broken golden set does not fail safe; it reports confidently and wrongly, and the only thing it blocks is the correct behavior.
+
+That makes the golden set itself the thing most in need of governance here, and `retrieval_fixtures.json` currently has none: [[021-hitl-golden-flywheel]] supplies review discipline for the *parse* golden set — promotion through a reviewed PR, structural validation in CI — while retrieval fixtures are edited directly with no equivalent check. Extending that discipline is the highest-value work this Compliance section points at.
+
+Residual, outside any gate: rule-question latency of 20–35 seconds (two serial Gemini calls, unparallelizable), and the known Tier 2 ingestion defects (12.8% residual page headers, 4.6% lead-in stubs) that bound how high hit@5 can go without re-ingestion.
+
 ## Why This Matters
 
 - **Evaluation**: it records not stopping at "accuracy is bad" but identifying and correcting a defect in the measurement system from real data, together with how the numbers moved (0.333 → 0.833) — including the judgment not to trust a metric at n=3.

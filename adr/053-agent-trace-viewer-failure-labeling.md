@@ -89,6 +89,21 @@ There are seven label axes:
 - **Summary rows written by endpoints carry a misleading timestamp.** `LLMLogEntry` stamps its timestamp at construction, so a row created right after the request arrives and written after processing completes ends up with "the earliest time and the final content." Mixing it into the step list breaks ordering, so rows with `node IS NULL` are separated out and shown as a `summary`.
 - **The sample size is thin.** There were 7 chat traces in the last 30 days — not enough volume to accumulate labels and feed golden promotion. That is a traffic problem, not an implementation one.
 
+## Compliance
+
+| | |
+|---|---|
+| **Invariant** | Every chat request leaves a readable step sequence — LLM rows with `node` set, tool rows with `model` NULL — and **tool rows never reach the cost dashboard**. |
+| **How it is checked** | Nothing automated. Traces are read by eye in the `TRACE` tab. |
+| **Enforcement** | 👁 Observation only. |
+| **Reading (2026-10-05)** | 7 chat traces in the last 30 days — a traffic problem, not an instrumentation one. |
+
+At this volume a threshold would be noise, and setting one would repeat the mistake this ADR exists to record: **choosing a target from structure rather than from measured traffic.** The honest statement is that there is not yet enough data to govern.
+
+One invariant here *is* worth asserting regardless of volume, because it is cheap and its failure is silent: `usage_stats_service` filters every query with `WHERE model IS NOT NULL`, and that filter is the only thing keeping non-LLM tool rows out of the cost figures. **A tool row that accidentally carried a model name would inflate reported cost with no error anywhere**, and no test covers that filter today.
+
+The two debts in Consequences are both measurement defects rather than implementation ones, and neither can be gated as it stands: `iteration` means different things on different paths, so it cannot be aggregated; and truncation by `MAX_TOOL_ITERATIONS` is indistinguishable from normal termination, so "the agent gave up" cannot be counted. Recording a truncation flag would make the first genuinely measurable failure mode of this path available to a fitness function.
+
 ## Why This Matters
 
 - **Granular tracing** — step-level tracking by `trace_id` was implemented not only in the logging layer but all the way to a viewing surface.

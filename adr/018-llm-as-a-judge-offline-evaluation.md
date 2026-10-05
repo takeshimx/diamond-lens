@@ -42,6 +42,21 @@ An LLM is used as a Judge to **score output semantically across multiple dimensi
 - The Judge model (`gemini-2.0-flash`) carries its own bias and misjudgment risk, and the 3.5 threshold is a heuristic.
 - Results depend on the prompt, so revising the Judge prompt shifts evaluation outcomes.
 
+## Compliance
+
+| | |
+|---|---|
+| **Invariant** | The Judge returns per-dimension scores plus a `failure_category`, and passes at `overall_score >= 3.5`. A Judge collapsed to a single number has stopped serving its purpose, which is locating the failure, not counting it. |
+| **How it is checked** | `backend/tests/test_llm_judge.py` covers the parsing and threshold logic without calling the API. Production responses are scored at 5% sampling by `online_judge_service`. |
+| **Enforcement** | ✅ for the unit tests (`.github/workflows/ci.yml`) / 👁 for the production score — a drop fires nothing. |
+| **Reading (2026-10-05)** | `PASS_THRESHOLD = 3.5`. Listed in [docs/FITNESS_FUNCTIONS.md](../docs/FITNESS_FUNCTIONS.md) §2-1 as observation only. |
+
+**The Judge is deliberately not a gate, and that is a consequence of its own design.** Scores wobble on identical input, so a single reading below 3.5 is as likely to be Judge noise as a real regression. Blocking a deploy on one non-deterministic number would produce false stops and train everyone to re-run the build.
+
+Making it gate-able would require the same move [[020-ci-evaluation-gate]] makes for trajectories: **repeat the measurement and require consistency** (the `pass^3` pattern), or gate on a moving average rather than a point reading. Neither is implemented. Until then the score belongs on a trend line, and the enforcement column should keep saying 👁 rather than implying more than it does.
+
+Note also that the Judge is itself billed through the Gateway, so adding sampling volume to tighten the signal has a direct cost — the reason sampling sits at 5%.
+
 ## Why This Matters
 
 - **The core of the evaluation pipeline**: LLM-as-a-Judge is the standard method for quality evaluation in generative AI and forms the foundation for accuracy measurement.

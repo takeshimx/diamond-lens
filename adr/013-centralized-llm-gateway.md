@@ -100,6 +100,21 @@ Not every column has been turned into a metric or a dashboard, but because **the
 - **One exception path**: `ChatOrchestrator` cannot use the LangChain callback, so it bypasses the Gateway's entry point, reuses only `_calc_cost_usd`, and writes its own `LLMLogEntry`. **Logs land in the same table and nothing is lost**, but it deviates from the ideal of funneling every call through the Gateway (see the Consequences section of [[010-chat-orchestrator-replaces-langgraph]]).
 - The `PRICING` table is maintained by hand; an unregistered model is recorded at zero cost (a warning is emitted).
 
+## Compliance
+
+| | |
+|---|---|
+| **Invariant** | No module calls Gemini outside the Gateway, except the single documented exception (`chat_orchestrator.py`). An un-reviewed bypass means an LLM call that costs money and leaves no row. |
+| **How it is checked** | `test_gemini_sdk_calls_stay_behind_the_gateway` in [backend/tests/test_architecture.py](../backend/tests/test_architecture.py) walks every module's AST for `genai.Client(...)` and `*.generate_content(...)` and compares the result against a two-entry allowlist. A paired test fails if an allowlist entry stops calling Gemini. |
+| **Enforcement** | ✅ Runs in CI on every PR (`.github/workflows/ci.yml`). |
+| **Reading (2026-10-05)** | Clean. 2 client constructions (`llm_gateway_service.py:93`, `chat_orchestrator.py:363`) and 3 `generate_content` call sites (1 Gateway, 2 ChatOrchestrator) — exactly the documented exception, no undocumented bypass. |
+
+This is the **cheapest fitness function in this project**: the allowlist has two entries, the check runs in under a second, and the failure it prevents — an LLM call that bills without logging — is invisible by construction, since nothing errors and the feature works.
+
+Detection is split by shape for a reason. `genai.Client(...)` is matched on the receiver name as well, because matching the attribute `Client` alone would also catch `bigquery.Client(...)` and `storage.Client(...)`. `generate_content` is matched on the method name alone, because its receiver varies (`client.models...`, a local variable) and the name is specific enough to Gemini that false positives do not arise.
+
+What the grep cannot see is whether the bypassing path writes the *same* columns. `ChatOrchestrator` assembles its own `LLMLogEntry` and reuses only `_calc_cost_usd`, so a new column added to the Gateway's entry would silently be missing from chat rows. That is a schema-level invariant and would need a different check — comparing the columns actually populated per `node` in `llm_interaction_logs`.
+
 ## Why This Matters
 
 - **LLM-native metrics (cost-per-request / tokens)**: this is the measurement foundation for per-request cost and token usage.

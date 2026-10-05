@@ -19,9 +19,11 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-# ファイル全体を CI から除外する。SupervisorAgent 経路が BigQuery へ実接続を
-# 試みるため、単体テストとして成立していない。塞いでから除外を解く。
-pytestmark = pytest.mark.slow
+# CI は `-m "not slow and not legacy"` で実行する（ADR-012 Compliance）。
+# 除外対象は個別にマーク済み:
+#   @pytest.mark.slow   : 実時間に依存する並列性能テスト
+#   @pytest.mark.legacy : SupervisorAgent 経路（BigQuery 実接続・Phase 2-G 削除待ち）
+# should_reflect() の分類と上限判定は上記いずれにも該当せず、CI で常時検証する。
 
 
 # ============================================================

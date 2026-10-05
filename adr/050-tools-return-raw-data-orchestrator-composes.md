@@ -49,6 +49,23 @@ In short, the separation is **tool = raw data fetcher, orchestrator = response c
 - A tool no longer returns readable prose on its own, so anything invoking a tool standalone (debugging, the MCP path) must format the result at the call site.
 - The `'sentence'` mode is kept for backward compatibility, leaving a "deprecated but functional" path that can still be misused.
 
+## Compliance
+
+| | |
+|---|---|
+| **Invariant** | No module under `backend/app/services/tools/` constructs a GenAI client or calls `generate_content`. A tool that calls an LLM has silently become a response generator again. |
+| **How it is checked** | Two tests in [backend/tests/test_architecture.py](../backend/tests/test_architecture.py). `test_tools_never_call_an_llm` scans every module under `tools/` for `genai.Client(...)`, `*.generate_content(...)` and `call_gemini(...)`. `test_tool_output_format_defaults_to_data` reads each tool function's signature from the AST and asserts the `output_format` default is still `"data"`. |
+| **Enforcement** | ✅ Both run in CI on every PR (`.github/workflows/ci.yml`). |
+| **Reading (2026-10-05)** | Clean. No LLM call sites under `tools/`; `batter_stats_tool.py:21` and `pitcher_stats_tool.py:20` both default to `output_format="data"`. |
+
+**The second test exists because the first one cannot see the likelier regression.** The live risk is not someone adding an LLM call to a tool — it is the deprecated `'sentence'` mode, kept for backward compatibility and still reachable, becoming the default again. That change adds no LLM call site inside `tools/`; it only changes which path runs, so a call-site scan passes while the decision has been reversed.
+
+What neither test covers: a *caller* passing `output_format='sentence'` explicitly. Pinning that would mean checking the call sites rather than the definitions, and is the remaining gap.
+
+Note the boundary with [[013-centralized-llm-gateway]]: that ADR's check asks *where* LLM calls may happen project-wide; this one asks whether `tools/` is among those places. The detection helper is shared between them.
+
+The scan sees direct calls only. `glossary_search_tool` reaches an LLM indirectly, because `rerank_service` calls Gemini downstream ([[047-rag-chunking-multilingual-embeddings-reranking]]). That is not a violation — the tool does not compose prose — but the test is not what establishes the distinction.
+
 ## Why This Matters
 
 - **Separating responsibilities in tool orchestration**: "tools return raw data, the orchestrator composes" is a decision at the core of the agent design.

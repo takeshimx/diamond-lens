@@ -219,6 +219,19 @@ The diagrams below separate "timeline A (batch, ahead of time)" from "timeline B
 
 This change is bought **at the price of operating one more Cloud Run service**. For a project with a handful of metrics it is plainly excessive, and `query_maps` plus a hand-written builder is lighter. This project exposes close to 200 metrics and adds new ones continuously, which is what makes the trade worthwhile.
 
+## Compliance
+
+| | |
+|---|---|
+| **Invariant** | Aggregation semantics (`agg:`, grain) are declared in dbt semantic models and nowhere else, and the LLM passes only metric names that MetricFlow actually serves. SQL assembly stays inside `dbt-metricflow`. |
+| **How it is checked** | Two mechanisms. (1) The metric vocabulary is **fetched at runtime** from MetricFlow via `semantic_layer_client` and injected into the prompt, so a name that no longer exists fails at call time instead of returning a plausible wrong number. (2) `schema-validation-gate` (STEP 0) reconciles `query_maps` against live BigQuery for the legacy fallback path. |
+| **Enforcement** | ✅ for the runtime vocabulary fetch (structural, not a gate) / ⏸ for `schema-validation-gate`, commented out in `cloudbuild.yaml`. |
+| **Reading (2026-10-05)** | Canary only: `USE_SEMANTIC_LAYER` enables the path in the Cloud Run environment, with the legacy `query_maps` path live as fallback everywhere else. |
+
+The runtime fetch is the stronger of the two, because it makes the invariant **structural rather than tested** — there is no local list of metric names that can drift. This is the shape worth preferring wherever it is available: a decision that cannot be violated needs no fitness function.
+
+The gap is stated in Consequences and is not covered by either mechanism: **dbt parsing does not guarantee that `expr: ops` refers to a column that exists.** A reconciliation of every `expr:` in `semantic_models/*.yml` against the materialized mart schema would close it, and is the most valuable check this ADR currently lacks. Until the canary is fully promoted, two paths must both stay correct, which doubles what needs checking.
+
 ## Why This Matters
 
 - **A pretrained-model-centric design**: having the LLM call validated metric definitions rather than write SQL matches the project's approach of leaving the model itself untouched and building around it ([[052-build-around-pretrained-no-fine-tuning]]). Note that "the LLM does not write SQL" was equally true of the legacy path and is not a difference introduced here.
