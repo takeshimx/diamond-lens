@@ -86,6 +86,17 @@ const btn = (active = false, disabled = false) => ({
   textTransform: 'uppercase', cursor: disabled ? 'not-allowed' : 'pointer',
 });
 
+// Online Judge の採点項目の表示名。キーは BQ online_judge_verdicts の列名。
+const JUDGE_DIMENSIONS = {
+  factual_accuracy:  '事実の正確さ',
+  completeness:      '網羅性',
+  analytical_depth:  '深さの適合',
+  language_quality:  '文章の質',
+  structure:         '構造の適合',
+  context_relevance: '文書の関連性',
+};
+const JUDGE_MODE_LABEL = { raw: '生データ', rag: 'RAG 文章合成' };
+
 const EMPTY_EXPECTATION = {
   query_type: '', split_type: '', metrics: [], player_name: '',
   season: '', order_by: '', expected_no_tool: false, user_query: '',
@@ -238,6 +249,7 @@ export default function TraceViewer({ getBackendURL, getAuthHeaders }) {
   const [onlyFailed, setOnlyFailed] = useState(false);
   const [onlyBadRating, setOnlyBadRating] = useState(false);
   const [onlyUnexpected, setOnlyUnexpected] = useState(false);
+  const [onlyJudgeFailed, setOnlyJudgeFailed] = useState(false);
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -271,6 +283,7 @@ export default function TraceViewer({ getBackendURL, getAuthHeaders }) {
         only_failed: String(onlyFailed),
         only_bad_rating: String(onlyBadRating),
         only_unexpected: String(onlyUnexpected),
+        only_judge_failed: String(onlyJudgeFailed),
         force: String(force),
       });
       const json = await call(`/traces?${qs}`);
@@ -280,7 +293,7 @@ export default function TraceViewer({ getBackendURL, getAuthHeaders }) {
     } finally {
       setLoading(false);
     }
-  }, [call, onlyUnlabeled, onlyFailed, onlyBadRating, onlyUnexpected]);
+  }, [call, onlyUnlabeled, onlyFailed, onlyBadRating, onlyUnexpected, onlyJudgeFailed]);
 
   useEffect(() => { loadTraces(); }, [loadTraces]);
 
@@ -345,9 +358,8 @@ export default function TraceViewer({ getBackendURL, getAuthHeaders }) {
         },
         body: JSON.stringify({ label: labelId, note: note || null }),
       });
-      // 再取得しない。trace_labels も Streaming Buffer に入るため直後の
-      // SELECT には現れず、付けたラベルが消えたように見える。さらに
-      // loadDetail は期待値フォームも初期化するため、入力途中の内容を失う。
+      // 再取得しない。loadDetail は期待値フォームも初期化するため、
+      // 入力途中の内容を失う。BQ の往復も 1 回減る。
       setDetail((d) => (d ? {
         ...d,
         current_label: labelId,
@@ -394,10 +406,8 @@ export default function TraceViewer({ getBackendURL, getAuthHeaders }) {
       });
       setExpSaved(true);
       setExpEditing(false);
-      // ここで trace を再取得してはいけない。BigQuery の Streaming Buffer は
-      // insert 直後の SELECT にまだ現れず、「未登録」と判定されてフォームが
-      // 初期化される（保存は成功しているのに消えたように見える）。
-      // POST が書き込んだ行をそのまま返すので、それで画面を更新する。
+      // trace は再取得しない。POST が書き込んだ行をそのまま返すので、
+      // それで画面を更新すれば BQ の往復が 1 回減る。
       setDetail((d) => (d ? { ...d, expectation: json.data } : d));
       // 一覧の「処理済み」表示も同時に更新する。未処理フィルタ表示中なら
       // その場で行を落とし、待ち行列が減ったことが見て分かるようにする。
@@ -450,6 +460,11 @@ export default function TraceViewer({ getBackendURL, getAuthHeaders }) {
         </div>
         <div style={{ flex: 1 }} />
         <button style={btn(onlyBadRating)} onClick={() => setOnlyBadRating((v) => !v)}>👎 ONLY</button>
+        <button
+          style={btn(onlyJudgeFailed)}
+          onClick={() => setOnlyJudgeFailed((v) => !v)}
+          title="Online Judge が不合格とした trace のみ。UNLABELED と併用すると未確認分だけになる"
+        >JUDGE NG</button>
         <button style={btn(onlyUnexpected)} onClick={() => setOnlyUnexpected((v) => !v)}>未処理のみ</button>
         <button style={btn(onlyFailed)} onClick={() => setOnlyFailed((v) => !v)}>FAILED ONLY</button>
         <button style={btn(onlyUnlabeled)} onClick={() => setOnlyUnlabeled((v) => !v)}>UNLABELED</button>
@@ -542,6 +557,14 @@ export default function TraceViewer({ getBackendURL, getAuthHeaders }) {
                       👎 {(t.feedback_category || '').toUpperCase()}
                     </Chip>
                   )}
+                  {t.judge_passed === false && (
+                    <Chip color="var(--neg)" filled title={'Online Judge 不合格 (' + (JUDGE_MODE_LABEL[t.judge_mode] || t.judge_mode) + ')'}>
+                      JUDGE {t.judge_score?.toFixed(1)}
+                    </Chip>
+                  )}
+                  {t.judge_passed === true && (
+                    <Chip color="var(--pos)" title="Online Judge 合格">JUDGE ✓</Chip>
+                  )}
                   {t.has_expectation && (
                     <Chip color="var(--pos)" title={'期待値: ' + t.expected_query_type}>
                       ✓ EXPECTED
@@ -587,6 +610,59 @@ export default function TraceViewer({ getBackendURL, getAuthHeaders }) {
 
           {detail && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+              {/* Online Judge — サンプリングされた trace のみ。
+                  Judge の誤判定は専用の記録先を持たず、下の FAILURE LABEL で
+                  「正しい」を付けることで表す（Judge 不合格 × 人が正しい = 誤判定）。 */}
+              {detail.judge && (
+                <Card>
+                  <CardHead
+                    title="ONLINE JUDGE"
+                    subtitle={`${JUDGE_MODE_LABEL[detail.judge.mode] || detail.judge.mode} 経路 · ${fmtTime(detail.judge.judged_at)}`}
+                    right={
+                      <Chip color={detail.judge.passed ? 'var(--pos)' : 'var(--neg)'} filled>
+                        {detail.judge.passed ? 'PASS' : 'FAIL'} {detail.judge.overall_score?.toFixed(2)}
+                      </Chip>
+                    }
+                  />
+                  <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{
+                      display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                      gap: 6, fontFamily: 'var(--ff-mono)', fontSize: 10.5,
+                    }}>
+                      {Object.entries(detail.judge.scores || {}).map(([dim, score]) => (
+                        <div key={dim} style={{
+                          padding: '4px 8px', border: '1px solid var(--rule)',
+                          display: 'flex', justifyContent: 'space-between',
+                          color: score <= 2 ? 'var(--neg)' : 'var(--ink-2)',
+                        }}>
+                          <span>{JUDGE_DIMENSIONS[dim] || dim}</span>
+                          <span style={{ fontWeight: 700 }}>{score}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {detail.judge.reasoning && (
+                      <div style={{ fontSize: 11, color: 'var(--ink-2)', lineHeight: 1.6 }}>
+                        {detail.judge.reasoning}
+                      </div>
+                    )}
+                    {detail.judge.issues?.length > 0 && (
+                      <ul style={{
+                        margin: 0, paddingLeft: 16, fontFamily: 'var(--ff-mono)',
+                        fontSize: 10.5, color: 'var(--ink-3)', lineHeight: 1.6,
+                      }}>
+                        {detail.judge.issues.map((issue, i) => <li key={i}>{issue}</li>)}
+                      </ul>
+                    )}
+                    {!detail.judge.passed && (
+                      <div style={{ fontFamily: 'var(--ff-mono)', fontSize: 9, color: 'var(--ink-4)', lineHeight: 1.6 }}>
+                        Judge が正しければ失敗ラベルを付け、期待値を入力して golden に昇格します。
+                        回答に問題が無ければ「{TRACE_LABEL_MAP.correct.jp}」を付けてください（Judge の誤判定として集計されます）。
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              )}
 
               {/* Labeling */}
               <Card>

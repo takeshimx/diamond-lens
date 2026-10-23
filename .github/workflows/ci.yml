@@ -62,6 +62,7 @@ jobs:
             tests/test_model_registry.py \
             tests/test_query_rewrite_service.py \
             tests/test_trace_expectation.py \
+            tests/test_trace_judge.py \
             tests/test_reflection_judge.py \
             tests/test_routing_judge.py \
             tests/test_synthesizer_judge.py \

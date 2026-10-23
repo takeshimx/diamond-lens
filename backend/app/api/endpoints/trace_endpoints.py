@@ -107,12 +107,14 @@ def list_traces_endpoint(
     only_failed: bool = Query(False, description="失敗ステップを含むもののみ"),
     only_bad_rating: bool = Query(False, description="ユーザーが 👎 を付けたもののみ"),
     only_unexpected: bool = Query(False, description="期待値が未付与のもののみ"),
+    only_judge_failed: bool = Query(False, description="Online Judge が不合格としたもののみ"),
     force: bool = Query(False, description="True なら 60s キャッシュを無視"),
 ) -> Dict[str, Any]:
     # フィルタを増やしたら cache_key にも必ず足すこと。忘れると切り替えても
     # 60 秒間は前の結果が返り、「実装したのに動かない」状態になる。
     cache_key = (
-        days, limit, only_unlabeled, only_failed, only_bad_rating, only_unexpected
+        days, limit, only_unlabeled, only_failed, only_bad_rating, only_unexpected,
+        only_judge_failed,
     )
     if not force:
         with _cache_lock:
@@ -127,6 +129,7 @@ def list_traces_endpoint(
             only_failed=only_failed,
             only_bad_rating=only_bad_rating,
             only_unexpected=only_unexpected,
+            only_judge_failed=only_judge_failed,
         )
     except Exception as e:
         logger.error(f"list_traces failed: {e}", exc_info=True)

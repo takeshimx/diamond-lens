@@ -31,6 +31,7 @@ DATASET_ID = _settings.bigquery_dataset_id
 LOGS_TABLE = f"{PROJECT_ID}.{DATASET_ID}.llm_interaction_logs"
 LABELS_TABLE = f"{PROJECT_ID}.{DATASET_ID}.trace_labels"
 EXPECTATIONS_TABLE = f"{PROJECT_ID}.{DATASET_ID}.trace_expectations"
+JUDGE_TABLE = f"{PROJECT_ID}.{DATASET_ID}.online_judge_verdicts"
 
 _client: Optional[bigquery.Client] = None
 
@@ -61,6 +62,7 @@ def list_traces(
     only_failed: bool = False,
     only_bad_rating: bool = False,
     only_unexpected: bool = False,
+    only_judge_failed: bool = False,
 ) -> List[Dict[str, Any]]:
     """trace の一覧を返す。1 trace = 1 行に集約する。
 
@@ -73,6 +75,8 @@ def list_traces(
         only_unexpected: True なら期待値が未付与の trace のみ。
             only_bad_rating と併用すると「まだ処理していない 👎」になり、
             レビュー待ち行列として機能する（処理すると一覧から消える）。
+        only_judge_failed: True なら Online Judge が不合格とした trace のみ。
+            only_unlabeled と併用すると「まだ人が確認していない Judge 不合格」になる。
     """
     query = f"""
     WITH steps AS (
@@ -113,7 +117,7 @@ def list_traces(
       QUALIFY ROW_NUMBER() OVER (PARTITION BY trace_id ORDER BY labeled_at DESC) = 1
     ),
     -- 👍👎 は本体行の更新ではなく user_query='[FEEDBACK_UPDATE]' の別行として
-    -- INSERT される（Streaming Buffer が UPDATE を許さないため）。
+    -- INSERT される（本体行は書き換えない追記方式）。
     -- その行は node が NULL なので steps CTE には入らず、trace_id も
     -- フィードバック送信時の ContextVar 由来で **実データ上 NULL** である。
     -- したがって trace_id では結べない。request_id で突き合わせる。
@@ -131,6 +135,19 @@ def list_traces(
       SELECT trace_id, query_type AS expected_query_type
       FROM `{EXPECTATIONS_TABLE}`
       QUALIFY ROW_NUMBER() OVER (PARTITION BY trace_id ORDER BY created_at DESC) = 1
+    ),
+    -- Online Judge の判定。サンプリングされた trace にだけ存在する。
+    -- 判定は request_id 単位で書かれるため、👎 と同じく request_id で結ぶ。
+    judge AS (
+      SELECT
+        request_id,
+        passed            AS judge_passed,
+        overall_score     AS judge_score,
+        synthesizer_path  AS judge_mode
+      FROM `{JUDGE_TABLE}`
+      WHERE request_id IS NOT NULL
+        AND DATE(timestamp) >= DATE_SUB(CURRENT_DATE(), INTERVAL @days DAY)
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY request_id ORDER BY timestamp DESC) = 1
     )
     SELECT
       s.trace_id,
@@ -154,15 +171,20 @@ def list_traces(
       f.user_rating,
       f.feedback_category,
       f.feedback_reason,
-      e.expected_query_type
+      e.expected_query_type,
+      j.judge_passed,
+      j.judge_score,
+      j.judge_mode
     FROM steps s
     LEFT JOIN latest_label       l USING (trace_id)
     LEFT JOIN latest_expectation e USING (trace_id)
     LEFT JOIN feedback           f USING (request_id)
+    LEFT JOIN judge              j USING (request_id)
     WHERE (@only_unlabeled = FALSE OR l.label IS NULL)
       AND (@only_failed = FALSE OR s.failed_steps > 0)
       AND (@only_bad_rating = FALSE OR f.user_rating = 'bad')
       AND (@only_unexpected = FALSE OR e.expected_query_type IS NULL)
+      AND (@only_judge_failed = FALSE OR j.judge_passed = FALSE)
     ORDER BY s.started_at DESC
     LIMIT @limit
     """
@@ -174,6 +196,7 @@ def list_traces(
             bigquery.ScalarQueryParameter("only_failed", "BOOL", only_failed),
             bigquery.ScalarQueryParameter("only_bad_rating", "BOOL", only_bad_rating),
             bigquery.ScalarQueryParameter("only_unexpected", "BOOL", only_unexpected),
+            bigquery.ScalarQueryParameter("only_judge_failed", "BOOL", only_judge_failed),
         ]
     )
     rows = _get_client().query(query, job_config=job_config).result()
@@ -202,6 +225,10 @@ def list_traces(
             # 期待値が付与済みかどうか。一覧で「処理済み」を見分けるために使う。
             "expected_query_type": r["expected_query_type"],
             "has_expectation": r["expected_query_type"] is not None,
+            # Judge にサンプリングされていない trace は 3 つとも None
+            "judge_passed": r["judge_passed"],
+            "judge_score": float(r["judge_score"]) if r["judge_score"] is not None else None,
+            "judge_mode": r["judge_mode"],
         }
         for r in rows
     ]
@@ -246,6 +273,62 @@ def _fetch_feedback(request_id: str) -> Optional[Dict[str, Any]]:
         "user_rating": r["user_rating"],
         "feedback_category": r["feedback_category"],
         "feedback_reason": r["feedback_reason"],
+    }
+
+
+def _fetch_judge(request_id: str) -> Optional[Dict[str, Any]]:
+    """request_id に紐づく最新の Online Judge 判定を 1 件返す。無ければ None。
+
+    採点対象外の項目は 0 で記録されている（最低点 1 とは別物）。
+    UI が対象項目だけを出せるよう、0 の項目は scores から除く。
+    """
+    query = f"""
+    SELECT
+      passed, overall_score, synthesizer_path, reasoning, issues, timestamp,
+      factual_accuracy, completeness, analytical_depth, language_quality,
+      structure, context_relevance
+    FROM `{JUDGE_TABLE}`
+    WHERE request_id = @request_id
+    ORDER BY timestamp DESC
+    LIMIT 1
+    """
+    try:
+        rows = list(
+            _get_client()
+            .query(
+                query,
+                job_config=bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ScalarQueryParameter("request_id", "STRING", request_id)
+                    ]
+                ),
+            )
+            .result()
+        )
+    except Exception as e:
+        logger.warning(f"judge verdict read failed (suppressed): {e}")
+        return None
+    if not rows:
+        return None
+    r = rows[0]
+
+    try:
+        issues = json.loads(r["issues"] or "[]")
+    except (TypeError, ValueError):
+        issues = []
+
+    dims = (
+        "factual_accuracy", "completeness", "analytical_depth",
+        "language_quality", "structure", "context_relevance",
+    )
+    return {
+        "passed": r["passed"],
+        "overall_score": float(r["overall_score"]) if r["overall_score"] is not None else None,
+        "mode": r["synthesizer_path"],
+        "reasoning": r["reasoning"],
+        "issues": issues if isinstance(issues, list) else [],
+        "judged_at": r["timestamp"].isoformat() if r["timestamp"] else None,
+        "scores": {d: r[d] for d in dims if r[d]},
     }
 
 
@@ -372,6 +455,7 @@ def get_trace(trace_id: str) -> Dict[str, Any]:
         "current_label": labels[0]["label"] if labels else None,
         "feedback": feedback,
         "expectation": get_latest_expectation(trace_id),
+        "judge": _fetch_judge(request_id) if request_id else None,
     }
 
 
