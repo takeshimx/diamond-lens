@@ -65,7 +65,7 @@ In short, it brings the standard regression cycle — bug report → write a rep
 
 ### 1. Thumbs-down joins on `request_id` (not `trace_id`)
 
-Feedback does not update the existing log row; it is **INSERTed as a separate row** with `user_query='[FEEDBACK_UPDATE]'`, because the streaming buffer does not permit UPDATE.
+Feedback does not update the existing log row; it is **INSERTed as a separate row** with `user_query='[FEEDBACK_UPDATE]'`. This was originally forced by the streaming buffer, which does not permit UPDATE. Since 2026-10-23 every write is a DML INSERT ([[055-bigquery-writes-via-dml-only]]) and UPDATE would be possible, but the separate row is kept on purpose: the log stays append-only and the feedback history is preserved.
 
 Pulling one real row to check showed that this row has `node` **and `trace_id` both NULL**. The implementation fills `trace_id` when it can read it from a ContextVar (a per-request variable), but submitting feedback is a *different* request from the original chat — so the original chat's `trace_id` is simply not there.
 
@@ -89,6 +89,12 @@ In reality     : a complete failure
 ```
 
 **This class of failure will never be found through `only_failed`.** User rating has to exist as an axis separate from step success, so `only_bad_rating` was added.
+
+#### Amendment (2026-10-23): online judge failures as a second entry point
+
+A 👎 requires a user to press a button, so the queue only ever holds what users bothered to report. The online judge ([[018-llm-as-a-judge-offline-evaluation]]) scores a sample of production answers without waiting for anyone, and its failures now enter the same queue: `only_judge_failed` (`JUDGE NG` in the UI) joins `online_judge_verdicts` by `request_id`, the same key as 👎.
+
+From there the flow is unchanged — label, enter the expected value, approve. The one addition is what happens when **the judge was wrong**: the reviewer labels the trace `correct`. "Judge failed × human says correct" is a judge false positive, so no table was added for judge disagreements; judge/human agreement is a join between `online_judge_verdicts` and `trace_labels`.
 
 ### 3. The vocabulary for expected values derives from the tool schema enum
 
@@ -180,6 +186,8 @@ Two gaps are worth naming. **The held queue has no age signal**: cases that viol
 ## References
 
 - [ADR-053: Agent Trace Viewer and failure labeling](053-agent-trace-viewer-failure-labeling.md) — the 7 failure-label axes and trace instrumentation
+- [ADR-018: LLM-as-a-Judge](018-llm-as-a-judge-offline-evaluation.md) — the online judge whose failures feed the queue
+- [ADR-055: BigQuery writes via DML only](055-bigquery-writes-via-dml-only.md) — why labels and expected values can be corrected immediately
 - [ADR-049: Security guardrail](049-security-guardrail-pre-llm-defense.md) — the `validate_query_params` referenced above
 - [ADR-032: trace_id and structured logging](032-snowflake-trace-id-structured-logging.md)
 - `backend/app/services/golden_promotion_service.py` — promotion logic (no I/O)

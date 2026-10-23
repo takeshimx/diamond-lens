@@ -89,6 +89,12 @@ There are seven label axes:
 - **Summary rows written by endpoints carry a misleading timestamp.** `LLMLogEntry` stamps its timestamp at construction, so a row created right after the request arrives and written after processing completes ends up with "the earliest time and the final content." Mixing it into the step list breaks ordering, so rows with `node IS NULL` are separated out and shown as a `summary`.
 - **The sample size is thin.** There were 7 chat traces in the last 30 days — not enough volume to accumulate labels and feed golden promotion. That is a traffic problem, not an implementation one.
 
+### Addendum (2026-10-23): online judge verdicts in the trace view
+
+Traces the online judge sampled ([[018-llm-as-a-judge-offline-evaluation]]) now carry its verdict. The list joins `online_judge_verdicts` by `request_id` and shows a `JUDGE ✓` / `JUDGE 2.4` chip; `only_judge_failed` (`JUDGE NG`) filters to failures. The detail view adds an **ONLINE JUDGE** card — answer path, per-dimension scores with `0` (not applicable) omitted, reasoning, and issues. A reviewer who finds the answer fine labels it `correct`, which records a judge false positive ([[021-hitl-golden-flywheel]]).
+
+Labels and the rest of the Trace Viewer's writes are now DML INSERTs ([[055-bigquery-writes-via-dml-only]]), so a mislabel can be corrected immediately rather than after the streaming buffer drains.
+
 ## Compliance
 
 | | |
@@ -117,5 +123,6 @@ Viewing traces, labeling failures and comparing runs are prerequisites for impro
 - [ADR-011: Retain LangGraph only for StrategyAgent](011-retain-langgraph-for-strategy-agent.md)
 - [ADR-032: Snowflake trace_id + structured logging](032-snowflake-trace-id-structured-logging.md)
 - ADR-051: Append-only LLM logging *(TBA — indexed in [README.md](README.md), write-up not yet authored)*
+- [ADR-055: BigQuery writes via DML only](055-bigquery-writes-via-dml-only.md)
 - `README_ai_architecture.md` §3 / §9.7
 - Implementation: `backend/app/services/trace_query_service.py` / `trace_label_service.py` / `backend/app/api/endpoints/trace_endpoints.py` / `frontend/src/components/TraceViewer.jsx`

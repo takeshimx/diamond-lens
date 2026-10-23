@@ -1145,6 +1145,7 @@ See [Architecture Decision Records](./adr/) for detailed design decisions.
 - [ADR-003: Weekly Batch Processing Strategy](./adr/003-weekly-batch-processing.md)
 - [ADR-004: Cloud Workflows over Airflow](./adr/004-cloud-workflows-over-airflow.md)
 - [ADR-053: Agent Trace Viewer + failure labeling on the existing log table](./adr/053-agent-trace-viewer-failure-labeling.md)
+- [ADR-055: All application writes to BigQuery go through DML, never the streaming API](./adr/055-bigquery-writes-via-dml-only.md)
 
 ---
 

@@ -197,8 +197,9 @@ Legend —
 | 041 *(TBA)* | SLO + error budget policy | Defined SLOs with an error budget vs. no definition | ✅ | P2 | EV BP | `docs/SLO.md` |
 | 043 *(TBA)* | Cloud Monitoring custom metrics over Prometheus | Managed monitoring vs. self-operated Prometheus | ✅ | P2 | EV GC★ | `docs/MONITORING.md` / README monitoring |
 | 042 *(TBA)* | Incident response runbook | A written incident procedure vs. ad-hoc response | ✅ | P3 | BP | `docs/INCIDENT_RESPONSE.md` |
-| 051 *(TBA)* | Append-only LLM logging (daemon thread) + feedback via placeholder INSERT | Asynchronous fire-and-forget writes avoiding UPDATE vs. synchronous writes / direct UPDATE (working around the BQ streaming buffer; note the residual risk of losing logs if the process dies abruptly) | ✅/revisit | P3 | EV LM | `README_ai_architecture.md` §3 |
+| 051 *(TBA)* | Append-only LLM logging (daemon thread) + feedback via placeholder INSERT | Asynchronous fire-and-forget writes avoiding UPDATE vs. synchronous writes / direct UPDATE (originally working around the BQ streaming buffer; writes are DML since ADR-055, and append-only is now kept by choice. Note the residual risk of losing logs if the process dies abruptly) | ✅/revisit | P3 | EV LM | `README_ai_architecture.md` §3 |
 | [053](053-agent-trace-viewer-failure-labeling.md) | Agent Trace Viewer + failure labeling (riding on the existing log table) | Add node/iteration/tool_calls to `llm_interaction_logs` and mix in tool rows with `model IS NULL` vs. a dedicated trace table. **Records how instrumentation was wrongly aimed at StrategyAgent and moved to ChatOrchestrator once real logs showed it unreachable** | ✅ | ⭐P1 | LM★ EV★ | `README_ai_architecture.md` §9.7 |
+| [055](055-bigquery-writes-via-dml-only.md) | All application writes to BigQuery go through DML, never the streaming API | One DML helper typed from the live schema, banned streaming inserts enforced by an architecture test vs. keeping `insert_rows_json` and working around the streaming buffer / Storage Write API / per-call typed parameters. **Records how streaming had become the de facto architecture through copy-paste, surfaced when a test row could not be deleted** | ✅ | P2 | LM EV BP | `README_ai_architecture.md` §3 |
 
 ### H. Future decisions (Proposed — from DDIA / AI engineering reviews, undecided)
 
@@ -221,12 +222,12 @@ Use it to find where the design decisions for a given area are written down.
 | Code | Theme | ADRs (★ = central) |
 |-------|-------|---------------------|
 | **AG** | Agentic / multi-agent / MCP / LangGraph / self-reflection / tool orchestration | **010★, 011★, 012★, 040★ (MCP), 009★, 050★** |
-| **EV** | Evaluation pipelines & observability (accuracy/safety/latency) | **018★, 019★, 020★, 049★ (safety), 025★, 013, 032, 033, 041, 043, 051** |
-| **LM** | LLM-native metrics (cost-per-request), state management, granular tracing | **013★, 015★, 016★ (cost+state), 032★ (tracing), 017, 026, 030, 045, 046, 051** |
+| **EV** | Evaluation pipelines & observability (accuracy/safety/latency) | **018★, 019★, 020★, 049★ (safety), 025★, 013, 032, 033, 041, 043, 051, 055** |
+| **LM** | LLM-native metrics (cost-per-request), state management, granular tracing | **013★, 015★, 016★ (cost+state), 032★ (tracing), 017, 026, 030, 045, 046, 051, 055** |
 | **GC** | Architecture, deployment and operations on GCP | **029★, 037★, 003★, 004★, 043★, 001★, 048** |
 | **INT** | Data platform integration / data silos / security perimeters | **031★ (perimeter), 001★, 005★, 002** |
 | **FM** | Prompt engineering / RAG / fine-tuning / tool orchestration (pretrained-centric) | **009★, 014★ (prompt), 052★ (no FT), 026★ (RAG), 047★ (RAG), 021** |
-| **BP** | Repeatable development and operational practices | **037, 020, 022, 002, 035, 038, 039, 041, 042, 044, 048** |
+| **BP** | Repeatable development and operational practices | **037, 020, 022, 002, 035, 038, 039, 041, 042, 044, 048, 055** |
 
 ---
 

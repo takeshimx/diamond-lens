@@ -279,7 +279,7 @@ sequenceDiagram
 
 ログ書込は別スレッドのため、API レスポンス速度に影響を与えません。フィードバックは本体行を書き換えず、`[FEEDBACK_UPDATE]` プレースホルダ行を別途 INSERT する追記方式でございます。
 
-**BigQuery への書き込みはすべて DML INSERT でございます**（[backend/app/utils/bq_dml.py](backend/app/utils/bq_dml.py) の `insert_rows_dml()`）。ストリーミング挿入（`insert_rows_json` / `insert_rows`）は、ストリーミングバッファに入った行を最大 90 分程度 UPDATE / DELETE できないため使用を禁止し、[tests/test_architecture.py](backend/tests/test_architecture.py) で検出いたします。列の型は実行時にテーブル定義から取得するため、呼び出し側は従来どおり dict を渡すだけで済みます。対象は `llm_interaction_logs` / `shadow_comparisons` / `online_judge_verdicts` / `ml_drift_monitoring_logs` / `trace_labels` / `trace_expectations` の 6 テーブルでございます。
+**BigQuery への書き込みはすべて DML INSERT でございます**（[backend/app/utils/bq_dml.py](backend/app/utils/bq_dml.py) の `insert_rows_dml()`）。ストリーミング挿入（`insert_rows_json` / `insert_rows`）は、ストリーミングバッファに入った行を最大 90 分程度 UPDATE / DELETE できないため使用を禁止し、[tests/test_architecture.py](backend/tests/test_architecture.py) で検出いたします。列の型は実行時にテーブル定義から取得するため、呼び出し側は従来どおり dict を渡すだけで済みます。対象は `llm_interaction_logs` / `shadow_comparisons` / `online_judge_verdicts` / `ml_drift_monitoring_logs` / `trace_labels` / `trace_expectations` の 6 テーブルでございます。判断の経緯は [ADR-055](adr/055-bigquery-writes-via-dml-only.md) を参照ください。
 
 ---
 
