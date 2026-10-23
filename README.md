@@ -119,6 +119,7 @@ An AI-powered analytics interface for exploring Major League Baseball statistics
 - **📋 Feedback Categories**: Structured categorization (`inaccurate`, `slow`, `irrelevant`, `wrong_player`, `wrong_stats`) with optional free-text reason
 - **🗄️ BigQuery Logging**: All feedback (rating, category, reason) is recorded to BigQuery alongside the original LLM interaction log
 - **🔎 Review Queue in the Trace Viewer**: 👎 traces are surfaced with `👎 ONLY` + `未処理のみ` filters; annotating one removes it from the queue
+- **⚖️ Online Judge failures as a second entry point**: traces the Online Judge failed are surfaced with `JUDGE NG` (+ `UNLABELED` for the unreviewed ones). If the judge was right, the reviewer labels and annotates as usual; if the answer was actually fine, labeling it `correct` records a **judge false positive** — no extra table, and judge/human agreement becomes a single SQL query
 - **✍️ Expected-Answer Annotation**: The reviewer records what the parsed arguments *should* have been; choices are served from the tool-schema enums so the UI can never drift out of sync
 - **🔀 Automated PR**: Approving opens a pull request against `golden_dataset.json` — git stays the source of truth for the CI gate
 
@@ -279,7 +280,7 @@ CI/CD Drift Check → Compare active model's training data vs latest season
 
 | # | Judge | Evaluation Target | Evaluation Dimensions | Status | File |
 |---|---|---|---|---|---|
-| 2 | **Synthesizer Quality** | AI-generated responses on the production chat path | Factual accuracy, analytical depth, language quality, structure, completeness (+ context relevance on RAG paths) | ✅ **Production** — sampled & async via `online_judge_service.py` | `synthesizer_judge_service.py` |
+| 2 | **Synthesizer Quality** | Responses on the production chat path, scored **per answer path** | Raw-data path: factual accuracy, completeness. RAG path: factual accuracy, completeness, depth fit, language quality, structure fit + context relevance | ✅ **Production** — 50% sampled & async via `online_judge_service.py` | `synthesizer_judge_service.py` |
 | 1 | **Parse Accuracy** | LLM query parse results against the golden dataset | query_type accuracy, metrics extraction, player name resolution, intent understanding | ⚠️ **Offline only** — invoked by `evaluate_with_llm_judge.py`; no production call site | `llm_judge_service.py` |
 
 **Implemented but not wired (3)** — unit-tested, referenced only from tests:
@@ -292,9 +293,22 @@ CI/CD Drift Check → Compare active model's training data vs latest season
 
 **Operational Architecture**:
 ```
-[Online] Chat response → sampled → Synthesizer Judge scores async → BQ online_judge_verdicts
+[Online] Chat response → 50% sampled → Synthesizer Judge scores async (per answer path)
+         → BQ online_judge_verdicts → failures reviewed in the Trace Viewer (JUDGE NG)
 [Offline] golden_dataset.json → evaluate_with_llm_judge.py → Parse Judge → JSON results
 ```
+
+**Online Judge criteria per answer path**: most answers are tool output formatted mechanically (ADR-050), so judging them on prose quality failed correct answers. The judge now scores only what each path can be responsible for:
+
+| Answer path | When | Scored dimensions (1-5) |
+|---|---|---|
+| `raw` | Tool data formatted mechanically (default) | factual_accuracy, completeness |
+| `rag` | `glossary_search_tool` fired and the LLM wrote prose | factual_accuracy, completeness, analytical_depth (*depth fit* — matches what the question asks for), language_quality, structure (*structure fit* — proportionate to length), + context_relevance |
+| — | LLM answered with no tool call | **not judged** — no source data to check against; abstention is covered offline by `expected_no_tool` golden cases |
+
+- **Pass rule (computed in code, not by the LLM)**: mean of the scored dimensions ≥ 3.5 **and** factual_accuracy ≥ 3. A factual error cannot be offset by good prose. Unscored dimensions are recorded as `0` (not applicable), distinct from the lowest score `1`
+- **Prompts live in files**: `app/prompts/synthesizer_judge_{raw,rag}_v1.txt`, loaded through `prompt_registry` — the rubric can be versioned without touching code
+- **Sample rate**: `ONLINE_JUDGE_SAMPLE_RATE=0.5`, set in the Cloud Run deploy step
 
 **E2E Script**:
 - `backend/scripts/evaluate_with_llm_judge.py` — Parse accuracy regression testing against golden dataset
@@ -307,7 +321,7 @@ CI/CD Drift Check → Compare active model's training data vs latest season
 | Groundedness | Synthesizer Judge `factual_accuracy` — the judge prompt receives the actual tool return values as source data |
 | Answer Relevance | Synthesizer Judge `completeness` |
 
-`context_relevance` is scored only when a retrieval tool actually fired (detected by tool name, not return-value shape); otherwise the criterion is omitted from the prompt entirely and `0` is recorded, with a separate `retrieval_used` flag distinguishing "not applicable" from "judge failed". It is deliberately excluded from `overall_score` so the existing 3.5 pass threshold keeps its meaning. No additional LLM call is incurred.
+`context_relevance` is scored only on the `rag` path (detected by tool name, not return-value shape); otherwise the criterion is omitted from the prompt entirely and `0` is recorded, with a separate `retrieval_used` flag distinguishing "not applicable" from "judge failed". It is deliberately excluded from `overall_score` because it grades the choice of material, not the answer. No additional LLM call is incurred.
 
 **Tests**:
 - `test_llm_judge.py`, `test_synthesizer_judge.py`, `test_reflection_judge.py`, `test_routing_judge.py`, `test_drift_alert_judge.py`
@@ -741,6 +755,10 @@ A second LLM call here is **by design, not a retry**. A genuine "the first tool 
 - **Non-LLM steps are logged with `model = NULL`**: `usage_stats_service` filters every query by `WHERE model IS NOT NULL`, so tool-execution rows never touch the cost dashboard
 - **Labels are append-only** in a separate `trace_labels` table: re-labeling inserts a new row and the reader takes the latest `labeled_at`, preserving *when the judgement changed*
 - **Instrumented the path that actually runs**: the first attempt targeted `StrategyAgent` (LangGraph, 5 nodes) purely from code structure. Real logs showed **zero** invocations — no current UI path reaches it. Recorded as a failure of process in [ADR-053](adr/053-agent-trace-viewer-failure-labeling.md)
+
+- **All BigQuery writes are DML INSERTs**: `trace_labels`, `trace_expectations`, and every log/verdict table are written via `utils/bq_dml.py` rather than the streaming API, so a mislabeled row can be corrected or deleted immediately instead of being locked in the streaming buffer for up to ~90 minutes. `insert_rows_json` is banned by an architecture test
+
+**Online Judge integration**: traces the Online Judge sampled show a `JUDGE ✓` / `JUDGE 2.4` chip; `JUDGE NG` filters to failures. The detail view adds an **ONLINE JUDGE** card with the answer path, per-dimension scores (≤ 2 highlighted), reasoning, and issues. Labeling a judge-failed trace `correct` marks a judge false positive.
 
 **Label axes**: `correct` / `wrong_tool` / `wrong_params` / `right_answer_wrong_path` / `should_have_abstained` / `retrieval_miss` / `tool_error`
 

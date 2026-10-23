@@ -3,7 +3,7 @@
 > **この文書の役割**: 本プロジェクトの評価システムについて、構成・**設計判断とその理由**・実測値を 1 枚にまとめた参照文書。
 > 手順書ではないため、実行コマンドは末尾に最小限だけ置く。決定の詳細は各 ADR、実施ログは `docs/plan_docs/` を参照。
 >
-> **最終更新**: 2026-09-27
+> **最終更新**: 2026-10-23
 
 ---
 
@@ -15,7 +15,7 @@
 - **L2 トラジェクトリ**: LLM は実際に呼び、BigQuery だけ固定。「LLM の揺れ」を分離して測る。3 回実行の `pass^3` で判定
 - **L3 パース精度**: ゴールデンデータセットに対するルールベース評価 + LLM-as-a-Judge の二本立て
 - **検索評価**: RAG の hit@k / recall@k / MRR / 誤発火率
-- **オンライン**: 本番応答の非同期サンプリング Judge（5%）と Shadow Evaluation（champion/challenger 並走）
+- **オンライン**: 本番応答の非同期サンプリング Judge（50%・回答の経路別に採点）と Shadow Evaluation（champion/challenger 並走）
 
 一貫した設計思想は 3 つ。**(a) 評価が本番を壊さない**（非同期・例外握り潰し・fail-open）、**(b) 非決定性は複数回実行で測る**、**(c) 閾値や設定値は憶測で決めず実測で決める**。
 
@@ -32,7 +32,7 @@
                                      デプロイ
                                           │
                         ┌──────────────── オンライン ────────────────┐
-                        │  Online Judge（5% サンプリング・非同期）      │
+                        │  Online Judge（50% サンプリング・非同期）     │
                         │  Shadow Eval（champion/challenger 並走）     │
                         │  Data Drift（KS / PSI / mean-shift）        │
                         └────────────────────────────────────────────┘
@@ -66,7 +66,9 @@
 | 本番評価の方式 | **Shadow**（champion を返しつつ challenger を裏で走らせる） | A/B テスト（challenger を一部ユーザーに返す） | ユーザーが challenger の劣化を被る。Shadow なら**ユーザー影響ゼロ**で本番分布を測れる |
 | 同上 | 同上 | オフライン golden のみ | 実トラフィックの分布とエッジケースが見えない |
 | Shadow の実行 | **非同期 fire-and-forget**（別スレッド + `daemon=True`）、例外は内部で握り潰す | 同期実行 | 本番レイテンシに challenger の実行時間が乗る。かつ shadow の失敗でユーザー応答を落としてはならない |
-| Online Judge | **サンプリング 5%**・応答返却後に非同期実行 | 全件評価 | 全件は課金が読めない。レイテンシにも乗せない |
+| Online Judge | **サンプリング 50%**（`ONLINE_JUDGE_SAMPLE_RATE`、Cloud Run のデプロイ手順で設定）・応答返却後に非同期実行 | 全件評価 | 全件は課金が読めない。レイテンシにも乗せない。現状はトラフィックが少ないため率を高めに置いている |
+| Online Judge の採点基準 | **回答の経路別**（`raw` は 2 項目、`rag` は 5 項目 + context_relevance、直接回答は採点しない） | 全回答を同じ 5 項目で採点 | 機械整形した回答に文章の質を求めると、数値が正しい回答が不合格になる（ローカル検証で事実の正確さ 5 点・総合 2.4 点の不合格を確認） |
+| Online Judge の合否 | **コードで計算**: 採点項目の平均 ≥ 3.5 かつ factual_accuracy ≥ 3 | LLM が返す `overall_score` / `passed` を採用 | LLM の計算ミス・恣意性を排除する。事実の誤りは文章の出来で相殺させない |
 | ドリフト検知の指標 | **KS 検定 + PSI + 平均シフト率**の併用 | KS のみ | KS は分布差に敏感だが業務的な「どれだけずれたか」が分かりにくい。PSI（実務標準）と併用して多面判定 |
 | 同上 | 同上 | 精度メトリクスのみで監視 | 正解ラベルが遅れて入るため検知が遅れる。入力分布のドリフトなら正解を待たず早期に気づける |
 | CI ゲートの閾値 | parse accuracy **≥ 80%** から開始 | ≥ 95% | golden が 14 ケースと小規模な段階では 1 ケースの揺れで頻繁にブロックし運用が回らない |
@@ -98,11 +100,11 @@
 | サービス | 対象 | 評価次元 | 出力の特徴 |
 |---|---|---|---|
 | `llm_judge_service` | パース精度（自然言語 → 構造化クエリ） | 4 次元: query_type_accuracy / metrics_accuracy / entity_resolution / intent_understanding | `overall_score >= 3.5` で PASS、不合格に `failure_category`（synonym_mismatch 等） |
-| `synthesizer_judge_service` | 応答・レポートの品質 | 5 次元: factual_accuracy / analytical_depth / language_quality / structure / completeness。**RAG 経路のみ 6 次元目 `context_relevance`** | 本番チャット経路にサンプリング接続済み |
+| `synthesizer_judge_service` | チャット回答の品質（経路別） | `raw`: factual_accuracy / completeness。`rag`: 上記 + analytical_depth（深さの適合）/ language_quality / structure（構造の適合）+ `context_relevance` | 本番チャット経路にサンプリング接続済み。採点基準は `app/prompts/synthesizer_judge_{raw,rag}_v1.txt`（`prompt_registry` 経由）。合否はコードで計算 |
 | `routing_judge_service` | Supervisor のルーティング判断 | 4 次元 | 正解ルート（batter / pitcher / stats / matchup）との突合 |
 | `reflection_judge_service` | 自己修正ループの判断品質 | 4 次元: trigger_appropriateness / root_cause_identification / correction_quality / over_correction_risk | **過修正リスク**を明示的に測る（5 = リスクなし） |
 | `drift_alert_judge_service` | 統計的ドリフト検知結果の解釈 | 4 次元: statistical_validity / practical_significance / actionability / domain_relevance | `recommended_action`（retrain / monitor / ignore）を返すセカンドオピニオン層 |
-| `online_judge_service` | 本番応答（`synthesizer_judge` を呼ぶ薄いラッパ） | — | サンプリング判定・非同期実行・入力 4000 字切り詰め・例外握り潰し。結果は BQ `online_judge_verdicts` へ |
+| `online_judge_service` | 本番応答（`synthesizer_judge` を呼ぶ薄いラッパ） | — | サンプリング判定・経路判定（`resolve_answer_mode`、直接回答は対象外）・非同期実行・入力 4000 字切り詰め・例外握り潰し。結果は BQ `online_judge_verdicts` へ DML INSERT。不合格は Trace Viewer の `JUDGE NG` で人が確認する |
 
 **設計上のポイント**: Judge を観点ごとに分けているのは、単一の万能 Judge にすると「何が悪いか」が潰れるため。ドリフト判定に Judge を重ねているのは、統計的有意と業務的重要性が一致しないため（PSI が動いても実害がないケースを `ignore` に落とす）。
 
@@ -112,7 +114,7 @@ RAG 品質評価の定番である **RAG Triad**（context relevance / groundedn
 
 | RAG Triad の辺 | 日本語 | 本プロジェクトでの実装 | 測定範囲 |
 |---|---|---|---|
-| Context Relevance | 引いた文書は質問に関係あるか | `synthesizer_judge` の `context_relevance` | **本番トラフィック**（5% サンプリング） |
+| Context Relevance | 引いた文書は質問に関係あるか | `synthesizer_judge` の `context_relevance` | **本番トラフィック**（50% サンプリング） |
 | 同上 | 同上 | `run_retrieval_eval.py` の hit@k / recall@k / MRR | オフライン golden 40 問（用語集 10 / 規則 30） |
 | Groundedness | 回答は引いた文書に根拠を持つか | `synthesizer_judge` の `factual_accuracy`。判定プロンプトに実際のツール戻り値を「元データ」として渡している | 本番トラフィック |
 | Answer Relevance | 回答は質問に答えているか | `synthesizer_judge` の `completeness` | 本番トラフィック |
@@ -125,12 +127,12 @@ RAG 品質評価の定番である **RAG Triad**（context relevance / groundedn
 |---|---|---|---|
 | 評価フレームワーク | 既存 Judge に採点項目を 1 つ追加 | TruLens 等の導入 | 依存が増え、既存 Judge と同一項目を二重計上する。観点別 Judge という本プロジェクトの設計とも噛み合わない |
 | RAG 非発火時の扱い | **採点基準ごとプロンプトから外し `0`（評価対象外）を記録** | 常に採点させる | 文書を引かない成績照会に「文脈の関連度」を尋ねると、Judge が架空のスコアを返す |
-| `overall_score` への算入 | **含めない**（プロンプトで明示的に除外を指示） | 6 項目の平均に変更 | 合格ライン 3.5 の意味が変わり、既に蓄積した判定結果と比較できなくなる |
+| `overall_score` への算入 | **含めない**（総合点はコードで計算し、対象項目から外している） | 6 項目の平均に変更 | 回答の出来ではなく材料選びの評価であるため |
 | 「対象外」と「判定失敗」の区別 | `retrieval_used`（BOOL）を別列で保持 | `context_relevance=0` のみ | どちらも 0 になるため、列がないと集計時に切り分けられない |
 | RAG 発火の判定方法 | **ツール名**（`RETRIEVAL_TOOLS = {"glossary_search_tool"}`） | 戻り値のキーで推測 | 別ツールが同じキーを返した瞬間に黙って挙動が変わる。`SYNTHESIS_REQUIRED_TOOLS` と同じ思想 |
 | 追加コスト | 既存 1 コールに採点項目を 1 つ足すのみ | 専用 Judge を新設 | Judge 呼び出し回数を増やさない。増分はプロンプト約 200 字と出力 1 項目 |
 
-**前提**: BQ `online_judge_verdicts` に `context_relevance INT64` / `retrieval_used BOOL` の 2 列が必要。`_write_to_bq` は例外を握り潰すため、**列がないと無言で記録が欠落する**。
+**前提**: BQ `online_judge_verdicts` に `context_relevance INT64` / `retrieval_used BOOL` の 2 列が必要。`_write_to_bq` は例外を握り潰すため、**列がないと無言で記録が欠落する**（2026-10-23 に本番テーブルで両列の存在を確認済み）。
 
 ---
 

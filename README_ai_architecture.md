@@ -163,7 +163,7 @@ flowchart LR
     B[Caller: LangChain Agent<br/>ChatGoogleGenerativeAI] -->|callbacks=| LCCB[LangchainUsageCallback]
     Gateway --> Log[LLMLoggerService.log]
     LCCB --> Log
-    Log --> BQ[(BQ Streaming Insert)]
+    Log --> BQ[(BQ DML INSERT)]
 ```
 
 LangChain は SDK ラッパー越しに呼ぶため `call_gemini()` を経由いたしません。同等の観測性を保つため `LangchainUsageCallback` を別途用意し、`on_llm_end` で `usage_metadata` を抽出いたします。
@@ -243,7 +243,7 @@ parse_query_v1.txt:
 | `model`, `input_tokens`, `output_tokens`, `cached_tokens`, `estimated_cost_usd` | コスト追跡 | `usage_metadata` から自動 |
 | `llm_latency_ms`, `total_latency_ms`, `bigquery_latency_ms` | パフォーマンス | LLM/全体時間は自動、BQ 時間は tool 戻り値経由 (ContextVar が StreamingResponse 配下で伝搬不能のため) |
 | `is_retry`, `retry_count`, `retry_reason`, `reflection_pre_query`, `reflection_post_query`, `synthesizer_source_data` | Reflection Loop | **StrategyAgent のみ** 使用 (ChatOrchestrator は Reflection ノードを持たない) |
-| `user_rating`, `feedback_category`, `feedback_reason` | HITL フィードバック | フィードバック API 経由で後追い UPDATE |
+| `user_rating`, `feedback_category`, `feedback_reason` | HITL フィードバック | フィードバック API 経由で `[FEEDBACK_UPDATE]` 行として追記（本体行は更新しない） |
 | `success`, `error_type`, `error_message` | 失敗観測 | `try/finally` で必ず記録 |
 | `node`, `iteration`, `tool_calls` | **Trace Viewer (§9.7)** | エージェントのステップ単位で caller が明示。`tool_calls` は `LLMLogEntry.set_tool_calls()` が JSON 文字列化 |
 
@@ -274,10 +274,12 @@ sequenceDiagram
     LogSvc->>Thread: spawn(daemon=True)
     LogSvc-->>GW: return immediately
     GW-->>Caller: text or None
-    Thread->>BQ: insert_rows_json (非同期)
+    Thread->>BQ: insert_rows_dml (DML INSERT・非同期)
 ```
 
-ログ書込は別スレッドのため、API レスポンス速度に影響を与えません。フィードバック更新は Streaming Buffer の UPDATE 制約のため、`[FEEDBACK_UPDATE]` プレースホルダ行を別途 INSERT する設計でございます。
+ログ書込は別スレッドのため、API レスポンス速度に影響を与えません。フィードバックは本体行を書き換えず、`[FEEDBACK_UPDATE]` プレースホルダ行を別途 INSERT する追記方式でございます。
+
+**BigQuery への書き込みはすべて DML INSERT でございます**（[backend/app/utils/bq_dml.py](backend/app/utils/bq_dml.py) の `insert_rows_dml()`）。ストリーミング挿入（`insert_rows_json` / `insert_rows`）は、ストリーミングバッファに入った行を最大 90 分程度 UPDATE / DELETE できないため使用を禁止し、[tests/test_architecture.py](backend/tests/test_architecture.py) で検出いたします。列の型は実行時にテーブル定義から取得するため、呼び出し側は従来どおり dict を渡すだけで済みます。対象は `llm_interaction_logs` / `shadow_comparisons` / `online_judge_verdicts` / `ml_drift_monitoring_logs` / `trace_labels` / `trace_expectations` の 6 テーブルでございます。
 
 ---
 
@@ -320,7 +322,7 @@ shadow_prompt = get_prompt("parse_query", role="shadow", query="大谷のHR数�
 
 | | Judge | 何を採点するか |
 |---|---|---|
-| **本番** | **#2 Synthesizer Judge** | `ChatOrchestrator` の応答を、サンプリングで非同期採点 |
+| **本番** | **#2 Synthesizer Judge** | `ChatOrchestrator` の応答を、50% サンプリングで非同期採点。回答の経路ごとに採点基準を切り替える |
 | **オフライン** | **#1 Parse Judge** | ゴールデンセット 40 ケースに対するパース精度（評価スクリプト実行時のみ） |
 
 Judge は **Gateway 経由** で Gemini を呼ぶため、Judge 自身の呼び出しコストも `llm_interaction_logs` に記録されます。
@@ -329,9 +331,10 @@ Judge は **Gateway 経由** で Gemini を呼ぶため、Judge 自身の呼び�
 
 ```mermaid
 graph LR
-    Chat["ChatOrchestrator<br/>(本番チャット経路)"] -->|サンプリング・非同期| OJ[online_judge_service]
-    OJ --> J2["#2 SynthesizerJudge ✅ 本番稼働<br/>factual_accuracy / analytical_depth /<br/>language_quality / structure / completeness<br/>+ RAG 経路のみ context_relevance"]
+    Chat["ChatOrchestrator<br/>(本番チャット経路)"] -->|50% サンプリング・非同期| OJ[online_judge_service]
+    OJ --> J2["#2 SynthesizerJudge ✅ 本番稼働<br/>raw: factual_accuracy / completeness<br/>rag: 上記 + depth / language / structure<br/>+ context_relevance<br/>直接回答は採点しない"]
     J2 --> BQV[(BQ: online_judge_verdicts)]
+    BQV -->|JUDGE NG| TV[Trace Viewer で人が確認]
 
     Golden[(golden_dataset.json<br/>40 ケース)] -->|手動 / CI 実行| Script[evaluate_with_llm_judge.py]
     Script --> J1["#1 ParseJudge ⚠️ オフライン専用<br/>本番コードからの参照なし"]
@@ -348,7 +351,7 @@ graph LR
 
 | # | Judge | ファイル | 評価対象 | 主要次元 (1-5) | 閾値 | **配線状況** |
 |---|---|---|---|---|---|---|
-| 2 | **Synthesizer Judge** | [synthesizer_judge_service.py](backend/app/services/synthesizer_judge_service.py) | レポート・回答テキストの品質 | factual_accuracy / analytical_depth / language_quality / structure / completeness ＋ RAG 経路のみ context_relevance | overall ≥ 3.5 | ✅ **本番稼働**。`ChatOrchestrator` → [online_judge_service.py](backend/app/services/online_judge_service.py) 経由でサンプリング採点 |
+| 2 | **Synthesizer Judge** | [synthesizer_judge_service.py](backend/app/services/synthesizer_judge_service.py) | チャット回答の品質（経路別） | raw: factual_accuracy / completeness。rag: ＋ analytical_depth / language_quality / structure ＋ context_relevance | 平均 ≥ 3.5 かつ factual_accuracy ≥ 3（コードで計算） | ✅ **本番稼働**。`ChatOrchestrator` → [online_judge_service.py](backend/app/services/online_judge_service.py) 経由でサンプリング採点 |
 | 1 | **Parse Judge** | [llm_judge_service.py](backend/app/services/llm_judge_service.py) | 自然言語 → 構造化クエリのパース精度 | query_type / metrics / entity / intent | overall ≥ 3.5 | ⚠️ **オフライン専用**。[evaluate_with_llm_judge.py](backend/scripts/evaluate_with_llm_judge.py) からのみ。本番コードからの参照なし |
 | 3 | **Reflection Judge** | [reflection_judge_service.py](backend/app/services/reflection_judge_service.py) | 自己修正トリガーと修正策の妥当性 | 過修正の有無を含む | — | ❌ **未配線**（テストからのみ import） |
 | 4 | **Routing Judge** | [routing_judge_service.py](backend/app/services/routing_judge_service.py) | Supervisor の routing 判断 | batter / pitcher / stats / matchup の分類精度 | — | ❌ **未配線かつ対象消失**。`SupervisorAgent` 廃止により採点対象が存在しない |
@@ -374,6 +377,25 @@ graph LR
 
 `failure_category` は `unregistered_metric_key / entity_resolution_error / missing_context / schema_violation / over_extraction / type_misclassification` から 1 つを選択させ、後工程で集計いたします。
 
+### Synthesizer Judge の経路別採点（2026-10-23 改訂）
+
+回答の大半はツールの結果を機械整形したもの（[[050-tools-return-raw-data-orchestrator-composes]]）でございます。旧基準は全回答に「自然な文章・分析の深さ・構造」を求めていたため、**数値が正しい回答でも不合格**になっておりました（ローカル検証で事実の正確さ 5 点・総合 2.4 点の不合格を確認）。そこで、各経路が責任を持てる項目だけを採点する形に改めました。
+
+| 回答の経路 | 発生条件 | 採点項目 (1-5) |
+|---|---|---|
+| `raw` | ツールの結果を機械整形（既定） | factual_accuracy（事実の正確さ）、completeness（網羅性） |
+| `rag` | `glossary_search_tool` が呼ばれ、LLM が文章を組み立てた | 上記 ＋ analytical_depth（**深さの適合**：質問が求める深さに合っているか）、language_quality（文章の質）、structure（**構造の適合**：長さに見合った整理か）、＋ context_relevance |
+| — | ツールを呼ばずに LLM が直接回答 | **採点しない**。照合する元データが無く、基準が成り立たないため。断るべき場面で断れたかはオフラインの golden（`expected_no_tool`）で確認済み |
+
+| 論点 | 採用 | 理由 |
+|---|---|---|
+| 総合点と合否 | **コードで計算**（採点項目の平均）。LLM には出させない | LLM に平均を計算させると、計算ミスや恣意性が入る |
+| 事実の誤り | `factual_accuracy < 3` は平均点に関係なく**不合格** | 数値の取り違えは、文章の出来で相殺されてはならない |
+| 採点しない項目 | `0`（評価対象外）を記録 | 最低点 `1` と区別し、集計で混ざらないようにする |
+| 経路の記録先 | 既存の `synthesizer_path` 列に `raw` / `rag` を記録 | テーブル定義を変えずに経路別の集計ができる |
+| プロンプトの置き場所 | `app/prompts/synthesizer_judge_{raw,rag}_v1.txt` を `prompt_registry` 経由で読み込む | コードに埋め込むと、採点基準の変更がコード変更になりバージョン管理できない |
+| 不合格後の処理 | Trace Viewer の `JUDGE NG` で人が確認。回答に問題が無ければ `correct` ラベルを付ける | **Judge の誤判定**の記録になり、専用テーブルなしで Judge と人の一致率を SQL 1 本で集計できる |
+
 ### Synthesizer Judge と RAG Triad
 
 RAG の品質評価では **RAG Triad**（context relevance / groundedness / answer relevance の 3 点検査）が業界の定番でございますが、本プロジェクトでは専用フレームワーク（TruLens 等）を導入せず、**既存の評価資産に 3 辺を対応付ける**方針を採っております。
@@ -391,7 +413,7 @@ RAG の品質評価では **RAG Triad**（context relevance / groundedness / ans
 | 論点 | 採用 | 理由 |
 |---|---|---|
 | RAG 非発火時の扱い | 採点基準ごとプロンプトから外し、`0`（評価対象外）を記録 | 文書を引かない成績照会に「文脈の関連度」を尋ねると、Judge が架空のスコアを返す |
-| `overall_score` への算入 | **含めない** | 合格ライン 3.5 の意味が変わり、既存の蓄積データと比較できなくなる。プロンプトでも明示的に除外を指示 |
+| `overall_score` への算入 | **含めない** | 回答の出来ではなく材料選びの評価であるため。総合点はコード側で計算し、対象項目から明示的に外している |
 | 「対象外」と「判定失敗」の区別 | `retrieval_used`（BOOL）を別列で保持 | どちらも `0` になるため、列がないと集計時に切り分けられない |
 | RAG 発火の判定方法 | ツール名（`RETRIEVAL_TOOLS = {"glossary_search_tool"}`） | 戻り値のキーで推測すると、別ツールが同じキーを返した瞬間に黙って挙動が変わる。`SYNTHESIS_REQUIRED_TOOLS` と同じ思想 |
 
@@ -714,8 +736,8 @@ svc.get_remaining(pool="chat")
 
 | エンドポイント | 用途 |
 |---|---|
-| `GET /api/v1/traces` | 一覧。`only_failed` / `only_unlabeled` で絞り込み。60 秒 TTL キャッシュ |
-| `GET /api/v1/traces/{trace_id}` | 1 trace の全ステップ |
+| `GET /api/v1/traces` | 一覧。`only_failed` / `only_unlabeled` / `only_bad_rating` / `only_unexpected` / `only_judge_failed` で絞り込み。各行に Judge の合否・点数・経路を付与。60 秒 TTL キャッシュ |
+| `GET /api/v1/traces/{trace_id}` | 1 trace の全ステップ ＋ Online Judge の判定（項目別の点数・理由・問題点） |
 | `GET /api/v1/traces/compare?a=&b=` | 2 trace のノード列・ツール列の比較 |
 | `GET /api/v1/traces/labels` | ラベル軸の定義（フロントでのハードコード回避） |
 | `POST /api/v1/traces/{trace_id}/label` | ラベル付与 |
@@ -724,7 +746,13 @@ svc.get_remaining(pool="chat")
 
 `correct` / `wrong_tool` / `wrong_params` / `right_answer_wrong_path` / `should_have_abstained` / `retrieval_miss` / `tool_error`
 
-**追記のみ**でございます。ログ本体は書き換えず、付け直しは新しい行の INSERT で表現し、読み出し側が `labeled_at` の最新を採用いたします。「いつ判断が変わったか」を残すためでございます。
+**追記のみ**でございます。ログ本体は書き換えず、付け直しは新しい行の INSERT で表現し、読み出し側が `labeled_at` の最新を採用いたします。「いつ判断が変わったか」を残すためでございます。書き込みは DML INSERT のため、付け間違えた行もすぐに修正・削除できます。
+
+### Online Judge との連携
+
+- **一覧**: Judge に採点された trace に `JUDGE ✓` / `JUDGE 2.4` のチップを表示し、`JUDGE NG` で不合格のみに絞り込めます。`UNLABELED` と併用すると、まだ人が確認していない不合格だけが残ります
+- **詳細**: **ONLINE JUDGE** カードに、経路（生データ / RAG）、項目別の点数（2 点以下は強調、対象外の `0` は非表示）、理由、問題点を表示いたします
+- **Judge の誤判定の記録**: Judge が不合格とした回答に問題が無ければ、`correct` ラベルを付けます。「Judge 不合格 × 人が `correct`」が誤判定でございます。専用テーブルを持たないため、一致率は `online_judge_verdicts` と `trace_labels` の結合で集計できます
 
 ### 既知の制約
 

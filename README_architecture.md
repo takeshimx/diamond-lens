@@ -539,6 +539,7 @@ Request → RequestIDMiddleware → RateLimitMiddleware (Global/Session check) �
 | **Storage** | Feedback logged to BigQuery `llm_interaction_logs` table with `user_rating`, `feedback_category`, `feedback_reason` |
 | **API Endpoint** | `POST /api/v1/qa/feedback` |
 | **Review Queue** | `GET /api/v1/traces?only_bad_rating&only_unexpected` — 👎 traces nobody has handled yet. 👎 rows carry `trace_id = NULL`, so they are joined back by `request_id` |
+| **Judge Failures** | `GET /api/v1/traces?only_judge_failed&only_unlabeled` — traces the Online Judge failed that nobody has reviewed. Joined from `online_judge_verdicts` by `request_id`. Labeling one `correct` records a judge false positive (no extra table) |
 | **Annotation** | `POST /api/v1/traces/{trace_id}/expected` → BigQuery `trace_expectations` (append-only, mirrors `trace_labels`) |
 | **Vocabulary** | `GET /api/v1/traces/expected-options` serves `query_type` / `split_type` / `metrics` from the **tool-schema enums**, so the form cannot drift out of sync |
 | **Approval** | `POST /api/v1/traces/promote` → `golden_pr_service` opens a pull request. Git, not BigQuery, is the source of truth for the CI gate |
@@ -552,6 +553,7 @@ Request → RequestIDMiddleware → RateLimitMiddleware (Global/Session check) �
 graph TD
     A[User rates response 👎] --> B[BigQuery: feedback logged]
     B -->|join by request_id| C[Trace Viewer review queue<br/>only_bad_rating + only_unexpected]
+    OJ[Online Judge fails a response] -->|join by request_id| C
     C --> D[Human: failure label + expected answer]
     D --> E[(trace_expectations<br/>append-only)]
     E --> F{Approve<br/>POST /traces/promote}
@@ -653,7 +655,7 @@ python scripts/train_stuff_plus.py --season 2025 --min-pitches 100
 | # | Judge | Service File | Evaluation Dimensions | Output |
 |---|---|---|---|---|
 | 1 | Parse Accuracy | `llm_judge_service.py` | query_type, metrics extraction, player name resolution, intent understanding (1-5 each) | `JudgeVerdict` |
-| 2 | Synthesizer Quality | `synthesizer_judge_service.py` | Factual accuracy, analytical depth, language quality, structure, completeness (1-5 each) + `context_relevance` on RAG paths only | `SynthesizerVerdict` |
+| 2 | Synthesizer Quality | `synthesizer_judge_service.py` | Per answer path. `raw`: factual accuracy, completeness. `rag`: factual accuracy, completeness, depth fit, language quality, structure fit + `context_relevance` (1-5 each) | `SynthesizerVerdict` |
 | 3 | Reflection Decision | `reflection_judge_service.py` | Trigger appropriateness, root cause identification, correction quality, over-correction risk (1-5 each) | `ReflectionVerdict` |
 | 4 | Routing Accuracy | `routing_judge_service.py` | Route accuracy, ambiguity handling, reasoning quality (1-5 each) | `RoutingVerdict` |
 | 5 | Drift Alert Quality | `drift_alert_judge_service.py` | Statistical validity, practical significance, actionability, domain relevance (1-5 each) | `DriftAlertVerdict` |
@@ -667,19 +669,24 @@ python scripts/train_stuff_plus.py --season 2025 --min-pitches 100
 [Batch]     BQ logs → Sample extraction → 5 Judges evaluate → Results to BQ
             (Frequency and sample size configurable)
 
-[Online]    Production response returned → 5% sampled → Synthesizer Judge (async,
-            fire-and-forget) → BQ online_judge_verdicts
+[Online]    Production response returned → 50% sampled (ONLINE_JUDGE_SAMPLE_RATE, set in
+            the Cloud Run deploy step) → Synthesizer Judge per answer path (async,
+            fire-and-forget) → BQ online_judge_verdicts (DML INSERT)
+            → failures reviewed in the Trace Viewer
 ```
 
-**RAG Triad:** The three checks (context relevance / groundedness / answer relevance) are mapped onto existing assets instead of adopting a dedicated framework — `context_relevance` (online, RAG paths only) plus offline hit@k / MRR, `factual_accuracy`, and `completeness` respectively. `context_relevance` is excluded from `overall_score` to preserve the meaning of the existing 3.5 pass threshold, and carries a companion `retrieval_used` BOOL so "not applicable" is distinguishable from "judge failed". Requires columns `context_relevance INT64` and `retrieval_used BOOL` on `online_judge_verdicts`.
+**Answer paths** (`online_judge_service.resolve_answer_mode`): `raw` = tool data formatted mechanically; `rag` = `glossary_search_tool` fired and the LLM wrote prose; direct LLM answers with no tool call are **not judged** (no source data to check against). The path is stored in the existing `synthesizer_path` column — no schema change. **Pass rule**, computed in code: mean of the scored dimensions ≥ 3.5 and `factual_accuracy` ≥ 3; unscored dimensions are recorded as `0`. **Rubrics** live in `app/prompts/synthesizer_judge_{raw,rag}_v1.txt`, registered in `prompt_registry`.
+
+**RAG Triad:** The three checks (context relevance / groundedness / answer relevance) are mapped onto existing assets instead of adopting a dedicated framework — `context_relevance` (online, `rag` path only) plus offline hit@k / MRR, `factual_accuracy`, and `completeness` respectively. `context_relevance` is excluded from `overall_score` because it grades the choice of material, not the answer, and carries a companion `retrieval_used` BOOL so "not applicable" is distinguishable from "judge failed". Requires columns `context_relevance INT64` and `retrieval_used BOOL` on `online_judge_verdicts`.
 
 **Key Files:**
 
 | File | Purpose |
 |------|---------|
 | `services/llm_judge_service.py` | Parse accuracy Judge with METRIC_MAP key validation |
-| `services/synthesizer_judge_service.py` | Synthesizer output quality Judge (agent/simple path-aware, RAG-aware via `retrieval_used`) |
-| `services/online_judge_service.py` | Sampled async judging of production responses; resolves RAG firing from tool names (`RETRIEVAL_TOOLS`) → BQ `online_judge_verdicts` |
+| `services/synthesizer_judge_service.py` | Chat answer quality Judge; rubric chosen by answer path (`raw` / `rag`), overall score and pass/fail computed in code |
+| `services/online_judge_service.py` | Sampled async judging of production responses; resolves the answer path from tool names (`RETRIEVAL_TOOLS`) and skips direct answers → BQ `online_judge_verdicts` |
+| `prompts/synthesizer_judge_{raw,rag}_v1.txt` | Judge rubrics, loaded via `config/prompt_registry.py` |
 | `services/reflection_judge_service.py` | Reflection loop decision quality Judge |
 | `services/routing_judge_service.py` | Supervisor routing accuracy Judge (two-way player handling) |
 | `services/drift_alert_judge_service.py` | Data drift alert quality Judge (model-specific domain context) |
@@ -901,10 +908,12 @@ python scripts/train_stuff_plus.py --season 2025 --min-pitches 100
 | **Instrumented Path** | `ChatOrchestrator` (`POST /api/v1/qa/agentic-stats-stream`). `StrategyAgent` is instrumented identically but is unreachable from the current UI — see ADR-053 |
 | **Node Vocabulary** | `oracle` (LLM chose tools) / `executor` (tool ran, `model` NULL) / `synthesizer` (LLM wrote prose). `ChatOrchestrator` has one LLM call site; the role is decided by whether the response held a `function_call` |
 | **Endpoints** | `GET /api/v1/traces`, `GET /api/v1/traces/{trace_id}`, `GET /api/v1/traces/compare?a=&b=`, `GET /api/v1/traces/labels`, `POST /api/v1/traces/{trace_id}/label` |
-| **Service** | `trace_query_service.py` (list / detail / compare, single-query aggregation) + `trace_label_service.py` (synchronous insert; failures surface to the caller) |
+| **Service** | `trace_query_service.py` (list / detail / compare, single-query aggregation) + `trace_label_service.py` (synchronous DML insert; failures surface to the caller) |
+| **BQ Writes** | All application writes to BigQuery (`trace_labels`, `trace_expectations`, `llm_interaction_logs`, `shadow_comparisons`, `online_judge_verdicts`, `ml_drift_monitoring_logs`) go through `utils/bq_dml.py` (`insert_rows_dml`) as DML INSERTs, with column types read from the live table schema. Streaming inserts (`insert_rows_json` / `insert_rows`) are banned by `tests/test_architecture.py`, because rows in the streaming buffer cannot be updated or deleted for up to ~90 minutes |
+| **Online Judge** | List rows carry `judge_passed` / `judge_score` / `judge_mode` (joined from `online_judge_verdicts` by `request_id`); `only_judge_failed` filters to failures. Detail returns a `judge` object with per-dimension scores (`0` = not applicable, omitted), reasoning, and issues |
 | **Cache** | 60s in-memory TTL on the list endpoint, keyed by filter params; cleared on label write |
 | **Label Axes** | `correct`, `wrong_tool`, `wrong_params`, `right_answer_wrong_path`, `should_have_abstained`, `retrieval_miss`, `tool_error` — defined once in `trace_label_service.VALID_LABELS` and served via `GET /traces/labels` |
-| **Frontend** | `frontend/src/components/TraceViewer.jsx` (sidebar entry `id="trace"`, icon=`board`). Left: trace list with `FAILED ONLY` / `UNLABELED` filters. Right: label panel + expandable step rows |
+| **Frontend** | `frontend/src/components/TraceViewer.jsx` (sidebar entry `id="trace"`, icon=`board`). Left: trace list with `👎 ONLY` / `JUDGE NG` / `未処理のみ` / `FAILED ONLY` / `UNLABELED` filters and judge chips. Right: ONLINE JUDGE card + label panel + expandable step rows |
 | **Design Tokens** | Same tokens as 8q (`--ink-*`, `--bg-*`, `--rule`, `--amber`, `--pos`, `--neg`, `--info`, `--purp`) |
 | **Known Gaps** | `iteration` semantics differ per path, so LLM-call counts are recomputed as `COUNTIF(model IS NOT NULL)`; `MAX_TOOL_ITERATIONS` truncation is indistinguishable from normal completion; endpoint summary rows (`node IS NULL`) carry a request-start timestamp with final-result content and are split out as `summary` |
 | **ADR** | [ADR-053](./adr/053-agent-trace-viewer-failure-labeling.md) |

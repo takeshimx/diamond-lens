@@ -119,6 +119,7 @@
 - **📋 フィードバックカテゴリ**: 構造化されたカテゴリ分類（`inaccurate`, `slow`, `irrelevant`, `wrong_player`, `wrong_stats`）と自由記述の理由欄
 - **🗄️ BigQueryロギング**: フィードバック（評価・カテゴリ・理由）をLLMインタラクションログと共にBigQueryに記録
 - **🔎 Trace Viewer のレビュー待ち行列**: `👎 ONLY` + `未処理のみ` で未対応の 👎 だけを表示。期待値を付与すると行列から消える
+- **⚖️ Online Judge の不合格も入口にする**: `JUDGE NG`（＋ `UNLABELED` で未確認分のみ）で Judge が不合格とした trace を表示。Judge が正しければ通常どおりラベルと期待値を付与し、回答に問題が無ければ `correct` を付ける。これが **Judge の誤判定**の記録になり、専用テーブルなしで Judge と人の一致率を SQL 1 本で集計できる
 - **✍️ 期待値の付与**: 「本来どう解釈されるべきだったか」を記録。選択肢は tool schema の enum からサーバが配信するため、UI 側に綴りのズレが生じない
 - **🔀 PR の自動作成**: 承認すると `golden_dataset.json` への Pull Request が立つ。CI ゲートの基準は git を正とする
 
@@ -279,7 +280,7 @@ CI/CD ドリフトチェック → アクティブモデルの学習データ vs
 
 | # | Judge | 評価対象 | 評価次元 | 状態 | ファイル |
 |---|---|---|---|---|---|
-| 2 | **Synthesizer品質** | 本番チャット経路の AI 生成レスポンス | 事実正確性、分析深度、言語品質、構造、完全性（＋RAG経路のみ文脈関連性） | ✅ **本番稼働** — `online_judge_service.py` 経由でサンプリング・非同期採点 | `synthesizer_judge_service.py` |
+| 2 | **Synthesizer品質** | 本番チャット経路の回答。**回答の経路ごとに基準を切り替える** | 生データ経路: 事実の正確さ、網羅性。RAG 経路: 事実の正確さ、網羅性、深さの適合、文章の質、構造の適合＋文書の関連性 | ✅ **本番稼働** — `online_judge_service.py` 経由で 50% サンプリング・非同期採点 | `synthesizer_judge_service.py` |
 | 1 | **パース精度** | ゴールデンデータセットに対する LLM のパース結果 | query_type正確性、metrics抽出、選手名解決、意図理解 | ⚠️ **オフライン専用** — `evaluate_with_llm_judge.py` からのみ。本番コードからの参照なし | `llm_judge_service.py` |
 
 **実装済み・未配線の 3 つ**（ユニットテストからのみ参照）:
@@ -292,9 +293,22 @@ CI/CD ドリフトチェック → アクティブモデルの学習データ vs
 
 **運用アーキテクチャ**:
 ```
-【オンライン】チャット応答 → サンプリング → Synthesizer Judge が非同期採点 → BQ online_judge_verdicts
+【オンライン】チャット応答 → 50% サンプリング → Synthesizer Judge が経路別に非同期採点
+            → BQ online_judge_verdicts → 不合格は Trace Viewer（JUDGE NG）で人が確認
 【オフライン】golden_dataset.json → evaluate_with_llm_judge.py → Parse Judge → JSON 出力
 ```
+
+**Online Judge の経路別の採点基準**: 回答の大半はツールの結果を機械整形したもの（ADR-050）であり、文章の質で採点すると正しい回答が不合格になっていた。各経路が責任を持てる項目だけを採点する:
+
+| 回答の経路 | 発生条件 | 採点項目 (1-5) |
+|---|---|---|
+| `raw` | ツールの結果を機械整形（既定） | factual_accuracy（事実の正確さ）、completeness（網羅性） |
+| `rag` | `glossary_search_tool` が呼ばれ LLM が文章を組み立てた | 上記 2 項目 ＋ analytical_depth（*深さの適合*：質問が求める深さに合っているか）、language_quality（文章の質）、structure（*構造の適合*：長さに見合った整理か）＋ context_relevance |
+| — | ツールを呼ばずに LLM が直接回答 | **採点しない**。照合する元データが無いため。断るべき場面で断れたかはオフラインの golden（`expected_no_tool`）で確認済み |
+
+- **合否はコードで計算**（LLM には出させない）: 採点項目の平均が 3.5 以上 **かつ** factual_accuracy が 3 以上。事実の誤りは文章の出来で相殺できない。採点しない項目は `0`（対象外）を記録し、最低点 `1` と区別する
+- **プロンプトはファイルに分離**: `app/prompts/synthesizer_judge_{raw,rag}_v1.txt` を `prompt_registry` 経由で読み込む。コードを触らずに採点基準をバージョン管理できる
+- **抜き取り率**: `ONLINE_JUDGE_SAMPLE_RATE=0.5`。Cloud Run のデプロイ手順で設定
 
 **E2Eスクリプト**:
 - `backend/scripts/evaluate_with_llm_judge.py` — ゴールデンデータセットに対するパース精度の回帰テスト
@@ -307,7 +321,7 @@ CI/CD ドリフトチェック → アクティブモデルの学習データ vs
 | 回答の根拠性 (Groundedness) | Synthesizer Judge の `factual_accuracy`。判定プロンプトに実際のツール戻り値を「元データ」として渡している |
 | 回答の妥当性 (Answer Relevance) | Synthesizer Judge の `completeness` |
 
-`context_relevance` は検索ツールが実際に発火したときのみ採点する（判定は戻り値の形ではなく**ツール名**で行う）。非発火時は採点基準をプロンプトから外して `0`（評価対象外）を記録し、`retrieval_used` フラグで「対象外」と「判定失敗」を区別する。合格ライン 3.5 の意味を保つため `overall_score` には**含めない**。追加の LLM 呼び出しは発生しない。
+`context_relevance` は `rag` 経路のときのみ採点する（判定は戻り値の形ではなく**ツール名**で行う）。それ以外は採点基準をプロンプトから外して `0`（評価対象外）を記録し、`retrieval_used` フラグで「対象外」と「判定失敗」を区別する。回答の出来ではなく材料選びの評価であるため、`overall_score` には**含めない**。追加の LLM 呼び出しは発生しない。
 
 **テスト**:
 - `test_llm_judge.py`, `test_synthesizer_judge.py`, `test_reflection_judge.py`, `test_routing_judge.py`, `test_drift_alert_judge.py`
@@ -735,6 +749,10 @@ PrefixCache.put(...)
 - **LLM を呼ばないステップも `model = NULL` で記録**: `usage_stats_service` が全クエリを `WHERE model IS NOT NULL` で絞っているため、ツール実行行はコストダッシュボードに一切現れない
 - **ラベルは別テーブルに追記のみ**: 付け直しは新しい行の INSERT で表現し、読み出し側が `labeled_at` の最新を採用する。**いつ判断が変わったか**を残すため
 - **実際に動いている経路を計装した**: 当初は `StrategyAgent`（LangGraph 5 ノード）をコード構造だけで対象に選んだが、実ログでは**呼び出しがゼロ**で、現行 UI からどの経路でも到達しないことが判明した。この判断過程の失敗を [ADR-053](adr/053-agent-trace-viewer-failure-labeling.md) に記録している
+
+- **BigQuery への書き込みはすべて DML INSERT**: `trace_labels` / `trace_expectations` を含む全ログ・判定テーブルを、ストリーミング API ではなく `utils/bq_dml.py` 経由で書き込む。付け間違えたラベルをストリーミングバッファに最大 90 分程度ロックされることなく、すぐ修正・削除できる。`insert_rows_json` はアーキテクチャテストで禁止
+
+**Online Judge との連携**: Judge に採点された trace には `JUDGE ✓` / `JUDGE 2.4` のチップを表示し、`JUDGE NG` で不合格だけに絞り込める。詳細画面の **ONLINE JUDGE** カードに経路・項目別の点数（2 点以下は強調）・理由・問題点を表示する。Judge 不合格の trace に `correct` を付けると、Judge の誤判定として記録される。
 
 **ラベル軸**: `correct` / `wrong_tool` / `wrong_params` / `right_answer_wrong_path` / `should_have_abstained` / `retrieval_miss` / `tool_error`
 
