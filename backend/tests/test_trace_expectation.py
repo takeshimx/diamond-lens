@@ -98,8 +98,7 @@ class TestValidation:
 
     def test_put_expectation_skips_validation_when_no_tool_expected(self):
         """断るのが正解のケースは query_type を持たない。"""
-        with patch.object(svc, "_get_client") as mock_client:
-            mock_client.return_value.insert_rows_json.return_value = []
+        with patch.object(svc, "_get_client"), patch.object(svc, "insert_rows_dml"):
             row = svc.put_expectation(
                 trace_id="t1",
                 user_query="1850年の打率は？",
@@ -109,10 +108,9 @@ class TestValidation:
         assert row["expected_no_tool"] is True
 
     def test_put_expectation_raises_on_insert_error(self):
-        with patch.object(svc, "_get_client") as mock_client:
-            mock_client.return_value.insert_rows_json.return_value = [
-                {"index": 0, "errors": [{"reason": "invalid"}]}
-            ]
+        with patch.object(svc, "_get_client"), patch.object(
+            svc, "insert_rows_dml", side_effect=RuntimeError("invalid")
+        ):
             with pytest.raises(RuntimeError, match="failed to insert"):
                 svc.put_expectation(
                     trace_id="t1",
@@ -123,16 +121,15 @@ class TestValidation:
 
     def test_put_expectation_serialises_metrics_as_json(self):
         """metrics は既存の tool_calls 列と同じく JSON 文字列で保存する。"""
-        with patch.object(svc, "_get_client") as mock_client:
-            insert = mock_client.return_value.insert_rows_json
-            insert.return_value = []
+        with patch.object(svc, "_get_client"), patch.object(svc, "insert_rows_dml") as insert:
             svc.put_expectation(
                 trace_id="t1",
                 user_query="q",
                 query_type="season_batting",
                 metrics=["homerun", "batting_average"],
             )
-        written = insert.call_args[0][1][0]
+        # insert_rows_dml(client, table_id, rows)
+        written = insert.call_args[0][2][0]
         assert json.loads(written["metrics"]) == ["homerun", "batting_average"]
 
 

@@ -255,3 +255,37 @@ def test_tool_output_format_defaults_to_data():
         "output_format 引数を持つツール関数が 1 つも見つからなかった。"
         "引数名の変更かディレクトリ構成の変更が疑われる。"
     )
+
+
+# ============================================================
+# BigQuery 書き込みは DML のみ（ストリーミング挿入の禁止）
+# ============================================================
+
+STREAMING_INSERT_METHODS = {"insert_rows_json", "insert_rows"}
+
+
+def _calls_streaming_insert(path: Path) -> bool:
+    """*.insert_rows_json(...) / *.insert_rows(...) の呼び出しがあるか。"""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in STREAMING_INSERT_METHODS
+        ):
+            return True
+    return False
+
+
+def test_no_streaming_inserts_to_bigquery():
+    """app/ 配下で BigQuery のストリーミング挿入を使っていない。
+
+    Streaming Buffer に入った行は最大 90 分程度 UPDATE / DELETE できない。
+    書き込みは utils/bq_dml.py の insert_rows_dml() を使うこと。
+    """
+    offenders = sorted(_rel(p) for p in _python_files(APP_DIR) if _calls_streaming_insert(p))
+    assert not offenders, (
+        f"ストリーミング挿入を使っているファイル: {offenders}\n"
+        "insert_rows_json / insert_rows は禁止。"
+        "backend/app/utils/bq_dml.py の insert_rows_dml() を使うこと。"
+    )

@@ -28,7 +28,11 @@ from backend.app.config.settings import get_settings
 from backend.app.core.exceptions import PromptInjectionError
 from backend.app.services.llm_gateway_service import _calc_cost_usd
 from backend.app.services.llm_logger_service import LLMLogEntry, get_llm_logger
-from backend.app.services.online_judge_service import judge_and_log, should_sample
+from backend.app.services.online_judge_service import (
+    judge_and_log,
+    resolve_answer_mode,
+    should_sample,
+)
 from backend.app.services.security_guardrail import get_security_guardrail
 from backend.app.services.token_budget_service import get_token_budget_service
 from backend.app.services.tools import (
@@ -709,13 +713,15 @@ class ChatOrchestrator:
                     "llm_latency_ms": accumulated_llm_ms,
                 }
                 # 応答は yield 済み。await せず投げっぱなしにする (レイテンシに影響させない)。
-                if should_sample():
+                # ツールを呼ばずに直接答えた回答は answer_mode=None となり採点しない。
+                answer_mode = resolve_answer_mode(tool_names_seen, synthesized=True)
+                if answer_mode and should_sample():
                     asyncio.create_task(judge_and_log(
                         request_id or "",
                         user_query,
                         tool_results_seen,
                         final_answer,
-                        tool_names_seen,
+                        answer_mode,
                     ))
                 return
 
@@ -808,14 +814,14 @@ class ChatOrchestrator:
                     "bigquery_latency_ms": bq_latency_ms or None,
                 }
                 # synthesize_response=False 経路。answer は機械整形のため、
-                # judge の 5 項目のうち factual_accuracy / completeness のみが有効。
+                # judge は factual_accuracy / completeness の 2 項目のみで採点する ("raw")。
                 if should_sample():
                     asyncio.create_task(judge_and_log(
                         request_id or "",
                         user_query,
                         tool_results_seen,
                         formatted_answer,
-                        tool_names_seen,
+                        resolve_answer_mode(tool_names_seen, synthesized=False),
                     ))
                 return
 

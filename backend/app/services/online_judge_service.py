@@ -12,12 +12,13 @@ import random
 from typing import Any, Dict, List, Optional
 
 from backend.app.config.settings import get_settings
-from backend.app.services.synthesizer_judge_service import SynthesizerJudgeService
+from backend.app.services.synthesizer_judge_service import AnswerMode, SynthesizerJudgeService
+from backend.app.utils.bq_dml import insert_rows_dml
 
 
 logger = logging.getLogger(__name__)
 
-# 文書検索 (RAG) を行うツール。context_relevance の採点要否をこれで判定する。
+# 文書検索 (RAG) を行うツール。採点モード "rag" の判定に使う。
 # 戻り値の形ではなくツール名で見るのは chat_orchestrator.SYNTHESIS_REQUIRED_TOOLS と同じ思想。
 RETRIEVAL_TOOLS = frozenset({"glossary_search_tool"})
 
@@ -43,23 +44,35 @@ def _truncate(text: str, limit: int = 4000) -> str:
     return text if len(text) <= limit else text[:limit] + " ...(truncated)"
 
 
+def resolve_answer_mode(tool_names: Optional[set], synthesized: bool) -> Optional[AnswerMode]:
+    """回答の経路から Judge の採点モードを決める。None は採点対象外。
+
+    - 機械整形した回答 → "raw"
+    - RAG ツールの結果から LLM が文章を組み立てた回答 → "rag"
+    - ツールを呼ばずに LLM が直接答えた回答 → None（元データが無く、採点基準が成り立たない）
+    """
+    if not synthesized:
+        return "raw"
+    if (tool_names or set()) & RETRIEVAL_TOOLS:
+        return "rag"
+    return None
+
+
 async def judge_and_log(
     request_id: str,
     user_query: str,
     tool_results: List[Any],
     final_answer: str,
-    tool_names: Optional[set] = None,
+    answer_mode: AnswerMode,
 ) -> None:
     """応答確定後に呼ぶ。同期的に待たないこと。
 
-    tool_names を省略した場合は「RAG なし」として扱う。呼び出し元の
-    渡し漏れで例外を出さないための既定値。
+    answer_mode は resolve_answer_mode() で決めた値を渡す。
     """
     try:
         if not final_answer:
             return
 
-        retrieval_used = bool((tool_names or set()) & RETRIEVAL_TOOLS)
         source_data = _truncate(json.dumps(tool_results, ensure_ascii=False, default=str))
 
         # Judge 本体は同期 I/O のため、イベントループを塞がないよう別スレッドへ逃がす
@@ -69,8 +82,7 @@ async def judge_and_log(
             user_query=user_query,
             source_data=source_data,
             synthesizer_output=_truncate(final_answer),
-            synthesizer_path="chat_orchestrator",
-            retrieval_used=retrieval_used,
+            answer_mode=answer_mode,
         )
         _write_to_bq(request_id, verdict)
     except Exception as e:
@@ -87,6 +99,4 @@ def _write_to_bq(request_id: str, verdict: Any) -> None:
     # issues は List[str]。BQ 側は STRING カラムのため JSON 文字列に落とす。
     row["issues"] = json.dumps(row.get("issues") or [], ensure_ascii=False)
     table_id = f"{PROJECT_ID}.{get_settings().bigquery_dataset_id}.online_judge_verdicts"
-    errors = client.insert_rows_json(table_id, [row])
-    if errors:
-        logger.warning(f"BQ insert errors: {errors}")
+    insert_rows_dml(client, table_id, [row])

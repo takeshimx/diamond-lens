@@ -53,9 +53,9 @@ def test_log_does_not_raise_when_thread_cannot_start():
 def test_write_to_bigquery_swallows_insert_errors():
     """BigQuery が落ちても書き込みスレッド側で握り潰す。"""
     service = _service_with_fake_client()
-    service.client.insert_rows_json.side_effect = RuntimeError("BQ unavailable")
 
-    service._write_to_bigquery({"comparison_id": "test"})
+    with patch(f"{_MODULE}.insert_rows_dml", side_effect=RuntimeError("BQ unavailable")):
+        service._write_to_bigquery({"comparison_id": "test"})
 
 
 def test_log_writes_on_a_daemon_thread():

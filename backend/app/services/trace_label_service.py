@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 from google.cloud import bigquery
 
 from backend.app.config.settings import get_settings
+from backend.app.utils.bq_dml import insert_rows_dml
 
 logger = logging.getLogger(__name__)
 
@@ -74,10 +75,11 @@ def put_label(
         "labeled_at": datetime.now(timezone.utc).isoformat(),
     }
 
-    errors = _get_client().insert_rows_json(LABELS_TABLE, [row])
-    if errors:
-        logger.error(f"trace_labels insert errors: {errors}")
-        raise RuntimeError(f"failed to insert label: {errors}")
+    try:
+        insert_rows_dml(_get_client(), LABELS_TABLE, [row])
+    except Exception as e:
+        logger.error(f"trace_labels insert failed: {e}")
+        raise RuntimeError(f"failed to insert label: {e}") from e
 
     logger.info(f"trace label written: {trace_id} -> {label}")
     return row

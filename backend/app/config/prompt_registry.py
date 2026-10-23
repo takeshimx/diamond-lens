@@ -25,6 +25,8 @@ ACTIVE_VERSIONS: Dict[str, str] = {
     "strategy_synthesizer": "v1",
     "oracle_semantic": "v1",  # Phase 3: Semantic Layer 用 Oracle プロンプト（Phase 4で実利用）
     "chat_orchestrator_system": "v1",  # Phase 2.5: ChatOrchestrator のシステムプロンプト (インライン定義)
+    "synthesizer_judge_raw": "v1",  # Online Judge: 生データ経路（2 項目）
+    "synthesizer_judge_rag": "v1",  # Online Judge: RAG 文章合成経路（5 項目 + context_relevance）
 }
 
 SHADOW_VERSIONS: Dict[str, Optional[str]] = {
@@ -35,6 +37,8 @@ SHADOW_VERSIONS: Dict[str, Optional[str]] = {
     "strategy_synthesizer": None,
     "oracle_semantic": None,
     "chat_orchestrator_system": None,
+    "synthesizer_judge_raw": None,
+    "synthesizer_judge_rag": None,
 }
 
 PromptRole = Literal["active", "shadow"]

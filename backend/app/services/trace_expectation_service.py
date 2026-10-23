@@ -26,6 +26,7 @@ from google.cloud import bigquery
 
 from backend.app.config.query_maps import METRIC_MAP
 from backend.app.config.settings import get_settings
+from backend.app.utils.bq_dml import insert_rows_dml
 
 logger = logging.getLogger(__name__)
 
@@ -167,8 +168,7 @@ def put_expectation(
         "split_type": split_type or None,
         "order_by": order_by or None,
         "expected_no_tool": bool(expected_no_tool),
-        # 既存の tool_calls 列と同じく JSON 文字列で持つ。REPEATED にすると
-        # Streaming Insert のスキーマ変更コストが上がるため。
+        # 既存の tool_calls 列と同じく JSON 文字列で持つ。
         "metrics": json.dumps(metrics, ensure_ascii=False),
         "player_name": player_name or None,
         "season": season,
@@ -177,10 +177,11 @@ def put_expectation(
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
-    errors = _get_client().insert_rows_json(EXPECTATIONS_TABLE, [row])
-    if errors:
-        logger.error(f"trace_expectations insert errors: {errors}")
-        raise RuntimeError(f"failed to insert expectation: {errors}")
+    try:
+        insert_rows_dml(_get_client(), EXPECTATIONS_TABLE, [row])
+    except Exception as e:
+        logger.error(f"trace_expectations insert failed: {e}")
+        raise RuntimeError(f"failed to insert expectation: {e}") from e
 
     logger.info(f"trace expectation written: {trace_id} -> {query_type}")
     return {**row, "metrics": metrics}

@@ -1,52 +1,63 @@
 """
-LLM as a Judge #2 - Synthesizer 出力品質評価サービス
+LLM as a Judge #2 - チャット回答の品質評価サービス
 
-Synthesizer が生成した分析レポートや回答の品質を多次元で評価します。
-パース精度評価（llm_judge_service.py）と並行して使用します。
+本番チャットの回答を、回答の経路（answer_mode）ごとに異なる基準で評価します。
+
+  - "raw": ツールの生データを機械整形した回答。factual_accuracy / completeness の 2 項目のみ
+  - "rag": 検索で引いた文書から LLM が文章を組み立てた回答。5 項目 + context_relevance
+
+採点基準はプロンプトファイル（app/prompts/synthesizer_judge_{raw,rag}_v1.txt）に置き、
+prompt_registry 経由で読み込みます。総合点と合否は LLM に出させず、コードで計算します。
 """
 
 import os
 import json
 import logging
 from dataclasses import dataclass, field, asdict
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Literal
 from datetime import datetime, timezone
 
+from backend.app.config.prompt_registry import get_prompt
 from backend.app.services.llm_gateway_service import call_gemini
 
 logger = logging.getLogger(__name__)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY_V2")
 
+AnswerMode = Literal["raw", "rag"]
+
 
 @dataclass
 class SynthesizerVerdict:
-    """Synthesizer 出力の品質評価結果"""
+    """チャット回答の品質評価結果
+
+    フィールド名は BQ online_judge_verdicts の列名と一致させている。
+    採点対象外の項目は 0 を記録する（最低点 1 とは区別する）。
+    """
 
     # テストケース情報
     case_id: str
     user_query: str
 
-    # 5次元スコア (1-5)
-    factual_accuracy: int = 0      # 事実正確性: データとの整合性
-    analytical_depth: int = 0      # 分析深度: 「なぜ」への言及
-    language_quality: int = 0      # 日本語品質: 自然さ、冗長さの回避
-    structure: int = 0             # 構造: Markdown構造の適切さ
-    completeness: int = 0          # 完全性: 質問への過不足ない回答
-    overall_score: float = 0.0
+    # 項目別スコア (1-5、対象外は 0)
+    factual_accuracy: int = 0      # 事実の正確さ: 元データとの一致
+    analytical_depth: int = 0      # 深さの適合: 質問が求める深さに合っているか (rag のみ)
+    language_quality: int = 0      # 文章の質 (rag のみ)
+    structure: int = 0             # 構造の適合: 長さに見合った整理か (rag のみ)
+    completeness: int = 0          # 網羅性: 質問への過不足
+    overall_score: float = 0.0     # 対象項目の平均（コードで計算）
 
-    # RAG 経路のみ有効な追加スコア。overall_score には含めない。
-    # 0 = 評価対象外 (retrieval_used=False、または Judge 失敗)
-    context_relevance: int = 0     # 文脈の関連性: 引いた文書が質問に関係あるか
-    retrieval_used: bool = False   # 文書検索が実際に走ったか
+    # 文書の関連性。rag のみ採点し、overall_score には含めない
+    context_relevance: int = 0
+    retrieval_used: bool = False
 
     # 判定結果
     passed: bool = False
     reasoning: str = ""
-    issues: List[str] = field(default_factory=list)  # 具体的な問題点リスト
+    issues: List[str] = field(default_factory=list)
 
-    # メタデータ
-    synthesizer_path: str = ""     # "agent" or "simple"
+    # メタデータ。BQ 列名の都合で synthesizer_path に answer_mode ("raw" / "rag") を入れる
+    synthesizer_path: str = ""
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     judge_model: str = "gemini-3.6-flash"
     latency_ms: float = 0.0
@@ -56,10 +67,18 @@ class SynthesizerVerdict:
 
 
 PASS_THRESHOLD = 3.5
+# 事実の誤りは他の項目で取り返せないようにする。平均点に関係なくこれ未満は不合格
+FACTUAL_ACCURACY_FLOOR = 3
+
+# 経路ごとの総合点の対象項目。context_relevance は材料選びの評価なので含めない
+SCORED_DIMENSIONS: Dict[str, List[str]] = {
+    "raw": ["factual_accuracy", "completeness"],
+    "rag": ["factual_accuracy", "completeness", "analytical_depth", "language_quality", "structure"],
+}
 
 
 class SynthesizerJudgeService:
-    """Synthesizer 出力の品質を LLM Judge で評価するサービス"""
+    """チャット回答の品質を LLM Judge で評価するサービス"""
 
     def __init__(self, model_name: str = "gemini-3.6-flash"):
         self.model_name = model_name
@@ -73,44 +92,41 @@ class SynthesizerJudgeService:
         user_query: str,
         source_data: str,
         synthesizer_output: str,
-        synthesizer_path: str = "agent",
-        retrieval_used: bool = False,
+        answer_mode: AnswerMode = "raw",
     ) -> SynthesizerVerdict:
         """
-        Synthesizer の出力を多次元評価する。
+        チャット回答を評価する。
 
         Args:
-            case_id: テストケースID
+            case_id: リクエストID / テストケースID
             user_query: ユーザーの元の質問
-            source_data: Synthesizer に渡された元データ（JSON文字列）
-            synthesizer_output: Synthesizer が生成した回答テキスト
-            synthesizer_path: "agent" or "simple"
-            retrieval_used: 文書検索 (RAG) が走ったか。True のときのみ
-                            context_relevance を採点する
+            source_data: ツールが返した元データ（JSON文字列）
+            synthesizer_output: ユーザーに返した回答テキスト
+            answer_mode: "raw"（生データ経路）または "rag"（RAG 文章合成経路）
         """
+        if answer_mode not in SCORED_DIMENSIONS:
+            raise ValueError(f"unknown answer_mode: {answer_mode}")
+
+        retrieval_used = answer_mode == "rag"
+
         if not self.api_key:
             return SynthesizerVerdict(
                 case_id=case_id,
                 user_query=user_query,
                 reasoning="API key not configured",
                 retrieval_used=retrieval_used,
+                synthesizer_path=answer_mode,
             )
 
-        prompt = self._build_judge_prompt(
-            user_query, source_data, synthesizer_output, synthesizer_path,
-            retrieval_used,
-        )
+        prompt = self._build_judge_prompt(user_query, source_data, synthesizer_output, answer_mode)
 
         start_time = datetime.now()
         try:
             response = self._call_gemini(prompt)
             latency_ms = (datetime.now() - start_time).total_seconds() * 1000
 
-            verdict = self._parse_judge_response(
-                response, case_id, user_query, retrieval_used
-            )
+            verdict = self._parse_judge_response(response, case_id, user_query, answer_mode)
             verdict.latency_ms = latency_ms
-            verdict.synthesizer_path = synthesizer_path
             verdict.judge_model = self.model_name
             return verdict
 
@@ -121,6 +137,7 @@ class SynthesizerJudgeService:
                 user_query=user_query,
                 reasoning=f"Judge evaluation error: {str(e)}",
                 retrieval_used=retrieval_used,
+                synthesizer_path=answer_mode,
             )
 
     def _build_judge_prompt(
@@ -128,118 +145,15 @@ class SynthesizerJudgeService:
         user_query: str,
         source_data: str,
         synthesizer_output: str,
-        synthesizer_path: str,
-        retrieval_used: bool = False,
+        answer_mode: AnswerMode,
     ) -> str:
-        """Judge 用の評価プロンプトを構築"""
-
-        # パスに応じて期待される出力形式を切り替え
-        if synthesizer_path == "agent":
-            format_expectation = """
-            Agent Flow の出力に求められる品質:
-            - Markdown構造化（###見出し、箇条書き）
-            - プロのMLBアナリストとしての分析視点
-            - 冗長表現の回避、核心を突く記述"""
-        else:
-            format_expectation = """
-            Simple Flow の出力に求められる品質:
-            - 自然な文章での回答（表形式ではなく）
-            - 「予測されています」等の推測表現は不可、断定的に事実を述べる
-            - 簡潔で分かりやすい日本語"""
-
-        # 文書検索が走った質問だけ、追加の採点項目を提示する。
-        # 走っていない質問に尋ねると Judge が架空のスコアを返すため、基準ごと外す。
-        if retrieval_used:
-            relevance_criteria = """
-### 6. context_relevance (1-5) - 文脈の関連性
-元データに含まれる「検索で引いてきた文書」が、ユーザーの質問に答えるうえで
-適切な選択だったか。回答の出来ではなく、材料選びの正しさのみを見ること。
-- 5: 引いた文書がすべて質問に直結している
-- 4: 主要な文書は適切。無関係なものが1件混ざる程度
-- 3: 適切な文書と無関係な文書が半々
-- 2: 大半が無関係。かろうじて1件が関連する
-- 1: すべて無関係な文書を引いている
-"""
-            relevance_field = '    "context_relevance": <1-5>,\n'
-            # 総合点への混入を明示的に禁じる。採点させるときだけ書く。
-            overall_note = "。上記1〜5の項目のみから算出し、context_relevance は含めないこと"
-        else:
-            relevance_criteria = ""
-            relevance_field = ""
-            overall_note = ""
-
-        return f"""あなたはMLBデータ分析システムの Synthesizer（最終回答生成）品質審判です。
-ユーザーの質問に対して生成された回答を、元データと照らし合わせて多次元で評価してください。
-
-## 評価対象
-- ユーザーの質問: "{user_query}"
-- 元データ (Synthesizerに渡されたデータ):
-```json
-{source_data}
-```
-- Synthesizer の出力:
-```
-{synthesizer_output}
-```
-
-## 出力形式の期待値
-{format_expectation}
-
-## 評価基準
-
-### 1. factual_accuracy (1-5) - 事実正確性
-元データとの整合性。数値の転記ミス、存在しない選手名の捏造等がないか。
-- 5: 全数値・事実がデータと完全一致
-- 4: 些細な丸め誤差があるが事実上正確
-- 3: 一部の数値が不正確
-- 2: 複数の事実誤認
-- 1: データと大きく乖離、または捏造あり
-
-### 2. analytical_depth (1-5) - 分析深度
-単なるデータの朗読ではなく、「なぜ」「その意味は」に言及しているか。
-- 5: 優れた分析的洞察を含む
-- 4: 基本的な分析コメントあり
-- 3: データの要約のみ（朗読に近い）
-- 2: 情報が断片的で分析なし
-- 1: 意味のある情報がほぼない
-
-### 3. language_quality (1-5) - 日本語品質
-自然で流暢な日本語か。主語の連続使用、冗長表現、不自然な書き出しがないか。
-- 5: プロのスポーツライターレベル
-- 4: 自然で読みやすい
-- 3: やや不自然だが理解可能
-- 2: 冗長、同じ主語の連続、機械的
-- 1: 不自然な日本語で読みにくい
-
-### 4. structure (1-5) - 構造
-適切な見出し、箇条書き、段落分けができているか。
-- 5: 情報が完璧に整理されている
-- 4: 概ね適切な構造
-- 3: 最低限の構造はあるが改善余地あり
-- 2: 構造が不十分
-- 1: 構造化されていない長文
-
-### 5. completeness (1-5) - 完全性
-ユーザーの質問に対して過不足なく回答できているか。
-- 5: 質問に完全に回答＋有益な補足
-- 4: 質問に完全に回答
-- 3: 主要な部分は回答だが一部欠落
-- 2: 回答が不完全
-- 1: 質問に答えていない
-{relevance_criteria}
-## 出力形式
-以下のJSONを返してください:
-{{
-    "factual_accuracy": <1-5>,
-    "analytical_depth": <1-5>,
-    "language_quality": <1-5>,
-    "structure": <1-5>,
-    "completeness": <1-5>,
-{relevance_field}    "overall_score": <1.0-5.0の小数{overall_note}>,
-    "passed": <true/false>,
-    "reasoning": "<総合的な判定理由を日本語で1-2文>",
-    "issues": ["<具体的な問題点1>", "<問題点2>"]
-}}"""
+        """経路に応じた採点基準のプロンプトを、プロンプトファイルから組み立てる"""
+        return get_prompt(
+            f"synthesizer_judge_{answer_mode}",
+            user_query=user_query,
+            source_data=source_data,
+            output=synthesizer_output,
+        )
 
     def _call_gemini(self, prompt: str) -> Dict[str, Any]:
         """Gemini API を Gateway 経由で呼び出す"""
@@ -259,9 +173,9 @@ class SynthesizerJudgeService:
         response: Dict[str, Any],
         case_id: str,
         user_query: str,
-        retrieval_used: bool = False,
+        answer_mode: AnswerMode,
     ) -> SynthesizerVerdict:
-        """Gemini の応答を SynthesizerVerdict に変換"""
+        """Gemini の応答を SynthesizerVerdict に変換し、総合点と合否をコードで計算する"""
 
         def clamp(val, min_v=1, max_v=5):
             try:
@@ -269,31 +183,38 @@ class SynthesizerJudgeService:
             except (TypeError, ValueError):
                 return min_v
 
-        def clamp_float(val, min_v=1.0, max_v=5.0):
-            try:
-                return max(min_v, min(max_v, float(val)))
-            except (TypeError, ValueError):
-                return min_v
+        scored = SCORED_DIMENSIONS[answer_mode]
+        # 対象項目はキー欠落時に最低点 1、対象外の項目は 0（評価対象外）
+        scores = {dim: clamp(response.get(dim, 1)) for dim in scored}
 
-        overall = clamp_float(response.get("overall_score", 1.0))
+        overall = round(sum(scores.values()) / len(scores), 2)
+        passed = (
+            overall >= PASS_THRESHOLD
+            and scores["factual_accuracy"] >= FACTUAL_ACCURACY_FLOOR
+        )
+
         issues = response.get("issues", [])
         if not isinstance(issues, list):
             issues = []
 
+        retrieval_used = answer_mode == "rag"
+        context_relevance = (
+            clamp(response.get("context_relevance", 0), min_v=0) if retrieval_used else 0
+        )
+
         return SynthesizerVerdict(
             case_id=case_id,
             user_query=user_query,
-            factual_accuracy=clamp(response.get("factual_accuracy", 1)),
-            analytical_depth=clamp(response.get("analytical_depth", 1)),
-            language_quality=clamp(response.get("language_quality", 1)),
-            structure=clamp(response.get("structure", 1)),
-            completeness=clamp(response.get("completeness", 1)),
-            # min_v=0。キー欠落時を「評価対象外」の 0 に落とす。
-            # 既定の min_v=1 のままだと最低評価 1 点として記録されてしまう。
-            context_relevance=clamp(response.get("context_relevance", 0), min_v=0),
+            factual_accuracy=scores.get("factual_accuracy", 0),
+            analytical_depth=scores.get("analytical_depth", 0),
+            language_quality=scores.get("language_quality", 0),
+            structure=scores.get("structure", 0),
+            completeness=scores.get("completeness", 0),
+            context_relevance=context_relevance,
             retrieval_used=retrieval_used,
             overall_score=overall,
-            passed=overall >= PASS_THRESHOLD,
+            passed=passed,
             reasoning=response.get("reasoning", ""),
             issues=issues,
+            synthesizer_path=answer_mode,
         )

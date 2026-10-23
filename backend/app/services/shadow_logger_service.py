@@ -18,6 +18,7 @@ import logging
 
 from backend.app.config.settings import get_settings
 from backend.app.middleware.request_context import get_trace_id
+from backend.app.utils.bq_dml import insert_rows_dml
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ FULL_TABLE_ID = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
 
 def _serialize_for_bq_json(value: Any) -> Optional[str]:
     """
-    BigQuery の JSON カラムに insert_rows_json で渡す形式に変換する。
+    BigQuery の JSON カラムに渡す形式（JSON 文字列）に変換する。
 
     - None はそのまま None を返す
     - それ以外は常に json.dumps で変換する。
@@ -139,11 +140,8 @@ class ShadowLoggerService:
 
     def _write_to_bigquery(self, row_data: Dict[str, Any]):
         try:
-            errors = self.client.insert_rows_json(FULL_TABLE_ID, [row_data])
-            if errors:
-                logger.error(f"Shadow comparison insert errors: {errors}")
-            else:
-                logger.debug(f"Shadow comparison written: {row_data['comparison_id']}")
+            insert_rows_dml(self.client, FULL_TABLE_ID, [row_data])
+            logger.debug(f"Shadow comparison written: {row_data['comparison_id']}")
         except Exception as e:
             # ロギング失敗はアプリを止めない（シャドー評価の鉄則）
             logger.error(f"Failed to write shadow comparison: {e}")

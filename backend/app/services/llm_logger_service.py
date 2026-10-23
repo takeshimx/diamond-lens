@@ -20,6 +20,7 @@ from backend.app.middleware.request_context import (
     get_trace_id,
     get_user_id,
 )
+from backend.app.utils.bq_dml import insert_rows_dml
 
 logger = logging.getLogger(__name__)
 
@@ -220,7 +221,7 @@ class LLMLoggerService:
         thread.start()
     
     def _update_bigquery_feedback(self, request_id: str, session_id: str, user_rating: str, category: Optional[str], reason: Optional[str]):
-        """BigQueryにフィードバック用の追記行をINSERT (UPDATEできないStreaming Buffer仕様への対応)"""
+        """BigQueryにフィードバック用の追記行をINSERT（本体行は更新せず別行として追記する）"""
         try:
             # フィードバック情報のみを含む新しい行を追記する
             # 分析側では request_id で集約し、最新の timestamp を参照する
@@ -251,14 +252,8 @@ class LLMLoggerService:
     def _write_to_bigquery(self, row_data: Dict[str, Any]):
         """BigQuery にRow を挿入（内部用）"""
         try:
-            errors = self.client.insert_rows_json(
-                FULL_TABLE_ID,
-                [row_data]
-            )
-            if errors:
-                logger.error(f"BigQuery insert errors: {errors}")
-            else:
-                logger.debug(f"LLM log written: {row_data['log_id']}")
+            insert_rows_dml(self.client, FULL_TABLE_ID, [row_data])
+            logger.debug(f"LLM log written: {row_data['log_id']}")
         except Exception as e:
             # ロギング失敗はアプリを止めない
             logger.error(f"Failed to write LLM log: {e}")

@@ -16,6 +16,8 @@ from typing import Optional, Dict, Any, List
 from dataclasses import asdict
 from google.cloud import bigquery
 
+from backend.app.utils.bq_dml import insert_rows_dml
+
 logger = logging.getLogger(__name__)
 
 # BigQuery 設定
@@ -218,13 +220,10 @@ class MLMonitoringLogger:
     def _write_rows_to_bigquery(self, rows: List[Dict]) -> None:
         """BigQuery に複数行を挿入（内部用・別スレッドで実行）"""
         try:
-            errors = self.client.insert_rows_json(FULL_TABLE_ID, rows)
-            if errors:
-                logger.error(f"BigQuery insert errors: {errors}")
-            else:
-                logger.debug(
-                    f"ML drift log written: {len(rows)} rows"
-                )
+            insert_rows_dml(self.client, FULL_TABLE_ID, rows)
+            logger.debug(
+                f"ML drift log written: {len(rows)} rows"
+            )
         except Exception as e:
             logger.error(f"Failed to write ML drift log: {e}")
 
