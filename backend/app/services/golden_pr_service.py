@@ -160,7 +160,7 @@ def _pr_body(added: List[Dict[str, Any]], held: Dict[str, str]) -> str:
         "",
         "## Test Plan",
         "- [ ] `pytest backend/tests/test_llm_evaluation.py` — golden structure holds",
-        "- [ ] `python backend/scripts/evaluate_llm_accuracy.py` — accuracy gate",
+        "- [ ] `python backend/scripts/evaluate_tool_call_accuracy.py` — accuracy gate",
         "",
         "> Note: a newly added case may fail the accuracy gate. That is not a "
         "defect in this PR — it means the underlying bug is still unfixed. "

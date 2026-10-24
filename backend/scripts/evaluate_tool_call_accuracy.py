@@ -4,7 +4,7 @@ LLM Evaluation GATE for CI/CD Pipeline
 ゴールデンデータセットを使って LLM のパース精度を評価します。
 精度が閾値（PASS_THRESHOLD）を下回った場合、CI/CD パイプラインを停止します。
 使用方法:
-    python scripts/evaluate_llm_accuracy.py
+    python scripts/evaluate_tool_call_accuracy.py
 終了コード:
     0: 精度が閾値以上（デプロイ可能）
     1: 精度が閾値未満（デプロイ停止）
@@ -205,11 +205,14 @@ def evaluate_single_case(test_case: Dict[str, Any]) -> Dict[str, Any]:
         else:
             print(f"  {Colors.GREEN}[OK]   {field}: {actual}{Colors.RESET}")
     
+    # actual は evaluate_with_llm_judge.py が不合格ケースを Judge に渡すために使う。
+    # ツール選択自体の失敗 (上の早期 return) には付けない = Judge の対象外。
     return {
         "id": case_id,
         "passed": all_passed,
         "critical_failure": critical_failure,
-        "details": field_results
+        "details": field_results,
+        "actual": result,
     }
 
 

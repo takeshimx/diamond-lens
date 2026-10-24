@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
 """
-LLM-as-a-Judge 評価パイプライン
+LLM-as-a-Judge 評価パイプライン (不合格ケースの原因分類)
 
-ゴールデンデータセットに対して:
-  1. LLMパーサーを実行 (既存の _parse_query_with_llm)
-  2. ルールベース評価 (既存ロジック)
-  3. LLM Judge 評価 (新規)
-を並列実行し、比較レポートを出力します。
+役割分担:
+  - 合否判定 = ルールベース (evaluate_tool_call_accuracy.evaluate_single_case をそのまま使う。決定的)
+  - 不合格の原因分類 = LLM Judge (非決定的なのでビルドは止めない。終了コードは常に 0)
+
+ゴールデンデータセットの各ケースについて:
+  1. 本番チャット経路 (ChatOrchestrator.plan_tool_call) でツールと引数を選ばせる
+  2. ルールベースで採点する
+  3. 不合格のケースだけを Judge にかけ、次のどれかに分類する
+     - golden_fix_candidate: 表記違いだが意味は正しい → golden の期待値を見直す候補
+     - real_error:           本当に誤り → プロンプト・コードの修正対象
+     - tool_selection_error: ツールを選ばなかった / 選ぶべきでないのに選んだ (Judge にかけず real_error 扱い)
+     - judge_error:          Judge 呼び出しが失敗し分類できなかった
+Judge の呼び出しは不合格件数分のみ。
 
 使用方法:
     python backend/scripts/evaluate_with_llm_judge.py
@@ -15,10 +23,9 @@ LLM-as-a-Judge 評価パイプライン
 
 import json
 import sys
-import os
 import argparse
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 
 # プロジェクトルートをパスに追加
@@ -29,29 +36,18 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=project_root / ".env")
 
-from backend.app.services.ai_service import _parse_query_with_llm as parse_batting
-from backend.app.services.analytics.pitcher_services import _parse_query_with_llm as parse_pitching
+from backend.scripts.evaluate_tool_call_accuracy import evaluate_single_case, load_golden_dataset
 from backend.app.services.llm_judge_service import LLMJudgeService, JudgeVerdict
-
-# 投手系カテゴリの定義。
-# 列挙は残すが判定には使わない (evaluate_llm_accuracy.py と挙動を揃えるため)。
-# 列挙を 2 スクリプトで二重管理すると、golden_dataset に新カテゴリを追加した際に
-# 片方だけ更新漏れが起きる。判定は命名規約ベースの is_pitching_category() に一本化する。
-PITCHING_CATEGORIES = ["season_pitching", "pitching_splits", "career_pitching"]
-
-
-def is_pitching_category(category: str) -> bool:
-    """投手系カテゴリかを判定する。evaluate_llm_accuracy.py と同一実装。"""
-    return "pitching" in (category or "")
-
 
 # ============================================
 # 設定
 # ============================================
-GOLDEN_DATASET_PATH = project_root / "backend" / "tests" / "golden_dataset.json"
 RESULTS_DIR = project_root / "backend" / "tests"
 
-RULE_BASED_CRITICAL_FIELDS = ["query_type"]
+TRIAGE_GOLDEN_FIX = "golden_fix_candidate"
+TRIAGE_REAL_ERROR = "real_error"
+TRIAGE_TOOL_SELECTION = "tool_selection_error"
+TRIAGE_JUDGE_ERROR = "judge_error"
 
 
 class Colors:
@@ -65,172 +61,126 @@ class Colors:
     DIM = "\033[2m"
 
 
-def load_golden_dataset() -> List[Dict[str, Any]]:
-    """ゴールデンデータセットを読み込む"""
-    with open(GOLDEN_DATASET_PATH, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    return data["test_cases"]
+def triage(rule_result: Dict[str, Any], verdict: Optional[JudgeVerdict]) -> str:
+    """ルールベース不合格ケースを、Judge の判定から原因別に分類する。
 
-
-def evaluate_rule_based(expected: Dict[str, Any], actual: Dict[str, Any]) -> Dict[str, Any]:
-    """既存のルールベース評価ロジック (evaluate_llm_accuracy.py と同等)"""
-    field_results = {}
-    all_passed = True
-    critical_failure = False
-
-    for field_name, expected_value in expected.items():
-        if expected_value is None:
-            actual_val = actual.get(field_name)
-            passed = actual_val is None or actual_val == ""
-        elif field_name == "metrics_contains":
-            actual_metrics = actual.get("metrics", [])
-            passed = all(m in actual_metrics for m in expected_value)
-            actual_val = actual_metrics
-        else:
-            actual_val = actual.get(field_name)
-            passed = actual_val == expected_value
-
-        field_results[field_name] = {
-            "expected": expected_value,
-            "actual": actual_val,
-            "passed": passed,
-        }
-
-        if not passed:
-            all_passed = False
-            if field_name in RULE_BASED_CRITICAL_FIELDS:
-                critical_failure = True
-
-    return {
-        "passed": all_passed,
-        "critical_failure": critical_failure,
-        "fields": field_results,
-    }
+    - actual が無い = ツール選択自体の失敗。引数の表記違いは起こりえないので Judge に聞かない
+    - Judge の overall_score が 0 = 呼び出し失敗 (正常応答は 1.0 以上にクランプされる)
+    - Judge が合格 = 完全一致はしないが意味は正しい → golden 側の見直し候補
+    """
+    if rule_result.get("actual") is None:
+        return TRIAGE_TOOL_SELECTION
+    if verdict is None or verdict.overall_score == 0.0:
+        return TRIAGE_JUDGE_ERROR
+    if verdict.passed:
+        return TRIAGE_GOLDEN_FIX
+    return TRIAGE_REAL_ERROR
 
 
 def run_evaluation(output_path: str = None):
     """メイン評価パイプライン"""
     print(f"\n{Colors.BOLD}{Colors.CYAN}{'=' * 70}{Colors.RESET}")
-    print(f"{Colors.BOLD}{Colors.CYAN}🧑‍⚖️ LLM-as-a-Judge Evaluation Pipeline{Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.CYAN}🧑‍⚖️ LLM-as-a-Judge Failure Triage{Colors.RESET}")
     print(f"{Colors.BOLD}{Colors.CYAN}{'=' * 70}{Colors.RESET}")
 
-    # データセット読み込み
     test_cases = load_golden_dataset()
     print(f"\n  📂 Loaded {len(test_cases)} test cases from golden dataset")
 
-    # Judge 初期化
     judge = LLMJudgeService()
 
-    # 結果格納
     results = []
     rule_based_pass = 0
-    judge_pass = 0
-    total_judge_score = 0.0
-    failure_categories = {}
+    triage_counts: Dict[str, int] = {}
+    failure_categories: Dict[str, int] = {}
 
     for case in test_cases:
         case_id = case["id"]
         query = case["query"]
-        season = case.get("season")
         expected = case["expected"]
 
-        print(f"\n{Colors.BLUE}[{case_id}] \"{query}\"{Colors.RESET}")
+        # ---- Step 1-2: 本番経路でツール選択 + ルールベース採点 ----
+        rule_result = evaluate_single_case(case)
 
-        # ---- Step 1: LLM パーサー実行（カテゴリに応じて切り替え） ----
-        is_pitching = is_pitching_category(case.get("category", ""))
-        parser_label = "Pitching" if is_pitching else "Batting"
-        try:
-            if is_pitching:
-                actual = parse_pitching(query, season)
-            else:
-                actual = parse_batting(query, season)
-            if actual is None:
-                actual = {}
-                print(f"  {Colors.RED}⚠ Parser ({parser_label}) returned None{Colors.RESET}")
-        except Exception as e:
-            actual = {}
-            print(f"  {Colors.RED}⚠ Parser error: {e}{Colors.RESET}")
-
-        # ---- Step 2: ルールベース評価 ----
-        rule_result = evaluate_rule_based(expected, actual)
-        rule_passed = rule_result["passed"]
-        if rule_passed:
+        if rule_result["passed"]:
             rule_based_pass += 1
-            print(f"  Rule-Based: {Colors.GREEN}✅ PASS{Colors.RESET}")
-        else:
-            failed_fields = [
-                f for f, v in rule_result["fields"].items() if not v["passed"]
-            ]
+            results.append(
+                {
+                    "case_id": case_id,
+                    "query": query,
+                    "expected": expected,
+                    "actual": rule_result.get("actual"),
+                    "rule_based": rule_result,
+                    "triage": None,
+                    "judge_verdict": None,
+                }
+            )
+            continue
+
+        # ---- Step 3: 不合格ケースだけ Judge で原因分類 ----
+        verdict = None
+        if rule_result.get("actual") is not None:
+            verdict = judge.evaluate_parse_result(
+                case_id=case_id,
+                user_query=query,
+                expected=expected,
+                actual=rule_result["actual"],
+            )
+
+        label = triage(rule_result, verdict)
+        triage_counts[label] = triage_counts.get(label, 0) + 1
+
+        label_color = Colors.YELLOW if label == TRIAGE_GOLDEN_FIX else Colors.RED
+        print(f"  Triage: {label_color}{label}{Colors.RESET}")
+        if verdict is not None:
             print(
-                f"  Rule-Based: {Colors.RED}❌ FAIL ({', '.join(failed_fields)}){Colors.RESET}"
+                f"    {Colors.DIM}Judge {verdict.overall_score:.1f}/5.0 | "
+                f"query_type: {verdict.query_type_accuracy}/5 | "
+                f"metrics: {verdict.metrics_accuracy}/5 | "
+                f"entity: {verdict.entity_resolution}/5 | "
+                f"intent: {verdict.intent_understanding}/5{Colors.RESET}"
             )
-
-        # ---- Step 3: LLM Judge 評価 ----
-        verdict = judge.evaluate_parse_result(
-            case_id=case_id,
-            user_query=query,
-            expected=expected,
-            actual=actual,
-        )
-
-        if verdict.passed:
-            judge_pass += 1
-            score_color = Colors.GREEN
-        else:
-            score_color = Colors.RED
-
-        total_judge_score += verdict.overall_score
-
-        print(
-            f"  LLM Judge:  {score_color}"
-            f"{'✅ PASS' if verdict.passed else '❌ FAIL'} "
-            f"({verdict.overall_score:.1f}/5.0){Colors.RESET}"
-        )
-        print(
-            f"    {Colors.DIM}query_type: {verdict.query_type_accuracy}/5 | "
-            f"metrics: {verdict.metrics_accuracy}/5 | "
-            f"entity: {verdict.entity_resolution}/5 | "
-            f"intent: {verdict.intent_understanding}/5{Colors.RESET}"
-        )
-        if verdict.reasoning:
-            print(f"    {Colors.DIM}Reasoning: {verdict.reasoning}{Colors.RESET}")
-
-        # 失敗カテゴリの集計
-        if verdict.failure_category and verdict.failure_category != "none":
-            failure_categories[verdict.failure_category] = (
-                failure_categories.get(verdict.failure_category, 0) + 1
-            )
+            if verdict.reasoning:
+                print(f"    {Colors.DIM}Reasoning: {verdict.reasoning}{Colors.RESET}")
+            if verdict.failure_category and verdict.failure_category != "none":
+                failure_categories[verdict.failure_category] = (
+                    failure_categories.get(verdict.failure_category, 0) + 1
+                )
 
         results.append(
             {
                 "case_id": case_id,
                 "query": query,
                 "expected": expected,
-                "actual": actual,
+                "actual": rule_result.get("actual"),
                 "rule_based": rule_result,
-                "judge_verdict": verdict.to_dict(),
+                "triage": label,
+                "judge_verdict": verdict.to_dict() if verdict else None,
             }
         )
 
     # ---- サマリー出力 ----
     total = len(test_cases)
-    avg_score = total_judge_score / total if total > 0 else 0
+    failed = total - rule_based_pass
 
     print(f"\n{Colors.BOLD}{Colors.CYAN}{'=' * 70}{Colors.RESET}")
     print(f"{Colors.BOLD}Results Summary{Colors.RESET}")
     print(f"{Colors.BOLD}{Colors.CYAN}{'=' * 70}{Colors.RESET}")
-    print(
-        f"  Rule-Based Accuracy: {rule_based_pass}/{total} "
-        f"({rule_based_pass / total * 100:.0f}%)"
-    )
-    print(
-        f"  LLM Judge Accuracy:  {judge_pass}/{total} "
-        f"({judge_pass / total * 100:.0f}%)"
-    )
-    print(f"  Average Judge Score: {avg_score:.1f}/5.0")
+    accuracy = rule_based_pass / total if total > 0 else 0
+    print(f"  Rule-Based Accuracy: {rule_based_pass}/{total} ({accuracy * 100:.0f}%)")
+    print(f"  Failed cases sent to triage: {failed}")
+
+    if triage_counts:
+        print(f"\n  {Colors.YELLOW}Failure Triage:{Colors.RESET}")
+        for label in (TRIAGE_GOLDEN_FIX, TRIAGE_REAL_ERROR, TRIAGE_TOOL_SELECTION, TRIAGE_JUDGE_ERROR):
+            if label in triage_counts:
+                print(f"    {label:30s} {triage_counts[label]} case(s)")
+
+    golden_fix_ids = [r["case_id"] for r in results if r["triage"] == TRIAGE_GOLDEN_FIX]
+    if golden_fix_ids:
+        print(f"\n  {Colors.YELLOW}Golden review candidates:{Colors.RESET} {', '.join(golden_fix_ids)}")
 
     if failure_categories:
-        print(f"\n  {Colors.YELLOW}Failure Pattern Analysis:{Colors.RESET}")
+        print(f"\n  {Colors.YELLOW}Judge Failure Categories:{Colors.RESET}")
         for category, count in sorted(
             failure_categories.items(), key=lambda x: x[1], reverse=True
         ):
@@ -244,9 +194,9 @@ def run_evaluation(output_path: str = None):
     output_data = {
         "evaluation_timestamp": datetime.now(timezone.utc).isoformat(),
         "total_cases": total,
-        "rule_based_accuracy": rule_based_pass / total if total > 0 else 0,
-        "judge_accuracy": judge_pass / total if total > 0 else 0,
-        "average_judge_score": avg_score,
+        "rule_based_accuracy": accuracy,
+        "failed_cases": failed,
+        "triage_counts": triage_counts,
         "failure_categories": failure_categories,
         "results": results,
     }
@@ -261,10 +211,11 @@ def run_evaluation(output_path: str = None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="LLM-as-a-Judge Evaluation Pipeline")
+    parser = argparse.ArgumentParser(description="LLM-as-a-Judge Failure Triage")
     parser.add_argument("--output", "-o", help="Output JSON file path", default=None)
     args = parser.parse_args()
 
+    # 分類結果に関わらず終了コードは 0。合否ゲートは evaluate_tool_call_accuracy.py が担う。
     run_evaluation(output_path=args.output)
 
 

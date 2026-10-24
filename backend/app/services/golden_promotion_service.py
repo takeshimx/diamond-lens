@@ -26,7 +26,7 @@ MIN_CASES_PER_CATEGORY = 3
 def to_golden_case(exp: Dict[str, Any], index: int) -> Dict[str, Any]:
     """期待値 1 件を golden_dataset のテストケース形式に変換する。
 
-    expected に入れるキーは evaluate_llm_accuracy がそのまま比較対象にする。
+    expected に入れるキーは evaluate_tool_call_accuracy がそのまま比較対象にする。
     値が無いキーを入れると「None が期待値」として採点されてしまうため、
     指定されたものだけを入れる。
     """

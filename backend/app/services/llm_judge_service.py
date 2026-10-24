@@ -1,7 +1,7 @@
 """
 LLM as a Judge - パース精度評価サービス
 LLMを「審判」として使い、パース結果を多次元で意味的に評価します。
-既存のルールベース評価（evaluate_llm_accuracy.py）を補完する目的です。
+既存のルールベース評価（evaluate_tool_call_accuracy.py）を補完する目的です。
 """
 import os
 import json
@@ -68,7 +68,7 @@ class LLMJudgeService:
             case_id: テストケースID (例: "GD-001")
             user_query: ユーザーの元の質問
             expected: ゴールデンデータセットの期待値
-            actual: LLMパーサーが実際に出力した結果
+            actual: ChatOrchestrator が選んだツール呼び出しの引数 (to_parsed_fields 済み)
         Returns:
             JudgeVerdict: 多次元評価結果
         """
@@ -110,17 +110,18 @@ class LLMJudgeService:
         valid_metric_keys = self._get_valid_metric_keys()
 
         return f"""あなたはMLBデータ分析システムの品質評価の審判（Judge）です。
-ユーザーの質問に対するLLMパーサーの出力を、期待値と比較して多次元で評価してください。
+ユーザーの質問に対して、チャットエージェントが選んだツール呼び出しの引数を、期待値と比較して多次元で評価してください。
 ## 評価対象
 - ユーザーの質問: "{user_query}"
 - 期待値 (Expected): {json.dumps(expected, ensure_ascii=False, indent=2)}
-- 実際の出力 (Actual): {json.dumps(actual, ensure_ascii=False, indent=2)}
+- ツール呼び出しの引数 (Actual): {json.dumps(actual, ensure_ascii=False, indent=2)}
+  （`_tool_name` は選ばれたツール名。期待値の `metrics_contains` は、列挙したメトリクスが `metrics` に含まれていればよいという意味）
 ## 重要なシステム制約
 このシステムでは、`metrics` フィールドの値は以下の METRIC_MAP に登録されたキーのいずれかでなければなりません。
 登録されていないキー（例: "avg", "hr", "k" 等の略称）を使用すると、後続のSQL構築が失敗します。
 **登録済みキー一覧**: {valid_metric_keys}
 **特別キーワード**: "main_stats" は展開用の特別キーワードとして許可
-つまり、LLMパーサーが "avg" を返した場合、野球用語としては打率を意味しますが、
+つまり、ツール呼び出しの引数が "avg" の場合、野球用語としては打率を意味しますが、
 システム上は "batting_average" でなければ動作しないため、これは正当なエラーです。
 ## 評価基準
 ### 1. query_type_accuracy (1-5)

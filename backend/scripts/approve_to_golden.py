@@ -74,7 +74,7 @@ def promote(days: int, apply: bool) -> int:
     )
     logger.info(
         "NOTE: 追加したケースは元々システムが間違えた質問である。"
-        "evaluate_llm_accuracy.py が落ちても異常ではない。"
+        "evaluate_tool_call_accuracy.py が落ちても異常ではない。"
     )
     return len(added)
 
