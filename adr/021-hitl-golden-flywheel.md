@@ -16,7 +16,7 @@
 
 ## Context
 
-`golden_dataset.json` is the only test set the CI accuracy gate reads (`evaluate_llm_accuracy.py`, threshold 80%). How its contents grow determines the effectiveness of the entire evaluation layer.
+`golden_dataset.json` is the only test set the CI accuracy gate reads (`evaluate_tool_call_accuracy.py`, threshold 80%). How its contents grow determines the effectiveness of the entire evaluation layer.
 
 Writing cases by hand has a ceiling. The questions a developer thinks of are the questions that developer already anticipated. **What is actually broken usually lies outside that set.** A thumbs-down in production, by contrast, is the fact of a real failure. Converting those into regression tests lets the test set grow along the distribution of questions users actually ask.
 
@@ -162,7 +162,7 @@ The decision logic lives in `golden_promotion_service`, and both the UI path (`g
 ### Constraints accepted
 
 - **Human work does not disappear.** Despite the name "flywheel," a human turns it. Automation covers capture, extraction, validation and PR creation; judging the expected value and merging the PR remain human tasks.
-- **Only the parse layer can be scored.** `evaluate_llm_accuracy.py` compares the arguments passed to a tool without executing the tool itself. Bugs where "the LLM's parse is right but everything downstream is broken" — the guardrail example above — cannot be caught in the golden set. `evaluate_with_llm_judge.py`, or unit tests on the code in question, cover that.
+- **Only the parse layer can be scored.** `evaluate_tool_call_accuracy.py` compares the arguments passed to a tool without executing the tool itself. Bugs where "the LLM's parse is right but everything downstream is broken" — the guardrail example above — cannot be caught in the golden set. Unit tests on the code in question cover that; `evaluate_with_llm_judge.py` reads the same tool arguments and only triages failures ([[018-llm-as-a-judge-offline-evaluation]]), so it does not close this gap.
 - **Unimplemented features cannot become tests.** The idea that "a red PR is a ticket awaiting a fix" only holds where a prompt or logic change can fix it. Adding a case for a feature that does not exist would keep CI red forever, so those are held.
 - A GitHub fine-grained PAT (Contents / Pull requests, read-write) becomes an operational prerequisite. The app still starts without it and fails explicitly only when PR creation is invoked.
 

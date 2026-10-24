@@ -21,8 +21,8 @@ The requirement: **build a quality gate into the delivery pipeline that blocks t
 
 An **evaluation gate using the golden dataset** was added to the CD pipeline (Cloud Build). If parse accuracy against the golden dataset falls below the threshold (**≥80%**), the deploy is stopped ([README_ai_architecture.md](../README_ai_architecture.md) §10 / README CI/CD STEP 1.5).
 
-- The evaluation script `scripts/evaluate_llm_accuracy.py` runs as STEP 1.1, `llm-evaluation-gate`, in the same pipeline as image build / push / Cloud Run deploy ([cloudbuild.yaml:32](../cloudbuild.yaml#L32)). Because it calls a real LLM, `GEMINI_API_KEY_V2` is supplied through `availableSecrets`.
-- There are two stop conditions: the build fails with `sys.exit(1)` when **accuracy < 80%** or when **even one critical failure** is present ([evaluate_llm_accuracy.py:252](../backend/scripts/evaluate_llm_accuracy.py#L252)).
+- The evaluation script `scripts/evaluate_tool_call_accuracy.py` runs as STEP 1.1, `llm-evaluation-gate`, in the same pipeline as image build / push / Cloud Run deploy ([cloudbuild.yaml:32](../cloudbuild.yaml#L32)). Because it calls a real LLM, `GEMINI_API_KEY_V2` is supplied through `availableSecrets`.
+- There are two stop conditions: the build fails with `sys.exit(1)` when **accuracy < 80%** or when **even one critical failure** is present ([evaluate_tool_call_accuracy.py:255](../backend/scripts/evaluate_tool_call_accuracy.py#L255)).
 - Comparable quality gates sit in the same pipeline — schema validation (query_maps vs. live BigQuery, [[022-schema-validation-gate]]), trajectory evaluation (verifying multi-step paths) and drift checks ([[025-data-drift-detection]]) — protecting data, schema and LLM quality in layers.
 - The golden dataset grows through the HITL flywheel ([[021-hitl-golden-flywheel]]): 👎 → human review → promotion to golden.
 
@@ -68,7 +68,7 @@ The golden dataset now holds **40 cases** (expanded from 14 in commit 9ce1209). 
 | | |
 |---|---|
 | **Invariant** | A deploy is blocked when golden parse accuracy falls below 80%, or when even one critical failure is present. |
-| **How it is checked** | `scripts/evaluate_llm_accuracy.py` as `llm-evaluation-gate` (STEP 1.1), scoring `golden_dataset.json` against a real LLM. |
+| **How it is checked** | `scripts/evaluate_tool_call_accuracy.py` as `llm-evaluation-gate` (STEP 1.1), scoring `golden_dataset.json` against a real LLM. |
 | **Enforcement** | ⏸ **Currently disabled.** STEP 1.1 is commented out in `cloudbuild.yaml`, together with the `availableSecrets` block that supplies its API key. |
 | **Reading (2026-10-05)** | Golden set 40 cases, `PASS_THRESHOLD = 0.8`. Nothing is scored per deploy. |
 
@@ -87,6 +87,6 @@ Re-enabling has a recorded prerequisite: the `availableSecrets` block must be re
 - AI layer: [README_ai_architecture.md](../README_ai_architecture.md) §10
 - CD definition: [cloudbuild.yaml](../cloudbuild.yaml) (`llm-evaluation-gate` and the other gates)
 - CI definition: [.github/workflows/ci.yml](../.github/workflows/ci.yml) (pytest + ruff)
-- Evaluation script: `backend/scripts/evaluate_llm_accuracy.py` (threshold `PASS_THRESHOLD = 0.8`)
+- Evaluation script: `backend/scripts/evaluate_tool_call_accuracy.py` (threshold `PASS_THRESHOLD = 0.8`)
 - Golden dataset: `backend/tests/golden_dataset.json` (40 cases) / structural validation in `backend/tests/test_llm_evaluation.py`
 - Related ADRs: [[018-llm-as-a-judge-offline-evaluation]], [[019-shadow-evaluation]], [[021-hitl-golden-flywheel]], [[022-schema-validation-gate]], [[025-data-drift-detection]]

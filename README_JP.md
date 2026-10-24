@@ -281,7 +281,7 @@ CI/CD ドリフトチェック → アクティブモデルの学習データ vs
 | # | Judge | 評価対象 | 評価次元 | 状態 | ファイル |
 |---|---|---|---|---|---|
 | 2 | **Synthesizer品質** | 本番チャット経路の回答。**回答の経路ごとに基準を切り替える** | 生データ経路: 事実の正確さ、網羅性。RAG 経路: 事実の正確さ、網羅性、深さの適合、文章の質、構造の適合＋文書の関連性 | ✅ **本番稼働** — `online_judge_service.py` 経由で 50% サンプリング・非同期採点 | `synthesizer_judge_service.py` |
-| 1 | **パース精度** | ゴールデンデータセットに対する LLM のパース結果 | query_type正確性、metrics抽出、選手名解決、意図理解 | ⚠️ **オフライン専用** — `evaluate_with_llm_judge.py` からのみ。本番コードからの参照なし | `llm_judge_service.py` |
+| 1 | **パース精度** | 本番チャット経路のツール呼び出し引数。**ルールベースで不合格になった golden ケースのみ** | query_type正確性、metrics抽出、選手名解決、意図理解 | ⚠️ **オフライン専用** — `evaluate_with_llm_judge.py` から不合格の原因分類に使用。ゲートではない | `llm_judge_service.py` |
 
 **実装済み・未配線の 3 つ**（ユニットテストからのみ参照）:
 
@@ -295,7 +295,8 @@ CI/CD ドリフトチェック → アクティブモデルの学習データ vs
 ```
 【オンライン】チャット応答 → 50% サンプリング → Synthesizer Judge が経路別に非同期採点
             → BQ online_judge_verdicts → 不合格は Trace Viewer（JUDGE NG）で人が確認
-【オフライン】golden_dataset.json → evaluate_with_llm_judge.py → Parse Judge → JSON 出力
+【オフライン】golden_dataset.json → ルールベース判定（CI ゲートと同じ）→ 不合格ケースのみ
+            → Parse Judge → golden_fix_candidate / real_error に分類 → JSON 出力
 ```
 
 **Online Judge の経路別の採点基準**: 回答の大半はツールの結果を機械整形したもの（ADR-050）であり、文章の質で採点すると正しい回答が不合格になっていた。各経路が責任を持てる項目だけを採点する:
@@ -311,7 +312,7 @@ CI/CD ドリフトチェック → アクティブモデルの学習データ vs
 - **抜き取り率**: `ONLINE_JUDGE_SAMPLE_RATE=0.5`。Cloud Run のデプロイ手順で設定
 
 **E2Eスクリプト**:
-- `backend/scripts/evaluate_with_llm_judge.py` — ゴールデンデータセットに対するパース精度の回帰テスト
+- `backend/scripts/evaluate_with_llm_judge.py` — ルールベースで不合格になった golden ケースの原因分類。「表記違いだが意味は正しい」（`golden_fix_candidate` → golden を見直す）と「本当に誤り」（`real_error` → プロンプト・コードを直す）に分ける。ゲートの正解率が下がったときに手動で実行し、終了コードは常に 0
 
 **RAG Triad への対応**: RAG 品質評価の定番である RAG Triad（文脈の関連性／回答の根拠性／回答の妥当性の 3 点検査）について、専用フレームワーク（TruLens 等）は導入せず、**既存の評価資産に 3 辺を対応付けている**。導入すると依存が増えるうえ、同一項目を二重計上するため。
 
@@ -1551,7 +1552,7 @@ diamond-lens/
 │   ├── scripts/             # 検証・評価スクリプト
 │   │   ├── extract_golden_dataset.py  # BigQueryからbad評価クエリを抽出
 │   │   ├── approve_to_golden.py       # レビュー済みケースをゴールデンデータセットに昇格
-│   │   ├── evaluate_llm_accuracy.py   # CI/CD LLM精度ゲート
+│   │   ├── evaluate_tool_call_accuracy.py   # CI/CD LLM精度ゲート
 │   │   ├── check_data_drift.py        # CI/CD MLドリフトチェックゲート
 │   │   └── create_drift_monitoring_table.py # BigQueryテーブルセットアップ
 │   ├── requirements.txt     # Python依存関係

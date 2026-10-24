@@ -491,7 +491,7 @@ sequenceDiagram
 | **Context Caching** | `prompt_cache_service.py` registers long fixed prefixes (`parse_query_v1`, `oracle_semantic_v1`) via `client.caches.create()`; reduces Gemini input billing from ~$0.30/M to ~$0.03/M tokens (~1/10). Per-instance in-memory registry with 1-hour TTL and fail-open fallback |
 | **LLM I/O Logging** | `llm_logger_service.py` logs all LLM interactions to BigQuery asynchronously |
 | **Logged Fields** | User query, parsed result, prompt version, latency, errors, routing result, user feedback, reflection loop metadata (is_retry, retry_count, retry_reason), cached_tokens (Context Caching hit ratio) |
-| **Evaluation Gate** | `evaluate_llm_accuracy.py` runs LLM against golden dataset in CI/CD |
+| **Evaluation Gate** | `evaluate_tool_call_accuracy.py` runs LLM against golden dataset in CI/CD |
 | **Golden Dataset** | `golden_dataset.json` with 40 test cases covering batting, pitching, splits, career (expandable via HITL) |
 | **Pass Threshold** | 80% accuracy required to proceed with deployment |
 | **Critical Fields** | `query_type` mismatch causes immediate failure regardless of overall accuracy |
@@ -648,7 +648,7 @@ python scripts/train_stuff_plus.py --season 2025 --min-pitches 100
 | **LLM Model** | Gemini 2.0 Flash (via `GEMINI_API_KEY_V2`) |
 | **Evaluation Mode** | Batch (BQ log → sample → Judge) — zero impact on production latency |
 | **Logging** | Raw step I/O logged to `llm_interaction_logs` via `llm_logger_service.py` |
-| **E2E Script** | `evaluate_with_llm_judge.py` for parse accuracy regression testing |
+| **Offline Triage Script** | `evaluate_with_llm_judge.py` sends only rule-based failures to the Parse Judge and labels each `golden_fix_candidate` or `real_error` (manual run, never blocks a build) |
 
 **5 Judge Services:**
 
@@ -691,7 +691,7 @@ python scripts/train_stuff_plus.py --season 2025 --min-pitches 100
 | `services/routing_judge_service.py` | Supervisor routing accuracy Judge (two-way player handling) |
 | `services/drift_alert_judge_service.py` | Data drift alert quality Judge (model-specific domain context) |
 | `services/llm_logger_service.py` | BQ logging with Judge-ready fields (`reflection_pre_query`, `reflection_post_query`, `synthesizer_source_data`) |
-| `scripts/evaluate_with_llm_judge.py` | E2E evaluation script for golden dataset |
+| `scripts/evaluate_with_llm_judge.py` | Triage of golden cases that fail the rule-based check |
 | `tests/golden_dataset.json` | Golden dataset with batting, pitching, edge cases (14 cases) |
 
 ### 8f. Embedding-Based Semantic Drift Detection

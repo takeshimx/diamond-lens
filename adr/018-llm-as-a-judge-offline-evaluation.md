@@ -16,7 +16,7 @@ Human review is accurate but does not scale to reviewing every case on every reg
 
 ## Decision
 
-An LLM is used as a Judge to **score output semantically across multiple dimensions** ([backend/app/services/llm_judge_service.py](../backend/app/services/llm_judge_service.py)). It **complements** rule-based evaluation (`evaluate_llm_accuracy.py`) rather than replacing it.
+An LLM is used as a Judge to **score output semantically across multiple dimensions** ([backend/app/services/llm_judge_service.py](../backend/app/services/llm_judge_service.py)). It **complements** rule-based evaluation (`evaluate_tool_call_accuracy.py`) rather than replacing it.
 
 - **Parse-evaluation Judge**, `LLMJudgeService`: scores expected vs. actual on **four dimensions** (`query_type_accuracy` / `metrics_accuracy` / `entity_resolution` / `intent_understanding`) from 1 to 5, passes at `overall_score >= 3.5` (`PASS_THRESHOLD`), and attaches a `failure_category` (e.g. synonym_mismatch) to failures ([llm_judge_service.py:19](../backend/app/services/llm_judge_service.py#L19) / [:45](../backend/app/services/llm_judge_service.py#L45)).
 - Several Judge services exist, one per perspective — parsing, response synthesis, routing, reflection and drift alerting: `llm_judge` / `synthesizer_judge` / `routing_judge` / `reflection_judge` / `drift_alert_judge`. The "5-panel" in README #10 refers to this set.
@@ -38,6 +38,15 @@ The rubric now follows the answer path, resolved from tool names in `online_judg
 - Unscored dimensions are recorded as `0` (not applicable), distinct from the lowest score `1`. The path is stored in the existing `synthesizer_path` column, so no schema change was needed.
 - The rubrics moved out of code into `app/prompts/synthesizer_judge_{raw,rag}_v1.txt`, loaded through `prompt_registry`, so a rubric change is a versioned prompt change.
 - Failed verdicts are reviewed in the Trace Viewer ([[053-agent-trace-viewer-failure-labeling]]); a reviewer labeling a judge-failed trace `correct` records a judge false positive ([[021-hitl-golden-flywheel]]).
+
+### Amendment (2026-10-24): the offline Parse Judge triages rule-based failures only
+
+`evaluate_with_llm_judge.py` was still scoring the first-generation `_parse_query_with_llm` parsers, which production no longer calls, so its numbers said nothing about production quality. It also ran the Judge on every case in parallel with the rule-based check, leaving two competing accuracy figures and no defined use for either.
+
+- **Same path as the gate.** The script now calls `evaluate_single_case()` from `evaluate_tool_call_accuracy.py` (renamed from `evaluate_llm_accuracy.py`, whose name suggested it scored final answers). Tool selection via `ChatOrchestrator.plan_tool_call()`, `expected_no_tool` handling and `order_by` normalization are therefore identical to the CI gate, with no duplicated comparison logic. The Judge prompt now describes its input as tool-call arguments.
+- **Split of roles.** Pass/fail = rule-based (deterministic). The Judge sees **only the failed cases** and its verdict labels each one: `golden_fix_candidate` (Judge passes — wording differs, meaning is right → review the golden entry) or `real_error` (Judge fails → fix prompt or code). Failures with no tool arguments (`tool_selection_error`) skip the Judge, since a wording mismatch is impossible there; a failed Judge call is `judge_error`.
+- **Never blocks.** The script always exits 0. It is run by hand when the gate's accuracy drops — after a prompt or model change, or after golden cases are added. Judge cost scales with the number of failures, not the dataset.
+- **Promotion to a gate** would require Judge–human agreement to be measured and verdicts to be stable across repeated runs; neither exists yet.
 
 ## Alternatives Considered
 
@@ -81,6 +90,6 @@ Note also that the Judge is itself billed through the Gateway, so adding samplin
 ## References
 
 - Implementation: [backend/app/services/llm_judge_service.py](../backend/app/services/llm_judge_service.py) and the other `*_judge_service.py` modules
-- Evaluation script: [backend/scripts/evaluate_with_llm_judge.py](../backend/scripts/evaluate_with_llm_judge.py)
-- Tests: `backend/tests/test_llm_judge.py` and others
+- Evaluation script: [backend/scripts/evaluate_with_llm_judge.py](../backend/scripts/evaluate_with_llm_judge.py) (failure triage)
+- Tests: `backend/tests/test_llm_judge.py`, `backend/tests/test_judge_triage.py` and others
 - Related ADRs: [[019-shadow-evaluation]], [[020-ci-evaluation-gate]], [[021-hitl-golden-flywheel]], [[013-centralized-llm-gateway]]

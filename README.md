@@ -281,7 +281,7 @@ CI/CD Drift Check → Compare active model's training data vs latest season
 | # | Judge | Evaluation Target | Evaluation Dimensions | Status | File |
 |---|---|---|---|---|---|
 | 2 | **Synthesizer Quality** | Responses on the production chat path, scored **per answer path** | Raw-data path: factual accuracy, completeness. RAG path: factual accuracy, completeness, depth fit, language quality, structure fit + context relevance | ✅ **Production** — 50% sampled & async via `online_judge_service.py` | `synthesizer_judge_service.py` |
-| 1 | **Parse Accuracy** | LLM query parse results against the golden dataset | query_type accuracy, metrics extraction, player name resolution, intent understanding | ⚠️ **Offline only** — invoked by `evaluate_with_llm_judge.py`; no production call site | `llm_judge_service.py` |
+| 1 | **Parse Accuracy** | Tool-call arguments from the production chat path, **only for golden cases that failed the rule-based check** | query_type accuracy, metrics extraction, player name resolution, intent understanding | ⚠️ **Offline only** — invoked by `evaluate_with_llm_judge.py` to triage failures; not a gate | `llm_judge_service.py` |
 
 **Implemented but not wired (3)** — unit-tested, referenced only from tests:
 
@@ -295,7 +295,8 @@ CI/CD Drift Check → Compare active model's training data vs latest season
 ```
 [Online] Chat response → 50% sampled → Synthesizer Judge scores async (per answer path)
          → BQ online_judge_verdicts → failures reviewed in the Trace Viewer (JUDGE NG)
-[Offline] golden_dataset.json → evaluate_with_llm_judge.py → Parse Judge → JSON results
+[Offline] golden_dataset.json → rule-based check (same as CI gate) → failed cases only
+          → Parse Judge → golden_fix_candidate / real_error → JSON results
 ```
 
 **Online Judge criteria per answer path**: most answers are tool output formatted mechanically (ADR-050), so judging them on prose quality failed correct answers. The judge now scores only what each path can be responsible for:
@@ -311,7 +312,7 @@ CI/CD Drift Check → Compare active model's training data vs latest season
 - **Sample rate**: `ONLINE_JUDGE_SAMPLE_RATE=0.5`, set in the Cloud Run deploy step
 
 **E2E Script**:
-- `backend/scripts/evaluate_with_llm_judge.py` — Parse accuracy regression testing against golden dataset
+- `backend/scripts/evaluate_with_llm_judge.py` — Triages golden cases that fail the rule-based check: *wording differs but meaning is right* (`golden_fix_candidate` → review the golden entry) vs. *actually wrong* (`real_error` → fix prompt/code). Run by hand when the gate's accuracy drops; always exits 0
 
 **RAG Triad Coverage**: Rather than adopting a dedicated framework (TruLens etc.), the three checks of the RAG Triad are mapped onto existing evaluation assets. A dedicated framework would add dependencies while double-counting metrics already collected.
 
@@ -1638,7 +1639,7 @@ diamond-lens/
 │   ├── scripts/             # Validation and evaluation scripts
 │   │   ├── extract_golden_dataset.py  # Extract bad-rated queries from BigQuery
 │   │   ├── approve_to_golden.py       # Promote reviewed cases to golden dataset
-│   │   ├── evaluate_llm_accuracy.py   # CI/CD LLM accuracy gate
+│   │   ├── evaluate_tool_call_accuracy.py   # CI/CD LLM accuracy gate
 │   │   ├── check_data_drift.py        # CI/CD ML drift check gate
 │   │   └── create_drift_monitoring_table.py # BigQuery table setup
 │   ├── requirements.txt     # Python dependencies

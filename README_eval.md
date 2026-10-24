@@ -42,7 +42,7 @@
 |---|---|:--:|---|---|
 | L1 ユニット | 障害時の fail-open、境界条件 | ✕ | 決定的 assert | `backend/tests/test_glossary_rag_service.py` ほか |
 | L2 トラジェクトリ | ツール選択と引数の正しさ、ループ暴走 | ○ | 決定的 assert（Judge は使わない） | `backend/tests/eval/harness.py` |
-| L3 パース精度 | 自然言語 → 構造化クエリの精度 | ○ | ルールベース + LLM Judge | `backend/scripts/evaluate_llm_accuracy.py` / `evaluate_with_llm_judge.py` |
+| L3 パース精度 | 自然言語 → ツール呼び出し引数の精度 | ○ | ルールベース（合否）+ LLM Judge（不合格の原因分類のみ） | `backend/scripts/evaluate_tool_call_accuracy.py` / `evaluate_with_llm_judge.py` |
 | 検索評価 | RAG が正解チャンクを引けるか | △ | 決定的（順位計算） | `backend/scripts/run_retrieval_eval.py` |
 | 誤発火評価 | 引くべきでない質問でツールを呼ばないか | ○ | 決定的 | `backend/scripts/run_misfire_eval.py` |
 | Online Judge | 本番応答の品質 | ○ | LLM Judge | `backend/app/services/online_judge_service.py` |
@@ -279,8 +279,8 @@ RAG 品質評価の定番である **RAG Triad**（context relevance / groundedn
 | `python -m backend.scripts.run_retrieval_eval` | **なし**（キャッシュ済み埋め込みを再利用） |
 | `python -m backend.scripts.run_misfire_eval` | 質問 1 件につき Gemini 1〜3 コール + BigQuery クエリ |
 | `python -m backend.scripts.run_trajectory_eval` | 17 ケース × 3 回の Gemini 呼び出し（BQ は固定データのため課金なし） |
-| `python backend/scripts/evaluate_llm_accuracy.py` | golden 14 件分の LLM 呼び出し |
-| `python backend/scripts/evaluate_with_llm_judge.py` | 上記 + Judge 分の LLM 呼び出し |
+| `python backend/scripts/evaluate_tool_call_accuracy.py` | golden 14 件分の LLM 呼び出し |
+| `python backend/scripts/evaluate_with_llm_judge.py` | 上記 + 不合格件数分の Judge 呼び出し |
 
 ---
 

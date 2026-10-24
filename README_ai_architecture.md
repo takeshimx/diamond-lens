@@ -336,8 +336,8 @@ graph LR
     J2 --> BQV[(BQ: online_judge_verdicts)]
     BQV -->|JUDGE NG| TV[Trace Viewer で人が確認]
 
-    Golden[(golden_dataset.json<br/>40 ケース)] -->|手動 / CI 実行| Script[evaluate_with_llm_judge.py]
-    Script --> J1["#1 ParseJudge ⚠️ オフライン専用<br/>本番コードからの参照なし"]
+    Golden[(golden_dataset.json<br/>40 ケース)] -->|手動実行| Script[evaluate_with_llm_judge.py]
+    Script -->|ルールベース不合格のみ| J1["#1 ParseJudge ⚠️ オフライン専用<br/>不合格の原因分類"]
     J1 --> JSONOut[llm_judge_results_*.json]
 
     subgraph Dormant["実装済み・未配線 (テストからのみ import)"]
@@ -352,7 +352,7 @@ graph LR
 | # | Judge | ファイル | 評価対象 | 主要次元 (1-5) | 閾値 | **配線状況** |
 |---|---|---|---|---|---|---|
 | 2 | **Synthesizer Judge** | [synthesizer_judge_service.py](backend/app/services/synthesizer_judge_service.py) | チャット回答の品質（経路別） | raw: factual_accuracy / completeness。rag: ＋ analytical_depth / language_quality / structure ＋ context_relevance | 平均 ≥ 3.5 かつ factual_accuracy ≥ 3（コードで計算） | ✅ **本番稼働**。`ChatOrchestrator` → [online_judge_service.py](backend/app/services/online_judge_service.py) 経由でサンプリング採点 |
-| 1 | **Parse Judge** | [llm_judge_service.py](backend/app/services/llm_judge_service.py) | 自然言語 → 構造化クエリのパース精度 | query_type / metrics / entity / intent | overall ≥ 3.5 | ⚠️ **オフライン専用**。[evaluate_with_llm_judge.py](backend/scripts/evaluate_with_llm_judge.py) からのみ。本番コードからの参照なし |
+| 1 | **Parse Judge** | [llm_judge_service.py](backend/app/services/llm_judge_service.py) | 本番チャット経路のツール呼び出し引数（ルールベース不合格の golden ケースのみ） | query_type / metrics / entity / intent | overall ≥ 3.5 | ⚠️ **オフライン専用**。[evaluate_with_llm_judge.py](backend/scripts/evaluate_with_llm_judge.py) から不合格の原因分類に使用。ゲートではない |
 | 3 | **Reflection Judge** | [reflection_judge_service.py](backend/app/services/reflection_judge_service.py) | 自己修正トリガーと修正策の妥当性 | 過修正の有無を含む | — | ❌ **未配線**（テストからのみ import） |
 | 4 | **Routing Judge** | [routing_judge_service.py](backend/app/services/routing_judge_service.py) | Supervisor の routing 判断 | batter / pitcher / stats / matchup の分類精度 | — | ❌ **未配線かつ対象消失**。`SupervisorAgent` 廃止により採点対象が存在しない |
 | 5 | **Drift Alert Judge** | [drift_alert_judge_service.py](backend/app/services/drift_alert_judge_service.py) | データドリフト統計検知（KS / PSI）のセカンドオピニオン。対象は ML モデルの**入力データ分布**であり、モデル自体ではない | アクションが本当に必要か | ACTION_THRESHOLD ≥ 3.5 | ❌ **未配線**（テストからのみ import） |
@@ -433,16 +433,14 @@ flowchart TB
     PR -->|マージ| Golden[(golden_dataset.json<br/>現在 40 ケース)]
 
     Golden --> RunEval[evaluate_with_llm_judge.py]
-    RunEval --> Parser1[Batting Parser]
-    RunEval --> Parser2[Pitching Parser]
-    Parser1 --> Rule[Rule-Based Eval<br/>フィールド完全一致]
-    Parser2 --> Rule
-    Parser1 --> Judge[LLM Judge<br/>4 次元採点]
-    Parser2 --> Judge
+    RunEval --> Plan[ChatOrchestrator.plan_tool_call<br/>本番と同じツール選択]
+    Plan --> Rule[Rule-Based Eval<br/>CI ゲートと同じ判定]
+    Rule -->|不合格のみ| Judge[LLM Judge<br/>4 次元採点]
+    Judge --> Triage{golden_fix_candidate<br/>/ real_error}
     Rule --> Results[llm_judge_results_*.json]
-    Judge --> Results
+    Triage --> Results
 
-    GateScript[evaluate_llm_accuracy.py<br/>CI Gate 80% 閾値] --> Golden
+    GateScript[evaluate_tool_call_accuracy.py<br/>CI Gate 80% 閾値] --> Golden
     GateScript --> ExitCode{exit 0 / 1}
 ```
 
@@ -454,8 +452,8 @@ flowchart TB
 | [backend/app/services/golden_promotion_service.py](backend/app/services/golden_promotion_service.py) | 昇格判定（I/O なし）。UI 経由と CLI 経由が同じ関数を使う |
 | [backend/app/services/golden_pr_service.py](backend/app/services/golden_pr_service.py) | GitHub API 経由で PR を作成（§6.1） |
 | [backend/scripts/approve_to_golden.py](backend/scripts/approve_to_golden.py) | ローカル用の副経路（PAT 未設定・オフライン時） |
-| [backend/scripts/evaluate_with_llm_judge.py](backend/scripts/evaluate_with_llm_judge.py) | ルールベース + Judge 並列実行 |
-| [backend/scripts/evaluate_llm_accuracy.py](backend/scripts/evaluate_llm_accuracy.py) | CI 用ゲート（accuracy ≥ 80% で exit 0） |
+| [backend/scripts/evaluate_with_llm_judge.py](backend/scripts/evaluate_with_llm_judge.py) | ルールベース不合格ケースの原因分類（手動実行・終了コードは常に 0） |
+| [backend/scripts/evaluate_tool_call_accuracy.py](backend/scripts/evaluate_tool_call_accuracy.py) | CI 用ゲート（accuracy ≥ 80% で exit 0） |
 | [backend/tests/test_llm_evaluation.py](backend/tests/test_llm_evaluation.py) | Golden の構造検証（LLM 非依存） |
 
 ### 6.1. HITL フライホイール（👎 → 回帰テスト）
@@ -472,7 +470,9 @@ flowchart TB
 | **出口は PR** | golden は CI の合格ラインそのもの。BQ を正にすると基準が知らぬ間に書き換わります。ファイルは必ず GitHub から読みます（コンテナ内の写しはビルド時点で古い） |
 | **保留規則** | 未実装 `query_type` / カテゴリ 3 件未満は昇格させず BQ に残します。「赤い PR が修正待ちチケットになる」のは**直せる失敗に限る**ためです |
 
-**採点範囲の限界**: `evaluate_llm_accuracy.py` はツール引数のみを比較し、ツールを実行いたしません。したがって「パースは正しいが下流が壊れている」種類のバグは golden では捕捉できず、`evaluate_with_llm_judge.py` か対象コードの単体テストが担います。
+**採点範囲の限界**: `evaluate_tool_call_accuracy.py` はツール引数のみを比較し、ツールを実行いたしません。したがって「パースは正しいが下流が壊れている」種類のバグは golden では捕捉できず、対象コードの単体テストが担います（`evaluate_with_llm_judge.py` も同じツール引数を見るだけで、ツールは実行いたしません。最終回答のオフライン検査は今後の課題でございます）。
+
+**Offline Judge の役割（2026-10-24）**: 合否はルールベース、Judge は**不合格ケースの原因分類だけ**を担います。分類は `golden_fix_candidate`（表記違いだが意味は正しい → golden を見直す）/ `real_error`（本当に誤り → プロンプト・コードを直す）/ `tool_selection_error`（ツール選択自体の失敗。Judge にかけない）/ `judge_error`（Judge 呼び出し失敗）の 4 種でございます。Judge は非決定的で人手との一致率も未測定のため、ゲートにはいたしません。ゲートの正解率が下がったとき（プロンプト・モデル変更後、golden 追加後）に手動で実行いたします。
 
 ### テストケース構造
 
