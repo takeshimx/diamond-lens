@@ -33,7 +33,8 @@ ENV VITE_USE_AUTOCOMPLETE_API=$VITE_USE_AUTOCOMPLETE_API
 RUN npm run build
 
 # Nginxでホスト
-FROM nginx:alpine
+# HTTP/2 RCE (CVE-2026-123633 / CVE-2026-123007) の修正版。浮動タグを避けて明示的に固定する
+FROM nginx:1.31.9-alpine
 
 # Update Alpine packages to fix security vulnerabilities (including pcre2)
 RUN apk upgrade --no-cache
